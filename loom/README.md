@@ -108,12 +108,16 @@ ref moves and can veto it — enforced **server-side on push**, so a policy
 - **Merkle-pruned tree diff** — equal subtree ids are skipped whole, so
   unchanged regions cost nothing.
 - **Build-graph from import/include directives** — JS/TS, C/C++, and Python
-  relative imports are resolved to repo paths; edges form only when the target
-  actually exists, so there are no false edges.
+  relative imports resolve to repo paths, and **Go package imports** resolve
+  via `go.mod` to the files of the imported package. Edges form only when the
+  target actually exists, so there are no false edges.
+- **Pluggable wasm analyzers** (§3.3) — a new language is learned without
+  recompiling Loom: register a wasm module against a file extension
+  (`loom hook set analyze:.rb ruby.wasm`); it runs in the same sandbox as
+  hooks, receives `{path, content}`, and emits dependency specifiers. Analysis
+  caches by content *and* analyzer module, so it stays sound.
 - **Degrades to textual** (§5) — a file whose language has no analyzer
   contributes only itself when changed; it never claims safety it can't prove.
-  Semantic analyzers arrive later as wasm modules (§3.3) behind the same
-  interface.
 - **Content-addressed and incremental** — per-file analysis is cached by blob
   id (a derived, rebuildable index, §4.3), so unchanged files are never
   re-analyzed across commits.

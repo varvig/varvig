@@ -1090,7 +1090,11 @@ func cmdAffected(args []string) error {
 	if err != nil {
 		return err
 	}
-	graph, err := affected.BuildGraph(r.Objects, newTree, cache)
+	wasm, err := wasmAnalyzers(r)
+	if err != nil {
+		return err
+	}
+	graph, err := affected.BuildGraph(r.Objects, newTree, affected.Options{Cache: cache, Wasm: wasm})
 	if err != nil {
 		return err
 	}
@@ -1352,6 +1356,40 @@ func shortOrNone(m multihash.Multihash) string {
 		return "(none)"
 	}
 	return m.Hex()[4:16]
+}
+
+// wasmAnalyzers builds language analyzers from hook-manifest entries named
+// "analyze:<ext>" (design §3.3). Each binds a file extension to a wasm module
+// that runs in the same sandbox as hooks.
+func wasmAnalyzers(r *repo.Repo) ([]affected.WasmAnalyzer, error) {
+	cfg, err := hook.LoadManifest(r)
+	if err != nil {
+		return nil, err
+	}
+	runner := func(ctx context.Context, module, input []byte) ([]byte, error) {
+		res, err := hook.Run(ctx, module, input)
+		if err != nil {
+			return nil, err
+		}
+		if !res.Allowed() {
+			return nil, fmt.Errorf("analyzer exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
+		}
+		return res.Stdout, nil
+	}
+	var out []affected.WasmAnalyzer
+	for _, e := range cfg.Entries {
+		ext, ok := strings.CutPrefix(e.Event, "analyze:")
+		if !ok {
+			continue
+		}
+		obj, err := r.Objects.Get(e.Module)
+		if err != nil {
+			return nil, err
+		}
+		mod, _ := obj.BlobContent()
+		out = append(out, affected.WasmAnalyzer{Ext: ext, Module: mod, ID: e.Module, Run: runner})
+	}
+	return out, nil
 }
 
 func treeOf(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, error) {

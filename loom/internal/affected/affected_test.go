@@ -136,7 +136,7 @@ func TestAffectedTransitiveDependents(t *testing.T) {
 		"src/c.ts":         `export const c = 1;`,
 		"src/unrelated.ts": `import "react";`, // external, no repo edge
 	})
-	g, err := BuildGraph(r.Objects, tree, NewMemCache())
+	g, err := BuildGraph(r.Objects, tree, Options{Cache: NewMemCache()})
 	if err != nil {
 		t.Fatalf("BuildGraph: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestGracefulDegradation(t *testing.T) {
 		"main.go":  "package main",
 		"other.go": "package main",
 	})
-	g, err := BuildGraph(r.Objects, tree, nil)
+	g, err := BuildGraph(r.Objects, tree, Options{})
 	if err != nil {
 		t.Fatalf("BuildGraph: %v", err)
 	}
