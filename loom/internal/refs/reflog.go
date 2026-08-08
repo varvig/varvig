@@ -38,17 +38,21 @@ func (s *Store) appendLog(name string, oldval, newval multihash.Multihash, actor
 	}
 	defer f.Close()
 
-	line := fmt.Sprintf("%s %s %d %s\t%s\n",
-		hexOrZero(oldval),
-		hexOrZero(newval),
-		s.now().UnixNano(),
-		sanitizeActor(actor),
-		sanitizeMessage(msg),
-	)
+	line := formatLogLine(LogEntry{
+		Old: oldval, New: newval, UnixNS: s.now().UnixNano(),
+		Actor: actor, Message: msg,
+	})
 	if _, err := f.WriteString(line); err != nil {
 		return err
 	}
 	return f.Sync()
+}
+
+// formatLogLine renders one reflog entry, sanitizing the actor and message.
+func formatLogLine(e LogEntry) string {
+	return fmt.Sprintf("%s %s %d %s\t%s\n",
+		hexOrZero(e.Old), hexOrZero(e.New), e.UnixNS,
+		sanitizeActor(e.Actor), sanitizeMessage(e.Message))
 }
 
 // ReadLog returns the reflog entries for a ref, oldest first. A ref with no
@@ -80,6 +84,98 @@ func (s *Store) ReadLog(name string) ([]LogEntry, error) {
 		return nil, err
 	}
 	return entries, nil
+}
+
+// ExpireLog compacts a reflog under a retention policy, returning how many
+// entries it removed. An entry is kept if it is among the most recent keepMax
+// (when keepMax > 0) OR its timestamp is at or after cutoffNS. This is the
+// deliberate escape hatch for the design's tension: the reflog is universal
+// undo (§2), but at speculation volume it must be bounded so garbage collection
+// can reclaim (§1.5, §5). Expiry is destructive to undo beyond the retained
+// window, so callers opt in explicitly.
+//
+// The mutation takes the ref lock so it cannot race with a concurrent append.
+func (s *Store) ExpireLog(name string, keepMax int, cutoffNS int64) (int, error) {
+	if err := validName(name); err != nil {
+		return 0, err
+	}
+	unlock, err := s.lock()
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
+
+	entries, err := s.ReadLog(name)
+	if err != nil {
+		return 0, err
+	}
+	n := len(entries)
+	kept := make([]LogEntry, 0, n)
+	for i, e := range entries {
+		keepByCount := keepMax > 0 && i >= n-keepMax
+		keepByAge := e.UnixNS >= cutoffNS
+		if keepByCount || keepByAge {
+			kept = append(kept, e)
+		}
+	}
+	removed := n - len(kept)
+	if removed == 0 {
+		return 0, nil
+	}
+	p := s.logPath(name)
+	if len(kept) == 0 {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return 0, err
+		}
+		return removed, nil
+	}
+	var buf strings.Builder
+	for _, e := range kept {
+		buf.WriteString(formatLogLine(e))
+	}
+	if err := rewriteFile(p, []byte(buf.String())); err != nil {
+		return 0, err
+	}
+	return removed, nil
+}
+
+// ExpireAll applies ExpireLog to every reflog, returning the total removed.
+func (s *Store) ExpireAll(keepMax int, cutoffNS int64) (int, error) {
+	names, err := s.LogNames()
+	if err != nil {
+		return 0, err
+	}
+	total := 0
+	for _, n := range names {
+		removed, err := s.ExpireLog(n, keepMax, cutoffNS)
+		if err != nil {
+			return total, err
+		}
+		total += removed
+	}
+	return total, nil
+}
+
+// rewriteFile atomically replaces a file's contents.
+func rewriteFile(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-log-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 func parseLogLine(line string) (LogEntry, error) {

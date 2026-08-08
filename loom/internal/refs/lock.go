@@ -15,7 +15,10 @@ func (s *Store) lock() (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(s.lockPath), 0o755); err != nil {
 		return nil, err
 	}
-	deadline := s.now().Add(10 * time.Second)
+	// Lock timing uses the wall clock, not the injectable clock: the injectable
+	// clock stamps reflog entries (and tests drive it deterministically), so it
+	// must not be consumed by lock backoff.
+	deadline := time.Now().Add(10 * time.Second)
 	backoff := 1 * time.Millisecond
 	for {
 		f, err := os.OpenFile(s.lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
@@ -26,7 +29,7 @@ func (s *Store) lock() (func(), error) {
 		if !os.IsExist(err) {
 			return nil, err
 		}
-		if s.now().After(deadline) {
+		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("refs: timed out acquiring lock %s", s.lockPath)
 		}
 		time.Sleep(backoff)

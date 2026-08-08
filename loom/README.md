@@ -177,6 +177,12 @@ speculation volume it is a first-order problem (§1.5, §5).
   **all refs, every reflog id, and every live pool candidate**. Because reflog
   ids are roots, anything recoverable through the reflog survives GC —
   **universal undo is preserved** (§2). `gc [--dry-run]`.
+- **Reflog retention** — because the reflog otherwise pins every attempt
+  forever, `gc --prune-reflog <dur> [--keep N]` expires reflog entries older
+  than `<dur>` (always keeping each ref's last N) before sweeping. This is the
+  opt-in escape hatch that lets GC reclaim speculation volume, trading undo
+  depth beyond the retained window for space (the §1.5-vs-§2 tension, resolved
+  by making expiry explicit).
 
 ### Step 10 — conformance suite and cross-version interop matrix
 

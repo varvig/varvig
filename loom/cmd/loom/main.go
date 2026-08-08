@@ -138,7 +138,9 @@ usage:
   loom spec score <task> <id> <n>     set a candidate's score
   loom spec promote <task> [ref]      promote the best candidate onto a ref
   loom spec prune <task> <keepK>      retention: keep top-K, drop the rest
-  loom gc [--dry-run]                 sweep unreachable objects
+  loom gc [--dry-run] [--prune-reflog <dur> [--keep N]]
+                                      sweep unreachable objects; optionally
+                                      expire reflogs older than <dur> first
   loom conform [--emit|--id]          check this build against the frozen format
 `)
 }
@@ -1248,15 +1250,50 @@ func cmdSpec(args []string) error {
 
 func cmdGc(args []string) error {
 	dryRun := false
-	for _, a := range args {
-		if a == "--dry-run" || a == "-n" {
+	pruneReflog := ""
+	keep := 1 // by default, expiry always retains each ref's most recent move
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--dry-run", "-n":
 			dryRun = true
+		case "--prune-reflog":
+			if i+1 < len(args) {
+				pruneReflog = args[i+1]
+				i++
+			}
+		case "--keep":
+			if i+1 < len(args) {
+				k, err := strconv.Atoi(args[i+1])
+				if err != nil {
+					return err
+				}
+				keep = k
+				i++
+			}
 		}
 	}
 	r, err := repo.Open(".")
 	if err != nil {
 		return err
 	}
+
+	// Reflog expiry is opt-in and destructive to undo beyond the retained
+	// window; it is what lets GC reclaim objects pinned only by old reflog
+	// entries (design §1.5 vs §2). Without it, GC preserves universal undo.
+	if pruneReflog != "" {
+		dur, err := time.ParseDuration(pruneReflog)
+		if err != nil {
+			return fmt.Errorf("bad --prune-reflog duration: %w", err)
+		}
+		cutoff := time.Now().Add(-dur).UnixNano()
+		removed, err := r.Refs.ExpireAll(keep, cutoff)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("reflog: expired %d entr%s older than %s (kept last %d each)\n",
+			removed, plural(removed), pruneReflog, keep)
+	}
+
 	rep, err := gc.Collect(r, spec.Open(r.GitDir()), dryRun)
 	if err != nil {
 		return err
@@ -1267,6 +1304,13 @@ func cmdGc(args []string) error {
 	}
 	fmt.Printf("roots:%d scanned:%d kept:%d %s:%d\n", rep.Roots, rep.Scanned, rep.Kept, verb, rep.Deleted)
 	return nil
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 func cmdConform(args []string) error {
