@@ -202,6 +202,55 @@ func TestGitAuthoredRoundTrip(t *testing.T) {
 	runGit(t, git, "", "--git-dir="+exportGit, "fsck", "--strict")
 }
 
+// TestImportPackedRepo proves packfile + packed-refs reading: a repo whose
+// objects are packed (loose removed) and whose refs live in packed-refs imports
+// and re-exports to the original commit SHA bit for bit.
+func TestImportPackedRepo(t *testing.T) {
+	git := requireGit(t)
+
+	gitRepo := t.TempDir()
+	runGit(t, git, gitRepo, "init", "-q", "-b", "main", ".")
+	// An evolving, sizable file across commits encourages git to store deltas.
+	big := strings.Repeat("line of content\n", 200)
+	writeFile(t, gitRepo, "big.txt", big)
+	writeFile(t, gitRepo, "a.txt", "first\n")
+	runGit(t, git, gitRepo, "add", "-A")
+	runGit(t, git, gitRepo, "commit", "-q", "-m", "first commit")
+	writeFile(t, gitRepo, "big.txt", big+"one more line\n")
+	writeFile(t, gitRepo, "b.txt", "second\n")
+	runGit(t, git, gitRepo, "add", "-A")
+	runGit(t, git, gitRepo, "commit", "-q", "-m", "second commit")
+
+	originalHead := strings.TrimSpace(runGit(t, git, gitRepo, "rev-parse", "HEAD"))
+
+	// Pack everything and move refs into packed-refs, deleting loose copies.
+	runGit(t, git, gitRepo, "repack", "-ad")
+	runGit(t, git, gitRepo, "pack-refs", "--all")
+
+	// Sanity: there should now be at least one packfile.
+	if packs, _ := filepath.Glob(filepath.Join(gitRepo, ".git", "objects", "pack", "*.pack")); len(packs) == 0 {
+		t.Skip("git did not produce a packfile; nothing to test")
+	}
+
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	loomHead, err := Import(r, filepath.Join(gitRepo, ".git"), "main")
+	if err != nil {
+		t.Fatalf("Import (packed): %v", err)
+	}
+	exportGit := filepath.Join(t.TempDir(), ".git")
+	oid, err := Export(r, exportGit, "main", loomHead)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if oid.Hex() != originalHead {
+		t.Fatalf("re-exported HEAD = %s, want original %s", oid.Hex(), originalHead)
+	}
+	runGit(t, git, "", "--git-dir="+exportGit, "fsck", "--strict")
+}
+
 func requireGit(t *testing.T) string {
 	t.Helper()
 	path, err := exec.LookPath("git")

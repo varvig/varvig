@@ -329,9 +329,40 @@ func writeGitRef(gitDir, branch string, oid gitobj.OID) error {
 }
 
 func readGitRef(gitDir, branch string) (gitobj.OID, error) {
-	b, err := os.ReadFile(filepath.Join(gitDir, "refs", "heads", branch))
-	if err != nil {
+	// Loose ref first; a cloned repo may instead keep it in packed-refs.
+	if b, err := os.ReadFile(filepath.Join(gitDir, "refs", "heads", branch)); err == nil {
+		return gitobj.ParseOID(strings.TrimSpace(string(b)))
+	} else if !os.IsNotExist(err) {
 		return gitobj.OID{}, err
 	}
-	return gitobj.ParseOID(strings.TrimSpace(string(b)))
+	if oid, ok, err := readPackedRef(gitDir, "refs/heads/"+branch); err != nil {
+		return gitobj.OID{}, err
+	} else if ok {
+		return oid, nil
+	}
+	return gitobj.OID{}, fmt.Errorf("gitport: no ref refs/heads/%s", branch)
+}
+
+// readPackedRef looks up a fully-qualified ref name in .git/packed-refs.
+func readPackedRef(gitDir, fullName string) (gitobj.OID, bool, error) {
+	b, err := os.ReadFile(filepath.Join(gitDir, "packed-refs"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return gitobj.OID{}, false, nil
+		}
+		return gitobj.OID{}, false, err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+			continue // comment, or a peeled-tag line
+		}
+		sha, name, ok := strings.Cut(line, " ")
+		if !ok || name != fullName {
+			continue
+		}
+		oid, err := gitobj.ParseOID(sha)
+		return oid, err == nil, err
+	}
+	return gitobj.OID{}, false, nil
 }

@@ -45,7 +45,9 @@ The frozen object format is specified in [`FORMAT.md`](./FORMAT.md).
 
 Modes are stored in tree entries using Git's own vocabulary
 (`100644`/`100755`/`120000`/`40000`), so export is a straight translation.
-Packfile reading is a later addition; loose objects are supported now.
+Import reads both loose objects and **packfiles** (with ofs-/ref-delta
+resolution) plus `packed-refs`, so a normally-cloned repository imports cleanly
+and re-exports to the original commit SHAs bit for bit.
 
 ### Step 3 — P2P sync with a capability-negotiated wire protocol
 

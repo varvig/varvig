@@ -6,9 +6,9 @@
 //
 // Git identities are SHA-1 over "<type> <len>\0<body>". Loom keeps its own
 // multihash identities; git ids are computed here purely for interop. Objects
-// are stored as loose, zlib-compressed files under objects/xx/yy…; packfiles
-// are a reader-side optimization (design §4.3, on-disk layout is a cache) and
-// are intentionally out of scope for this step.
+// are written as loose, zlib-compressed files under objects/xx/yy…, and read
+// from both loose files and packfiles (objects/pack/*.pack, with ofs- and
+// ref-delta resolution) so a normally-cloned repository imports cleanly.
 package gitobj
 
 import (
@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"sync"
 )
 
 // Kind is a git object type.
@@ -228,10 +229,16 @@ func EncodeCommit(tree OID, parents []OID, ident string, ts int64, message strin
 
 // --- loose object store ---
 
-// Store reads and writes loose git objects under a git directory.
-type Store struct{ gitDir string }
+// Store reads and writes git objects under a git directory: loose objects
+// directly, and packed objects (from objects/pack/*.pack) on demand.
+type Store struct {
+	gitDir  string
+	once    sync.Once
+	packed  map[string]packedObject
+	packErr error
+}
 
-// OpenStore returns a loose-object store rooted at gitDir/objects.
+// OpenStore returns a store rooted at gitDir/objects.
 func OpenStore(gitDir string) *Store { return &Store{gitDir: gitDir} }
 
 func (s *Store) objectPath(o OID) string {
@@ -274,9 +281,44 @@ func (s *Store) Write(kind Kind, body []byte) (OID, error) {
 	return oid, os.Rename(tmpName, path)
 }
 
-// Read returns the kind and body of a loose object, verifying that the stored
-// bytes hash to the requested OID.
+// Read returns the kind and body of an object, verifying that its bytes hash to
+// the requested OID. Loose objects are tried first; on a miss the packfiles are
+// consulted (loaded once, lazily).
 func (s *Store) Read(o OID) (Kind, []byte, error) {
+	kind, body, err := s.readLoose(o)
+	if err == nil {
+		return kind, body, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", nil, err
+	}
+	if perr := s.ensurePacks(); perr != nil {
+		return "", nil, perr
+	}
+	if po, ok := s.packed[o.Hex()]; ok {
+		return po.kind, po.body, nil
+	}
+	return "", nil, err // the original not-exist
+}
+
+// ensurePacks loads and resolves all packfiles once. ref-delta bases that are
+// loose (not in any pack) resolve via readLoose.
+func (s *Store) ensurePacks() error {
+	s.once.Do(func() {
+		s.packed, s.packErr = loadPacks(s.gitDir, func(o OID) (Kind, []byte, bool) {
+			k, b, err := s.readLoose(o)
+			if err != nil {
+				return "", nil, false
+			}
+			return k, b, true
+		})
+	})
+	return s.packErr
+}
+
+// readLoose reads a single loose object. A missing object returns an
+// os.IsNotExist error so Read can fall back to packs.
+func (s *Store) readLoose(o OID) (Kind, []byte, error) {
 	f, err := os.Open(s.objectPath(o))
 	if err != nil {
 		return "", nil, err
