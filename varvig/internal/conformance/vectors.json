@@ -1,0 +1,104 @@
+{
+  "generated": {
+    "objects": [
+      {
+        "name": "blob/hello",
+        "type": 1,
+        "hex": "565647310101010e68656c6c6f2c206167656e74730a",
+        "id": "1e20c4ab1e342db05fee5498773c4e165caf9f41533bac8e5155c3cda48438521aa4"
+      },
+      {
+        "name": "blob/empty",
+        "type": 1,
+        "hex": "5656473101010100",
+        "id": "1e20d74acd84831dc2b2774c8fda51e62b86718f21002e95fe76f9c75d62d8bf3e4f"
+      },
+      {
+        "name": "tree/two-entries",
+        "type": 2,
+        "hex": "56564731020101600209524541444d452e6d64a4830201221e20cfe4a43e4a2d8e9e448ba87680d3bd60a3d5a7770959c3b0b4409a1859eca6b60672756e2e7368ed830201221e20a34feb2acd585dc8cadd9871162d3f4fe0e26f61e688673781c961b98abbea26",
+        "id": "1e20a9580ff353dfa0f763ad70b8e6f014ceb0225459069b61c16f1203d0b785801d"
+      },
+      {
+        "name": "change/minimal",
+        "type": 3,
+        "hex": "56564731030501221e206baa6c9f461fe834a9da0ebb62e0f6fb8c11988a58cbc51b8da8040aea19bc3a0201000307696e697469616c0405e0d6d1b50605076167656e742d30",
+        "id": "1e20693c80d358c8153cf3dfaa530a396d1969f333a663d1236c65e2ef97f2994aea"
+      },
+      {
+        "name": "change/signed-with-provenance",
+        "type": 3,
+        "hex": "56564731030701221e206baa6c9f461fe834a9da0ebb62e0f6fb8c11988a58cbc51b8da8040aea19bc3a022401221e20ebdea6058df2230dc25b7a7c7b487b470c508c2e0a5119c96893c443de3a9e79030d64696420746865207468696e670405e0d6d1b50605076167656e742d3706221e2016e4963ca00b4897a7a5194778c15e6c6065d450ab8bb0e3bfe0ea1d3bcdcafd070501deadbeef",
+        "id": "1e2079bcd752ab9944e37c4d3e05089977d7345d5a96935eb881d324531f0a84dc8f"
+      },
+      {
+        "name": "provenance/full",
+        "type": 4,
+        "hex": "5656473104090105616c6963650206636c61756465030178040f74656d70657261747572653d302e37050c02047265616405777269746506221e205c9cc8c53d49a31722f68557e0ef0f12ec15232a4fb43c284e92b22367927e9907047461736b08036374780904706c616e",
+        "id": "1e208a2ca3254d7d67e8154924841b73de78cb2a5772035a7ac84f7b705a558efd4b"
+      },
+      {
+        "name": "note/review",
+        "type": 5,
+        "hex": "56564731050601221e206baa6c9f461fe834a9da0ebb62e0f6fb8c11988a58cbc51b8da8040aea19bc3a020672657669657703044c47544d04221e20ebdea6058df2230dc25b7a7c7b487b470c508c2e0a5119c96893c443de3a9e790505e0d6d1b5060603626f62",
+        "id": "1e20589649a3ebc86e0ac6359694263f16bbba51ea330f7be3945f61acaff9e5532d"
+      },
+      {
+        "name": "hookconfig/one",
+        "type": 6,
+        "hex": "565647310601012f010a7072652d636f6d6d6974221e20a34feb2acd585dc8cadd9871162d3f4fe0e26f61e688673781c961b98abbea26",
+        "id": "1e205b704ff8b7a66c7b25b8428d8e74132853e29d8523cda58aa24b4a059aa1430f"
+      }
+    ],
+    "multihash": [
+      {
+        "algo": "sha2-256",
+        "code": 18,
+        "input_hex": "766172766967",
+        "mh": "1220c111a4453013127d030172fb599243f23fe80305d6e903e5e1e578bfae3fd982"
+      },
+      {
+        "algo": "sha2-256",
+        "code": 18,
+        "input_hex": "",
+        "mh": "1220e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "algo": "blake3",
+        "code": 30,
+        "input_hex": "766172766967",
+        "mh": "1e2034d1de0ad5edd563307ae46fef3cdea3a6431ab593d0711e4531fc56be555413"
+      },
+      {
+        "algo": "blake3",
+        "code": 30,
+        "input_hex": "",
+        "mh": "1e20af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+      }
+    ],
+    "wire": [
+      {
+        "name": "handshake",
+        "hex": "565752310115087661727669672f3101076465666c617465021e12"
+      },
+      {
+        "name": "refs-frame",
+        "hex": "0316010f726566732f68656164732f6d61696e041e200102"
+      }
+    ]
+  },
+  "round_trip": [
+    {
+      "name": "blob/unknown-field",
+      "type": 1,
+      "hex": "56564731010201077061796c6f6164631a70726f76656e616e63652d66726f6d2d7468652d667574757265",
+      "id": "1e20c46cd9a81fe138448612107ae6f209fdae41848c9219766d85c6e0e31e665bf8"
+    },
+    {
+      "name": "opaque/unknown-type",
+      "type": 9999,
+      "hex": "565647318f4e010703616263",
+      "id": "1e20a19871733f4ebd31f1ca2aad7f6f691bcfaa0910507ad32f8c6c046e06a665ad"
+    }
+  ]
+}
