@@ -8,7 +8,7 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Steps 1–6 complete
+## Status: Steps 1–7 complete
 
 ### Step 1 — the frozen core
 
@@ -118,6 +118,25 @@ ref moves and can veto it — enforced **server-side on push**, so a policy
   id (a derived, rebuildable index, §4.3), so unchanged files are never
   re-analyzed across commits.
 
+### Step 7 — read/write-set declaration and the transaction scheduler
+
+With hundreds of parallel agents, conflicts are the common case, so
+branch-and-merge is replaced by a database-like model (§1.4). This is a library
+(`internal/txn`) — the runtime substrate an agent-orchestration layer drives,
+not a human command:
+
+- **Declared sets** — each transaction states the path prefixes it reads and
+  writes up front. A lock manager admits non-conflicting transactions
+  concurrently and blocks conflicting ones (write/write, write/read, read/write
+  overlap; read/read never conflicts).
+- **The read set is a capability boundary** (§1.4, §2) — a transaction may read
+  only within its read+write sets and write only within its write set; a
+  violation fails the transaction and never touches the ref.
+- **Automatic retry** — a transaction whose commit loses the ref
+  compare-and-swap re-derives from the new base and re-runs its logic, so
+  disjoint work converges with no human in the loop. All correctness rests on
+  the same ref CAS primitive (§2).
+
 ## Layout
 
 ```
@@ -138,6 +157,7 @@ loom/
     notes/             attach metadata to an object without changing its hash
     hook/              sandboxed wasm (WASI) hook/trigger runtime + manifest
     affected/          tree diff + dependency graph -> affected-set index
+    txn/               read/write-set scheduler: serialize conflicts, retry on CAS
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
 ```
