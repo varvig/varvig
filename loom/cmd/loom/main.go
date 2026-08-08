@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dividebyzero/claude-experiments/loom/internal/affected"
 	"github.com/dividebyzero/claude-experiments/loom/internal/gitport"
 	"github.com/dividebyzero/claude-experiments/loom/internal/hook"
 	"github.com/dividebyzero/claude-experiments/loom/internal/multihash"
@@ -51,6 +52,7 @@ var commands = map[string]func([]string) error{
 	"push":        cmdPush,
 	"note":        cmdNote,
 	"hook":        cmdHook,
+	"affected":    cmdAffected,
 }
 
 func main() {
@@ -120,6 +122,7 @@ usage:
   loom hook set <event> <module.wasm> bind a wasm hook to an event
   loom hook list                      list configured hooks
   loom hook run <event> [file]        run an event's hooks with input (or stdin)
+  loom affected [<base> <new>]        show files changed and their dependents
 `)
 }
 
@@ -1007,6 +1010,110 @@ func cmdHook(args []string) error {
 	default:
 		return fmt.Errorf("unknown hook subcommand %q", args[0])
 	}
+}
+
+func cmdAffected(args []string) error {
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	var baseTree, newTree multihash.Multihash
+	switch len(args) {
+	case 0:
+		// Default: what the tip change affected relative to its first parent.
+		headRef, herr := r.Head()
+		if herr != nil {
+			return herr
+		}
+		head, herr := r.Refs.Resolve(headRef)
+		if herr != nil {
+			return herr
+		}
+		newTree, err = treeOf(r, head)
+		if err != nil {
+			return err
+		}
+		obj, err := r.Objects.Get(head)
+		if err != nil {
+			return err
+		}
+		if c, err := obj.AsChange(); err == nil && len(c.Parents) > 0 {
+			if baseTree, err = treeOf(r, c.Parents[0]); err != nil {
+				return err
+			}
+		}
+	case 2:
+		base, err := resolve(r, args[0])
+		if err != nil {
+			return err
+		}
+		newRev, err := resolve(r, args[1])
+		if err != nil {
+			return err
+		}
+		if baseTree, err = treeOf(r, base); err != nil {
+			return err
+		}
+		if newTree, err = treeOf(r, newRev); err != nil {
+			return err
+		}
+	default:
+		return errors.New("usage: loom affected [<base> <new>]")
+	}
+
+	diff, err := affected.DiffTrees(r.Objects, baseTree, newTree)
+	if err != nil {
+		return err
+	}
+	changed := diff.Changed()
+
+	cache, err := affected.NewDiskCache(filepath.Join(r.GitDir(), "index", "deps"))
+	if err != nil {
+		return err
+	}
+	graph, err := affected.BuildGraph(r.Objects, newTree, cache)
+	if err != nil {
+		return err
+	}
+	impacted := graph.Affected(changed)
+
+	fmt.Printf("changed (%d):\n", len(changed))
+	for _, p := range changed {
+		fmt.Printf("  %s\n", p)
+	}
+	fmt.Printf("affected (%d):\n", len(impacted))
+	for _, p := range impacted {
+		marker := " "
+		if !contains(changed, p) {
+			marker = "+" // pulled in transitively via the dependency graph
+		}
+		fmt.Printf("  %s %s\n", marker, p)
+	}
+	return nil
+}
+
+func treeOf(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, error) {
+	obj, err := r.Objects.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if obj.Type() == object.TypeChange {
+		c, err := obj.AsChange()
+		if err != nil {
+			return nil, err
+		}
+		return c.Tree, nil
+	}
+	return id, nil
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 // resolve interprets a string as a ref name or, failing that, an object id.

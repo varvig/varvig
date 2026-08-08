@@ -8,7 +8,7 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Steps 1–5 complete
+## Status: Steps 1–6 complete
 
 ### Step 1 — the frozen core
 
@@ -95,6 +95,29 @@ The wasm runtime is the sole third-party dependency
 ([wazero](https://github.com/tetratelabs/wazero), pure Go, no cgo), keeping the
 single-static-binary guarantee intact.
 
+Ref-change triggers extend the same runtime: a `ref-update` hook runs before a
+ref moves and can veto it — enforced **server-side on push**, so a policy
+(protected branches, deploy gates) holds regardless of the client (§2).
+
+### Step 6 — the affected-set index
+
+- **"What does this change actually affect?"** (§1.3) — `affected` diffs two
+  trees to the directly-changed files, then walks a file-dependency graph to
+  their transitive dependents. Foundation for semantic conflict detection and
+  guided bisect.
+- **Merkle-pruned tree diff** — equal subtree ids are skipped whole, so
+  unchanged regions cost nothing.
+- **Build-graph from import/include directives** — JS/TS, C/C++, and Python
+  relative imports are resolved to repo paths; edges form only when the target
+  actually exists, so there are no false edges.
+- **Degrades to textual** (§5) — a file whose language has no analyzer
+  contributes only itself when changed; it never claims safety it can't prove.
+  Semantic analyzers arrive later as wasm modules (§3.3) behind the same
+  interface.
+- **Content-addressed and incremental** — per-file analysis is cached by blob
+  id (a derived, rebuildable index, §4.3), so unchanged files are never
+  re-analyzed across commits.
+
 ## Layout
 
 ```
@@ -114,6 +137,7 @@ loom/
     provenance/        Ed25519 signing, identity, provenance gathering
     notes/             attach metadata to an object without changing its hash
     hook/              sandboxed wasm (WASI) hook/trigger runtime + manifest
+    affected/          tree diff + dependency graph -> affected-set index
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
 ```
@@ -140,6 +164,7 @@ loom init .
 echo "hello from an agent" > note.txt
 loom commit -m "first change"          # capture the working tree, sign, advance HEAD
 loom verify                            # check provenance + signatures on the DAG
+loom affected                          # files the tip change touched + dependents
 loom log                               # walk the change DAG
 loom git-export ./out main             # write a repo plain git can read
 git --git-dir=./out/.git log --oneline # ...and read it with real git
