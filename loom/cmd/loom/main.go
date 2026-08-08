@@ -21,6 +21,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/loom/internal/affected"
 	"github.com/dividebyzero/claude-experiments/loom/internal/gitport"
 	"github.com/dividebyzero/claude-experiments/loom/internal/hook"
+	"github.com/dividebyzero/claude-experiments/loom/internal/merge"
 	"github.com/dividebyzero/claude-experiments/loom/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/loom/internal/notes"
 	"github.com/dividebyzero/claude-experiments/loom/internal/object"
@@ -53,6 +54,7 @@ var commands = map[string]func([]string) error{
 	"note":        cmdNote,
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
+	"merge":       cmdMerge,
 }
 
 func main() {
@@ -123,6 +125,7 @@ usage:
   loom hook list                      list configured hooks
   loom hook run <event> [file]        run an event's hooks with input (or stdin)
   loom affected [<base> <new>]        show files changed and their dependents
+  loom merge <ref|id>                 three-way merge another change into HEAD
 `)
 }
 
@@ -1090,6 +1093,65 @@ func cmdAffected(args []string) error {
 		fmt.Printf("  %s %s\n", marker, p)
 	}
 	return nil
+}
+
+func cmdMerge(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: loom merge <ref|id>")
+	}
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	headRef, err := r.Head()
+	if err != nil {
+		return err
+	}
+	ours, err := r.Refs.Resolve(headRef)
+	if err != nil {
+		return fmt.Errorf("no HEAD to merge into: %w", err)
+	}
+	theirs, err := resolve(r, args[0])
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// No live model in this environment: textual merge only (regenerator nil).
+	// The regeneration path (§1.2) is exercised via the library interface.
+	res, err := merge.Merge(ctx, r.Objects, ours, theirs, nil)
+	if err != nil {
+		return err
+	}
+
+	// Materialize the merged tree so results (and any conflict markers) are
+	// visible in the working tree.
+	if err := worktree.Checkout(r.Objects, res.Tree, r.Root()); err != nil {
+		return err
+	}
+
+	fmt.Printf("merge base %s\n", shortOrNone(res.Base))
+	fmt.Printf("  clean:%d  text-merged:%d  regenerated:%d  conflicts:%d\n",
+		len(res.Clean), len(res.TextMerged), len(res.Regenerated), len(res.Conflicts))
+	for _, c := range res.Conflicts {
+		fmt.Printf("  CONFLICT %s (%s)\n", c.Path, c.Reason)
+	}
+	if !res.Resolved() {
+		return fmt.Errorf("merge left %d unresolved conflict(s); markers written to the working tree", len(res.Conflicts))
+	}
+	if err := r.Refs.CompareAndSwap(headRef, ours, res.Change, author(), "merge"); err != nil {
+		return err
+	}
+	fmt.Printf("merged %s into %s -> %s\n", theirs.Hex()[4:16], headRef, res.Change.Hex())
+	return nil
+}
+
+func shortOrNone(m multihash.Multihash) string {
+	if m == nil {
+		return "(none)"
+	}
+	return m.Hex()[4:16]
 }
 
 func treeOf(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, error) {

@@ -8,7 +8,7 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Steps 1–7 complete
+## Status: Steps 1–8 complete
 
 ### Step 1 — the frozen core
 
@@ -137,6 +137,27 @@ not a human command:
   disjoint work converges with no human in the loop. All correctness rests on
   the same ref CAS primitive (§2).
 
+### Step 8 — the regeneration-based merge driver
+
+Merge-by-regeneration (§1.2): when two changes conflict, rather than forcing a
+textual diff3, re-run the losing change's *intent* against the new base.
+
+- **Three-way merge** — finds the merge base (DAG ancestor), then merges each
+  file. Files changed on one side, or identically on both, resolve trivially;
+  the Merkle tree makes untouched subtrees free.
+- **Textual fast path** — a line-level three-way merge (`diff3`) resolves
+  non-overlapping edits to the same file cleanly.
+- **Regeneration on conflict** — an overlapping conflict hands the incoming
+  change's recorded intent (its provenance: task, context, model — from step 4)
+  plus the three file versions to a `Regenerator`, which re-derives the change
+  against the new base. The model is out-of-process behind that interface
+  (§3.3); the driver never embeds one.
+- **Graceful fallback** — with no regenerator (or one that declines), the file
+  keeps standard diff3 conflict markers and the merge reports it unresolved
+  rather than committing. `loom merge <ref|id>` uses the textual path (no live
+  model wired in this environment) and leaves markers in the working tree on
+  conflict.
+
 ## Layout
 
 ```
@@ -158,6 +179,7 @@ loom/
     hook/              sandboxed wasm (WASI) hook/trigger runtime + manifest
     affected/          tree diff + dependency graph -> affected-set index
     txn/               read/write-set scheduler: serialize conflicts, retry on CAS
+    merge/             three-way merge + merge-by-regeneration driver
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
 ```
