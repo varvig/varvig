@@ -30,12 +30,17 @@ func (o *Object) Links() ([]multihash.Multihash, error) {
 		if err != nil {
 			return nil, err
 		}
-		ids := make([]multihash.Multihash, 0, len(c.Parents)+1)
+		ids := make([]multihash.Multihash, 0, len(c.Parents)+2)
 		if c.Tree != nil {
 			ids = append(ids, c.Tree)
 		}
 		ids = append(ids, c.Parents...)
+		if c.Provenance != nil {
+			ids = append(ids, c.Provenance)
+		}
 		return ids, nil
+	case TypeProvenance:
+		return nil, nil
 	default:
 		return nil, nil
 	}

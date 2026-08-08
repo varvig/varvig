@@ -142,6 +142,34 @@ func TestFetchPrunesHaves(t *testing.T) {
 	}
 }
 
+// TestFetchReplicatesProvenance guards that a change's provenance object is part
+// of its closure and therefore replicates during sync.
+func TestFetchReplicatesProvenance(t *testing.T) {
+	server, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	provID, err := server.Objects.Put(object.NewProvenance(object.Provenance{Authority: "alice", Model: "m"}))
+	if err != nil {
+		t.Fatalf("Put provenance: %v", err)
+	}
+	blob, _ := server.Objects.Put(object.NewBlob([]byte("x")))
+	tree, _ := server.Objects.Put(object.NewTree([]object.Entry{{Name: "x", Mode: 0o100644, Kind: object.TypeBlob, ID: blob}}))
+	change, err := server.Objects.Put(object.NewChange(object.Change{Tree: tree, Provenance: provID, Message: "signed", Timestamp: 1}))
+	if err != nil {
+		t.Fatalf("Put change: %v", err)
+	}
+
+	client := dialServe(t, server)
+	dst, _ := repo.Init(t.TempDir())
+	if err := client.Fetch(dst.Objects, []multihash.Multihash{change}, nil); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if !dst.Objects.Has(provID) {
+		t.Fatal("provenance object was not replicated with the change")
+	}
+}
+
 func TestPushWithCASLease(t *testing.T) {
 	// Server starts empty; client seeds locally and pushes.
 	server, err := repo.Init(t.TempDir())

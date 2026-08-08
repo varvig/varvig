@@ -8,7 +8,7 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Steps 1–3 complete
+## Status: Steps 1–4 complete
 
 ### Step 1 — the frozen core
 
@@ -62,6 +62,21 @@ Packfile reading is a later addition; loose objects are supported now.
   compare-and-swap against the client's last-observed remote value, so a peer
   that moved underneath you is rejected rather than overwritten (§2).
 
+### Step 4 — provenance and signing, required on change objects
+
+- **Provenance is a first-class object** — a change references a `provenance`
+  object recording the acting authority, model + version, sampling parameters,
+  tool permissions, the intent (task / context read / reasoning), and the hash
+  of the tool binary itself (§1.1, §2.1). It dedups across changes and syncs as
+  part of the change's closure.
+- **Every native change is signed** — `commit` signs with a per-repo Ed25519
+  identity (pure Go, no cgo). The signature covers everything but itself,
+  including the provenance id, so tampering with either the change or its
+  provenance is detected.
+- **`verify` walks the audit chain** — it checks each change's signature and
+  provenance, reports the signer, and fails on any broken or missing one.
+  Git-imported changes are reported as foreign rather than failed.
+
 ## Layout
 
 ```
@@ -78,6 +93,7 @@ loom/
     gitport/           lossless Loom <-> Git export/import
     wire/              frozen framing + capability-negotiated handshake
     p2p/               reachability sync: serve / fetch / push
+    provenance/        Ed25519 signing, identity, provenance gathering
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
 ```
@@ -102,7 +118,8 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o loom ./cmd/loom
 ```sh
 loom init .
 echo "hello from an agent" > note.txt
-loom commit -m "first change"          # capture the working tree, advance HEAD
+loom commit -m "first change"          # capture the working tree, sign, advance HEAD
+loom verify                            # check provenance + signatures on the DAG
 loom log                               # walk the change DAG
 loom git-export ./out main             # write a repo plain git can read
 git --git-dir=./out/.git log --oneline # ...and read it with real git

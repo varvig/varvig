@@ -5,6 +5,8 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +20,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/loom/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/loom/internal/object"
 	"github.com/dividebyzero/claude-experiments/loom/internal/p2p"
+	"github.com/dividebyzero/claude-experiments/loom/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/loom/internal/refs"
 	"github.com/dividebyzero/claude-experiments/loom/internal/repo"
 	"github.com/dividebyzero/claude-experiments/loom/internal/worktree"
@@ -35,6 +38,7 @@ var commands = map[string]func([]string) error{
 	"commit":      cmdCommit,
 	"checkout":    cmdCheckout,
 	"log":         cmdLog,
+	"verify":      cmdVerify,
 	"git-export":  cmdGitExport,
 	"git-import":  cmdGitImport,
 	"serve":       cmdServe,
@@ -95,6 +99,7 @@ usage:
   loom commit -m <msg>                commit the working tree, advance HEAD
   loom checkout <ref|id>              materialize a change/tree into the tree
   loom log [ref|id]                   walk the change DAG from HEAD (or arg)
+  loom verify [ref|id]                check provenance and signatures on changes
   loom update-ref <name> <new> [old]  atomically set a ref (CAS on old)
   loom show-ref [name]                list refs or resolve one
   loom reflog <name>                  print a ref's append-only log
@@ -203,9 +208,38 @@ func cmdCatObject(args []string) error {
 		for _, p := range c.Parents {
 			fmt.Printf("parent %s\n", p.Hex())
 		}
+		if c.Provenance != nil {
+			fmt.Printf("provenance %s\n", c.Provenance.Hex())
+		}
+		if _, ok := o.RawSignature(); ok {
+			fmt.Printf("signed yes\n")
+		}
 		fmt.Printf("author %s\n", c.Author)
 		fmt.Printf("timestamp %d\n", c.Timestamp)
 		fmt.Printf("\n%s\n", c.Message)
+		return nil
+	case object.TypeProvenance:
+		p, err := o.AsProvenance()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("authority %s\n", p.Authority)
+		fmt.Printf("model %s\n", p.Model)
+		fmt.Printf("model-version %s\n", p.ModelVersion)
+		fmt.Printf("sampling %s\n", p.Sampling)
+		fmt.Printf("tool-permissions %s\n", strings.Join(p.ToolPermissions, ","))
+		if p.ToolHash != nil {
+			fmt.Printf("tool-hash %s\n", p.ToolHash.Hex())
+		}
+		if p.TaskSpec != "" {
+			fmt.Printf("task %s\n", p.TaskSpec)
+		}
+		if p.ContextRead != "" {
+			fmt.Printf("context %s\n", p.ContextRead)
+		}
+		if p.Reasoning != "" {
+			fmt.Printf("reasoning %s\n", p.Reasoning)
+		}
 		return nil
 	default:
 		fmt.Printf("%s object\n", o.Type())
@@ -256,13 +290,28 @@ func cmdCommit(args []string) error {
 	} else if !errors.Is(err, refs.ErrNotExist) {
 		return err
 	}
+
+	// Provenance and signing are required on native changes (design §2.1):
+	// record who/what produced the change, then sign it.
+	provID, err := r.Objects.Put(object.NewProvenance(provenance.Build(author())))
+	if err != nil {
+		return err
+	}
 	change := object.NewChange(object.Change{
-		Tree:      treeID,
-		Parents:   parents,
-		Message:   msg,
-		Timestamp: time.Now().Unix(),
-		Author:    author(),
+		Tree:       treeID,
+		Parents:    parents,
+		Message:    msg,
+		Timestamp:  time.Now().Unix(),
+		Author:     author(),
+		Provenance: provID,
 	})
+	priv, err := provenance.LoadOrCreateIdentity(r.GitDir())
+	if err != nil {
+		return err
+	}
+	if err := provenance.Sign(change, priv); err != nil {
+		return err
+	}
 	id, err := r.Objects.Put(change)
 	if err != nil {
 		return err
@@ -270,7 +319,8 @@ func cmdCommit(args []string) error {
 	if err := r.Refs.CompareAndSwap(headRef, parent, id, author(), "commit"); err != nil {
 		return err
 	}
-	fmt.Printf("%s %s\n", id.Hex(), msg)
+	pub := priv.Public().(ed25519.PublicKey)
+	fmt.Printf("%s %s\n  signed-by %s…\n", id.Hex(), msg, hex.EncodeToString(pub[:8]))
 	return nil
 }
 
@@ -350,6 +400,98 @@ func cmdLog(args []string) error {
 		return nil
 	}
 	return walk(start)
+}
+
+func cmdVerify(args []string) error {
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	var start multihash.Multihash
+	if len(args) == 1 {
+		start, err = resolve(r, args[0])
+	} else {
+		headRef, herr := r.Head()
+		if herr != nil {
+			return herr
+		}
+		start, err = r.Refs.Resolve(headRef)
+	}
+	if err != nil {
+		return err
+	}
+
+	seen := map[string]bool{}
+	failures := 0
+	var walk func(id multihash.Multihash) error
+	walk = func(id multihash.Multihash) error {
+		if seen[id.Hex()] {
+			return nil
+		}
+		seen[id.Hex()] = true
+		o, err := r.Objects.Get(id)
+		if err != nil {
+			return err
+		}
+		c, err := o.AsChange()
+		if err != nil {
+			return err
+		}
+		short := id.Hex()[4:16]
+		// Git-imported changes are foreign: they carry no Loom provenance and
+		// are reported as such rather than failed.
+		if _, foreign := o.Field(gitport.GitCommitBody); foreign {
+			fmt.Printf("~ %s  foreign (git-imported), unsigned\n", short)
+		} else {
+			switch pub, verr := provenance.Verify(o); {
+			case verr != nil:
+				fmt.Printf("✗ %s  %v\n", short, verr)
+				failures++
+			case c.Provenance == nil:
+				fmt.Printf("✗ %s  %v\n", short, provenance.ErrNoProvenance)
+				failures++
+			default:
+				summary := ""
+				if prov, err := r.Objects.Get(c.Provenance); err == nil {
+					if p, err := prov.AsProvenance(); err == nil {
+						summary = provenanceSummary(p)
+					}
+				}
+				fmt.Printf("✓ %s  signed-by %s… %s\n", short, hex.EncodeToString(pub[:8]), summary)
+			}
+		}
+		for _, p := range c.Parents {
+			if err := walk(p); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(start); err != nil {
+		return err
+	}
+	if failures > 0 {
+		return fmt.Errorf("%d change(s) failed verification", failures)
+	}
+	return nil
+}
+
+func provenanceSummary(p object.Provenance) string {
+	parts := []string{}
+	if p.Authority != "" {
+		parts = append(parts, "authority="+p.Authority)
+	}
+	if p.Model != "" {
+		m := p.Model
+		if p.ModelVersion != "" {
+			m += "@" + p.ModelVersion
+		}
+		parts = append(parts, "model="+m)
+	}
+	if p.ToolHash != nil {
+		parts = append(parts, "tool="+p.ToolHash.Hex()[4:16])
+	}
+	return strings.Join(parts, " ")
 }
 
 func cmdUpdateRef(args []string) error {

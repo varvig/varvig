@@ -118,6 +118,39 @@ builds preserve untouched.
 | 3   | message (UTF-8)                 |
 | 4   | timestamp (uvarint, unix secs)  |
 | 5   | author (UTF-8)                  |
+| 6   | provenance id (multihash)       |
+| 7   | signature blob                  |
+
+Tags 6 and 7 are optional at the codec level so that git-imported and legacy
+changes remain representable; the commit and verify layers require both on
+native changes (design §2.1).
+
+### Provenance (`objectType = 4`)
+
+Records who or what produced a change (design §1.1 intent, §2.1 signed
+provenance). All fields optional; emitted only when set.
+
+| Tag | Meaning                              |
+|-----|--------------------------------------|
+| 1   | authority (UTF-8)                    |
+| 2   | model (UTF-8)                        |
+| 3   | model version (UTF-8)                |
+| 4   | sampling parameters (UTF-8)          |
+| 5   | tool permissions (string list)       |
+| 6   | tool binary hash (multihash)         |
+| 7   | task specification (UTF-8)           |
+| 8   | context read (UTF-8)                 |
+| 9   | reasoning / plan (UTF-8)             |
+
+### Signatures
+
+The signature blob (change tag 7) is `uvarint(scheme) bytes(pubkey)
+bytes(sig)`; scheme 1 is Ed25519. A signature covers the change's canonical
+bytes **with the signature field omitted** — which still includes the
+provenance id (change tag 6), so the signature transitively commits to the
+provenance object's content. The object model treats the blob as opaque; its
+interpretation lives above the frozen core, keeping crypto policy out of the
+format (design §2 format neutrality).
 
 The parent list is serialized into the field value:
 

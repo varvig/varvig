@@ -43,9 +43,10 @@ import (
 type Type uint64
 
 const (
-	TypeBlob   Type = 1
-	TypeTree   Type = 2
-	TypeChange Type = 3
+	TypeBlob       Type = 1
+	TypeTree       Type = 2
+	TypeChange     Type = 3
+	TypeProvenance Type = 4
 )
 
 // Magic frames every object. It names the frozen format family LOM1.
@@ -58,11 +59,23 @@ const (
 
 	tagTreeEntries = 1
 
-	tagChangeTree      = 1
-	tagChangeParents   = 2
-	tagChangeMessage   = 3
-	tagChangeTimestamp = 4
-	tagChangeAuthor    = 5
+	tagChangeTree       = 1
+	tagChangeParents    = 2
+	tagChangeMessage    = 3
+	tagChangeTimestamp  = 4
+	tagChangeAuthor     = 5
+	tagChangeProvenance = 6 // id of a TypeProvenance object (design §1.1, §2.1)
+	tagChangeSignature  = 7 // opaque signature blob over the change sans this tag
+
+	tagProvAuthority    = 1
+	tagProvModel        = 2
+	tagProvModelVersion = 3
+	tagProvSampling     = 4
+	tagProvToolPerms    = 5
+	tagProvToolHash     = 6
+	tagProvTaskSpec     = 7
+	tagProvContextRead  = 8
+	tagProvReasoning    = 9
 )
 
 // ErrMalformed marks any input that violates the canonical LOM1 framing.
@@ -76,6 +89,8 @@ func (t Type) String() string {
 		return "tree"
 	case TypeChange:
 		return "change"
+	case TypeProvenance:
+		return "provenance"
 	default:
 		return fmt.Sprintf("type-%d", uint64(t))
 	}
@@ -201,6 +216,47 @@ func Decode(b []byte) (*Object, error) {
 func (o *Object) ID(c multihash.Code) (multihash.Multihash, error) {
 	return multihash.Sum(c, o.Encode())
 }
+
+// encodeWithout serializes the object omitting the field with the given tag.
+// It is the basis for signing over everything but the signature itself.
+func (o *Object) encodeWithout(skip uint64) []byte {
+	var buf []byte
+	buf = append(buf, Magic[:]...)
+	buf = appendUvarint(buf, uint64(o.typ))
+	n := 0
+	for _, f := range o.fields {
+		if f.tag != skip {
+			n++
+		}
+	}
+	buf = appendUvarint(buf, uint64(n))
+	for _, f := range o.fields {
+		if f.tag == skip {
+			continue
+		}
+		buf = appendUvarint(buf, f.tag)
+		buf = appendUvarint(buf, uint64(len(f.val)))
+		buf = append(buf, f.val...)
+	}
+	return buf
+}
+
+// SignableBytes returns the canonical bytes a signature covers: the whole
+// change except the signature field. Signing and verifying both use it, so the
+// signed and verified byte strings are identical (the signer simply has not
+// attached the signature field yet).
+func (o *Object) SignableBytes() []byte {
+	return o.encodeWithout(tagChangeSignature)
+}
+
+// SetSignature attaches an opaque signature blob. Its interpretation
+// (algorithm, public key, signature bytes) belongs to a higher layer; the
+// object model only knows there is a signature field and can exclude it from
+// SignableBytes.
+func (o *Object) SetSignature(blob []byte) { o.SetField(tagChangeSignature, blob) }
+
+// RawSignature returns the opaque signature blob, if present.
+func (o *Object) RawSignature() ([]byte, bool) { return o.Field(tagChangeSignature) }
 
 // newObject builds an Object from an unsorted set of fields, sorting them and
 // asserting tag uniqueness (a programming error if violated).

@@ -18,6 +18,11 @@ type Change struct {
 	Message   string
 	Timestamp int64
 	Author    string
+	// Provenance is the id of a TypeProvenance object describing who or what
+	// produced this change (design §1.1, §2.1). Optional at the codec level so
+	// that git-imported and legacy changes remain representable; the commit and
+	// verify layers require it for native changes.
+	Provenance multihash.Multihash
 }
 
 // The parents list is serialized into one field value:
@@ -56,6 +61,11 @@ func NewChange(c Change) *Object {
 		{tag: tagChangeTimestamp, val: appendUvarint(nil, uint64(c.Timestamp))},
 		{tag: tagChangeAuthor, val: []byte(c.Author)},
 	}
+	// Provenance is optional at the codec level: emit the field only when set,
+	// so changes without it (git-imported, legacy) encode exactly as before.
+	if c.Provenance != nil {
+		fields = append(fields, field{tag: tagChangeProvenance, val: append([]byte(nil), c.Provenance...)})
+	}
 	return newObject(TypeChange, fields)
 }
 
@@ -73,6 +83,9 @@ func (o *Object) AsChange() (Change, error) {
 	}
 	if v, ok := o.Field(tagChangeAuthor); ok {
 		c.Author = string(v)
+	}
+	if v, ok := o.Field(tagChangeProvenance); ok {
+		c.Provenance = multihash.Multihash(append([]byte(nil), v...))
 	}
 	if v, ok := o.Field(tagChangeTimestamp); ok {
 		ts, n, err := readUvarint(v)
