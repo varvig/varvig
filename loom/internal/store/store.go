@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dividebyzero/claude-experiments/loom/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/loom/internal/object"
@@ -151,6 +152,54 @@ func (s *Store) Get(id multihash.Multihash) (*object.Object, error) {
 		return nil, err
 	}
 	return object.Decode(b)
+}
+
+// Walk calls fn for every object identity in the store. It skips temp files
+// and any filename that is not a valid multihash. Used by garbage collection.
+func (s *Store) Walk(fn func(multihash.Multihash) error) error {
+	shards, err := os.ReadDir(s.root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, shard := range shards {
+		if !shard.IsDir() {
+			continue
+		}
+		files, err := os.ReadDir(filepath.Join(s.root, shard.Name()))
+		if err != nil {
+			return err
+		}
+		for _, f := range files {
+			name := f.Name()
+			if strings.HasPrefix(name, ".tmp-") {
+				continue
+			}
+			id, err := multihash.ParseHex(name)
+			if err != nil {
+				continue // not an object file
+			}
+			if err := fn(id); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// Delete removes an object from the store. Missing objects are not an error.
+// This is used only by garbage collection; objects are otherwise immutable.
+func (s *Store) Delete(id multihash.Multihash) error {
+	dir, file, err := s.path(id)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(dir, file)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // writeFileAtomic writes data to a temp file in the same directory, fsyncs it,

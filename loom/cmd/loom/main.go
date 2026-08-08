@@ -15,10 +15,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/loom/internal/affected"
+	"github.com/dividebyzero/claude-experiments/loom/internal/conformance"
+	"github.com/dividebyzero/claude-experiments/loom/internal/gc"
 	"github.com/dividebyzero/claude-experiments/loom/internal/gitport"
 	"github.com/dividebyzero/claude-experiments/loom/internal/hook"
 	"github.com/dividebyzero/claude-experiments/loom/internal/merge"
@@ -29,6 +32,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/loom/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/loom/internal/refs"
 	"github.com/dividebyzero/claude-experiments/loom/internal/repo"
+	"github.com/dividebyzero/claude-experiments/loom/internal/spec"
 	"github.com/dividebyzero/claude-experiments/loom/internal/worktree"
 )
 
@@ -55,6 +59,9 @@ var commands = map[string]func([]string) error{
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
 	"merge":       cmdMerge,
+	"spec":        cmdSpec,
+	"gc":          cmdGc,
+	"conform":     cmdConform,
 }
 
 func main() {
@@ -126,6 +133,13 @@ usage:
   loom hook run <event> [file]        run an event's hooks with input (or stdin)
   loom affected [<base> <new>]        show files changed and their dependents
   loom merge <ref|id>                 three-way merge another change into HEAD
+  loom spec add <task> <ref|id>       record a speculation candidate
+  loom spec list <task>               list a task's candidates and scores
+  loom spec score <task> <id> <n>     set a candidate's score
+  loom spec promote <task> [ref]      promote the best candidate onto a ref
+  loom spec prune <task> <keepK>      retention: keep top-K, drop the rest
+  loom gc [--dry-run]                 sweep unreachable objects
+  loom conform [--emit|--id]          check this build against the frozen format
 `)
 }
 
@@ -1144,6 +1158,148 @@ func cmdMerge(args []string) error {
 		return err
 	}
 	fmt.Printf("merged %s into %s -> %s\n", theirs.Hex()[4:16], headRef, res.Change.Hex())
+	return nil
+}
+
+func cmdSpec(args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: loom spec <add|list|score|promote|prune> <task> ...")
+	}
+	sub, task := args[0], args[1]
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	pool := spec.Open(r.GitDir())
+	switch sub {
+	case "add":
+		if len(args) != 3 {
+			return errors.New("usage: loom spec add <task> <ref|id>")
+		}
+		id, err := resolve(r, args[2])
+		if err != nil {
+			return err
+		}
+		if err := pool.Add(task, id, time.Now().Unix()); err != nil {
+			return err
+		}
+		fmt.Printf("added candidate %s to task %s\n", id.Hex()[4:16], task)
+		return nil
+	case "list":
+		entries, err := pool.List(task)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			score := "unscored"
+			if e.Scored {
+				score = fmt.Sprintf("%.4g", e.Score)
+			}
+			fmt.Printf("%s  %s\n", e.Change.Hex()[4:16], score)
+		}
+		return nil
+	case "score":
+		if len(args) != 4 {
+			return errors.New("usage: loom spec score <task> <id> <value>")
+		}
+		id, err := multihash.ParseHex(args[2])
+		if err != nil {
+			return err
+		}
+		v, err := strconv.ParseFloat(args[3], 64)
+		if err != nil {
+			return err
+		}
+		return pool.SetScore(task, id, v)
+	case "promote":
+		ref := ""
+		if len(args) == 3 {
+			ref = args[2]
+		} else {
+			ref, err = r.Head()
+			if err != nil {
+				return err
+			}
+		}
+		id, err := spec.Promote(pool, r, task, ref, author())
+		if err != nil {
+			return err
+		}
+		fmt.Printf("promoted %s onto %s\n", id.Hex()[4:16], ref)
+		return nil
+	case "prune":
+		if len(args) != 3 {
+			return errors.New("usage: loom spec prune <task> <keepK>")
+		}
+		k, err := strconv.Atoi(args[2])
+		if err != nil {
+			return err
+		}
+		removed, err := pool.Prune(task, k)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("pruned %d candidate(s) from task %s\n", len(removed), task)
+		return nil
+	default:
+		return fmt.Errorf("unknown spec subcommand %q", sub)
+	}
+}
+
+func cmdGc(args []string) error {
+	dryRun := false
+	for _, a := range args {
+		if a == "--dry-run" || a == "-n" {
+			dryRun = true
+		}
+	}
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	rep, err := gc.Collect(r, spec.Open(r.GitDir()), dryRun)
+	if err != nil {
+		return err
+	}
+	verb := "deleted"
+	if dryRun {
+		verb = "would delete"
+	}
+	fmt.Printf("roots:%d scanned:%d kept:%d %s:%d\n", rep.Roots, rep.Scanned, rep.Kept, verb, rep.Deleted)
+	return nil
+}
+
+func cmdConform(args []string) error {
+	// The conformance suite is about the binary and the frozen format, not any
+	// repository, so this command opens nothing.
+	for _, a := range args {
+		switch a {
+		case "--emit":
+			b, err := conformance.CanonicalJSON(conformance.Build())
+			if err != nil {
+				return err
+			}
+			os.Stdout.Write(b)
+			return nil
+		case "--id":
+			b, err := conformance.CanonicalJSON(conformance.Build())
+			if err != nil {
+				return err
+			}
+			fmt.Println(conformance.SuiteID(b).Hex())
+			return nil
+		}
+	}
+	fails := conformance.Verify(conformance.Golden())
+	if len(fails) > 0 {
+		for _, f := range fails {
+			fmt.Fprintf(os.Stderr, "  FAIL %s\n", f)
+		}
+		return fmt.Errorf("conformance: %d failure(s) against suite %s", len(fails), conformance.GoldenSuiteID)
+	}
+	g := conformance.Golden()
+	n := len(g.Generated.Objects) + len(g.Generated.Multihash) + len(g.Generated.Wire) + len(g.RoundTrip)
+	fmt.Printf("conformant: %d vectors pass suite %s\n", n, conformance.GoldenSuiteID)
 	return nil
 }
 

@@ -152,6 +152,35 @@ func (s *Store) List() ([]string, error) {
 	return names, nil
 }
 
+// LogNames returns every ref name that has a reflog, including logs for refs
+// that have since been deleted. Garbage collection reads these logs so that
+// objects still reachable through the reflog are never swept — preserving
+// universal undo (design §2).
+func (s *Store) LogNames() ([]string, error) {
+	var names []string
+	err := filepath.WalkDir(s.logsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(s.logsDir, path)
+		if err != nil {
+			return err
+		}
+		names = append(names, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return names, nil
+}
+
 func (s *Store) refPath(name string) string {
 	return filepath.Join(s.refsDir, filepath.FromSlash(name))
 }
