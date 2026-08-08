@@ -41,6 +41,29 @@ func (o *Object) Links() ([]multihash.Multihash, error) {
 		return ids, nil
 	case TypeProvenance:
 		return nil, nil
+	case TypeNote:
+		n, err := o.AsNote()
+		if err != nil {
+			return nil, err
+		}
+		var ids []multihash.Multihash
+		if n.Target != nil {
+			ids = append(ids, n.Target)
+		}
+		if n.Parent != nil {
+			ids = append(ids, n.Parent)
+		}
+		return ids, nil
+	case TypeHookConfig:
+		c, err := o.AsHookConfig()
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]multihash.Multihash, 0, len(c.Entries))
+		for _, e := range c.Entries {
+			ids = append(ids, e.Module)
+		}
+		return ids, nil
 	default:
 		return nil, nil
 	}

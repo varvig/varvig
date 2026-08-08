@@ -8,7 +8,7 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Steps 1–4 complete
+## Status: Steps 1–5 complete
 
 ### Step 1 — the frozen core
 
@@ -77,6 +77,24 @@ Packfile reading is a later addition; loose objects are supported now.
   provenance, reports the signer, and fails on any broken or missing one.
   Git-imported changes are reported as foreign rather than failed.
 
+### Step 5 — notes and a sandboxed wasm hook/trigger runtime
+
+- **Notes attach metadata without changing an object's hash** (§2) — test
+  results, review verdicts, deploy outcomes accrete onto a change as immutable,
+  content-addressed note objects chained under `refs/notes/`. The target is
+  never touched. `note add` / `note list`.
+- **Hooks are sandboxed wasm modules** (§3.2) — a hook is a WASI command
+  (reads the event on stdin, exit code = allow/deny) run under
+  [wazero](https://wazero.io) with **no filesystem, network, or environment**
+  and a memory + time bound. Modules are content-addressed blobs bound to
+  events by a manifest at `refs/hooks`, so triggers are portable and versioned
+  alongside the code. No bash, no `dlopen`. `commit` fires `pre-commit` (can
+  veto) and `post-commit`. `hook set` / `hook list` / `hook run`.
+
+The wasm runtime is the sole third-party dependency
+([wazero](https://github.com/tetratelabs/wazero), pure Go, no cgo), keeping the
+single-static-binary guarantee intact.
+
 ## Layout
 
 ```
@@ -94,6 +112,8 @@ loom/
     wire/              frozen framing + capability-negotiated handshake
     p2p/               reachability sync: serve / fetch / push
     provenance/        Ed25519 signing, identity, provenance gathering
+    notes/             attach metadata to an object without changing its hash
+    hook/              sandboxed wasm (WASI) hook/trigger runtime + manifest
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
 ```

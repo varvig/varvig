@@ -5,8 +5,10 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +19,9 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/loom/internal/gitport"
+	"github.com/dividebyzero/claude-experiments/loom/internal/hook"
 	"github.com/dividebyzero/claude-experiments/loom/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/loom/internal/notes"
 	"github.com/dividebyzero/claude-experiments/loom/internal/object"
 	"github.com/dividebyzero/claude-experiments/loom/internal/p2p"
 	"github.com/dividebyzero/claude-experiments/loom/internal/provenance"
@@ -45,6 +49,8 @@ var commands = map[string]func([]string) error{
 	"clone":       cmdClone,
 	"fetch":       cmdFetch,
 	"push":        cmdPush,
+	"note":        cmdNote,
+	"hook":        cmdHook,
 }
 
 func main() {
@@ -109,6 +115,11 @@ usage:
   loom clone <addr> <dir> [branch]    replicate a peer's branch into a new repo
   loom fetch <addr> [branch]          fetch a peer's branch into refs/remotes/origin
   loom push <addr> [branch]           push a local branch to a peer (CAS lease)
+  loom note add <target> [opts]       attach a note (--ns NS, -m MSG or -f FILE)
+  loom note list <target> [--ns NS]   list notes attached to an object
+  loom hook set <event> <module.wasm> bind a wasm hook to an event
+  loom hook list                      list configured hooks
+  loom hook run <event> [file]        run an event's hooks with input (or stdin)
 `)
 }
 
@@ -291,6 +302,23 @@ func cmdCommit(args []string) error {
 		return err
 	}
 
+	// pre-commit hooks run in a sandbox and can veto the commit (design §3.2).
+	hookInput, _ := json.Marshal(map[string]string{
+		"event": hook.EventPreCommit, "message": msg, "author": author(), "tree": treeID.Hex(),
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	results, err := hook.Fire(ctx, r, hook.EventPreCommit, hookInput)
+	if err != nil {
+		return fmt.Errorf("pre-commit hook: %w", err)
+	}
+	for _, res := range results {
+		if !res.Allowed() {
+			return fmt.Errorf("commit vetoed by pre-commit hook (exit %d): %s",
+				res.ExitCode, strings.TrimSpace(string(res.Stderr)))
+		}
+	}
+
 	// Provenance and signing are required on native changes (design §2.1):
 	// record who/what produced the change, then sign it.
 	provID, err := r.Objects.Put(object.NewProvenance(provenance.Build(author())))
@@ -319,6 +347,10 @@ func cmdCommit(args []string) error {
 	if err := r.Refs.CompareAndSwap(headRef, parent, id, author(), "commit"); err != nil {
 		return err
 	}
+	// post-commit hooks are informational; their verdict does not block.
+	postInput, _ := json.Marshal(map[string]string{"event": hook.EventPostCommit, "change": id.Hex()})
+	_, _ = hook.Fire(ctx, r, hook.EventPostCommit, postInput)
+
 	pub := priv.Public().(ed25519.PublicKey)
 	fmt.Printf("%s %s\n  signed-by %s…\n", id.Hex(), msg, hex.EncodeToString(pub[:8]))
 	return nil
@@ -808,6 +840,161 @@ func checkoutChange(r *repo.Repo, id multihash.Multihash) error {
 		treeID = c.Tree
 	}
 	return worktree.Checkout(r.Objects, treeID, r.Root())
+}
+
+func cmdNote(args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: loom note <add|list> <target> [opts]")
+	}
+	sub, rest := args[0], args[1:]
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	store := notes.New(r)
+	switch sub {
+	case "add":
+		target, err := resolve(r, rest[0])
+		if err != nil {
+			return err
+		}
+		ns := "default"
+		var payload []byte
+		for i := 1; i < len(rest); i++ {
+			switch rest[i] {
+			case "--ns":
+				if i+1 < len(rest) {
+					ns = rest[i+1]
+					i++
+				}
+			case "-m":
+				if i+1 < len(rest) {
+					payload = []byte(rest[i+1])
+					i++
+				}
+			case "-f":
+				if i+1 < len(rest) {
+					payload, err = os.ReadFile(rest[i+1])
+					if err != nil {
+						return err
+					}
+					i++
+				}
+			}
+		}
+		if !r.Objects.Has(target) {
+			return fmt.Errorf("no such object %s", target.Hex())
+		}
+		id, err := store.Add(ns, target, payload, author(), time.Now().Unix())
+		if err != nil {
+			return err
+		}
+		fmt.Printf("note %s attached to %s (%s)\n", id.Hex(), target.Hex(), ns)
+		return nil
+	case "list":
+		target, err := resolve(r, rest[0])
+		if err != nil {
+			return err
+		}
+		ns := ""
+		for i := 1; i < len(rest); i++ {
+			if rest[i] == "--ns" && i+1 < len(rest) {
+				ns = rest[i+1]
+				i++
+			}
+		}
+		var namespaces []string
+		if ns != "" {
+			namespaces = []string{ns}
+		} else {
+			namespaces, err = store.Namespaces(target)
+			if err != nil {
+				return err
+			}
+		}
+		for _, n := range namespaces {
+			entries, err := store.List(n, target)
+			if err != nil {
+				return err
+			}
+			for _, e := range entries {
+				fmt.Printf("[%s] %s by %s at %s\n  %s\n", n, e.ID.Hex()[4:16], e.Note.Author,
+					time.Unix(e.Note.Timestamp, 0).UTC().Format(time.RFC3339), string(e.Note.Payload))
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown note subcommand %q", sub)
+	}
+}
+
+func cmdHook(args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: loom hook <set|list|run> ...")
+	}
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "set":
+		if len(args) != 3 {
+			return errors.New("usage: loom hook set <event> <module.wasm>")
+		}
+		wasmModule, err := os.ReadFile(args[2])
+		if err != nil {
+			return err
+		}
+		id, err := hook.SetHook(r, args[1], wasmModule, author())
+		if err != nil {
+			return err
+		}
+		fmt.Printf("hook %s -> %s\n", args[1], id.Hex())
+		return nil
+	case "list":
+		cfg, err := hook.LoadManifest(r)
+		if err != nil {
+			return err
+		}
+		for _, e := range cfg.Entries {
+			fmt.Printf("%s\t%s\n", e.Event, e.Module.Hex())
+		}
+		return nil
+	case "run":
+		if len(args) < 2 {
+			return errors.New("usage: loom hook run <event> [inputfile]")
+		}
+		var input []byte
+		if len(args) > 2 {
+			input, err = os.ReadFile(args[2])
+		} else {
+			input, err = io.ReadAll(os.Stdin)
+		}
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		results, err := hook.Fire(ctx, r, args[1], input)
+		if err != nil {
+			return err
+		}
+		if len(results) == 0 {
+			fmt.Printf("no hooks bound to %q\n", args[1])
+		}
+		for i, res := range results {
+			fmt.Printf("hook %d: exit=%d\n", i, res.ExitCode)
+			if len(res.Stdout) > 0 {
+				fmt.Printf("  stdout: %s\n", strings.TrimRight(string(res.Stdout), "\n"))
+			}
+			if len(res.Stderr) > 0 {
+				fmt.Printf("  stderr: %s\n", strings.TrimRight(string(res.Stderr), "\n"))
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown hook subcommand %q", args[0])
+	}
 }
 
 // resolve interprets a string as a ref name or, failing that, an object id.

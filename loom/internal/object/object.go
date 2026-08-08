@@ -47,6 +47,8 @@ const (
 	TypeTree       Type = 2
 	TypeChange     Type = 3
 	TypeProvenance Type = 4
+	TypeNote       Type = 5
+	TypeHookConfig Type = 6
 )
 
 // Magic frames every object. It names the frozen format family LOM1.
@@ -76,6 +78,15 @@ const (
 	tagProvTaskSpec     = 7
 	tagProvContextRead  = 8
 	tagProvReasoning    = 9
+
+	tagNoteTarget    = 1
+	tagNoteNamespace = 2
+	tagNotePayload   = 3
+	tagNoteParent    = 4
+	tagNoteTimestamp = 5
+	tagNoteAuthor    = 6
+
+	tagHookEntries = 1
 )
 
 // ErrMalformed marks any input that violates the canonical LOM1 framing.
@@ -91,6 +102,10 @@ func (t Type) String() string {
 		return "change"
 	case TypeProvenance:
 		return "provenance"
+	case TypeNote:
+		return "note"
+	case TypeHookConfig:
+		return "hookconfig"
 	default:
 		return fmt.Sprintf("type-%d", uint64(t))
 	}

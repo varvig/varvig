@@ -142,6 +142,35 @@ provenance). All fields optional; emitted only when set.
 | 8   | context read (UTF-8)                 |
 | 9   | reasoning / plan (UTF-8)             |
 
+### Note (`objectType = 5`)
+
+Metadata attached to another object without changing that object (design §2).
+
+| Tag | Meaning                        |
+|-----|--------------------------------|
+| 1   | target id (multihash)          |
+| 2   | namespace (UTF-8)              |
+| 3   | payload (opaque bytes)         |
+| 4   | parent note id (multihash)     |
+| 5   | timestamp (uvarint, unix secs) |
+| 6   | author (UTF-8)                 |
+
+Notes for a `(namespace, target)` pair form a chain via tag 4, whose head is
+tracked by a ref under `refs/notes/`. The target object is never modified, so
+its identity is stable while metadata accretes.
+
+### Hook config (`objectType = 6`)
+
+The hook manifest (design §3.2), referenced by `refs/hooks`.
+
+| Tag | Meaning        |
+|-----|----------------|
+| 1   | entry list     |
+
+The entry list is `count` records of `eventLen event moduleLen module`, binding
+an event name to a wasm module blob's id. Modules are content-addressed, so
+triggers are versioned alongside the code they guard.
+
 ### Signatures
 
 The signature blob (change tag 7) is `uvarint(scheme) bytes(pubkey)
