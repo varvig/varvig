@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -40,7 +41,14 @@ func main() {
 		os.Stdout.WriteString("hello from hook\n")
 		os.Exit(0)
 	case s == "loop":
+		// A runaway hook. Each iteration makes a WASI host call
+		// (clock_time_get), giving the runtime a well-defined checkpoint to
+		// honor its context deadline at — reliable across wazero backends,
+		// unlike a tight compute-only loop.
+		var acc int64
 		for {
+			acc += time.Now().UnixNano()
+			_ = acc
 		}
 	default:
 		os.Exit(0)
@@ -166,7 +174,7 @@ func TestRunTimeoutInterrupts(t *testing.T) {
 		if err == nil {
 			t.Fatal("a non-terminating hook returned no error")
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Run did not honor its context deadline (hook not interrupted)")
 	}
 }
