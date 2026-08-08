@@ -8,7 +8,9 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Step 1 — the frozen core
+## Status: Steps 1–2 complete
+
+### Step 1 — the frozen core
 
 Per the design's build order (§6), step 1 is the substrate everything else
 layers on:
@@ -27,6 +29,24 @@ layers on:
 
 The frozen object format is specified in [`FORMAT.md`](./FORMAT.md).
 
+### Step 2 — packaging, plain working tree, lossless Git export
+
+- **Busybox-style multicall** — one binary is every tool; it dispatches on the
+  first argument or on `argv[0]` when invoked under a name like `loom-commit`
+  (§3.1).
+- **Plain working tree** — `write-tree` / `commit` capture a real directory of
+  real files into objects; `checkout` materializes them back. Regular files,
+  executable bits, symlinks, and nested directories are preserved (§2).
+- **Lossless bidirectional Git export** — `git-export` writes a repository that
+  plain `git` reads (it passes `git fsck`); `git-import` reads one back.
+  **Git → Loom → Git reproduces byte-identical git objects**, including commit
+  SHAs, by retaining each imported commit's exact git body as an interop field.
+  Verified in CI against the real `git` binary.
+
+Modes are stored in tree entries using Git's own vocabulary
+(`100644`/`100755`/`120000`/`40000`), so export is a straight translation.
+Packfile reading is a later addition; loose objects are supported now.
+
 ## Layout
 
 ```
@@ -38,6 +58,9 @@ loom/
     store/             content-addressed object store
     refs/              ref CAS + append-only reflog
     repo/              repository layout wiring the above together
+    worktree/          working tree <-> objects (checkout / write-tree)
+    gitobj/            git object codec + loose-object store
+    gitport/           lossless Loom <-> Git export/import
   FORMAT.md            the frozen format specification
 ```
 
@@ -61,9 +84,14 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o loom ./cmd/loom
 ```sh
 loom init .
 echo "hello from an agent" > note.txt
+loom commit -m "first change"          # capture the working tree, advance HEAD
+loom log                               # walk the change DAG
+loom git-export ./out main             # write a repo plain git can read
+git --git-dir=./out/.git log --oneline # ...and read it with real git
+
+# lower-level plumbing:
 id=$(loom hash-object -w note.txt)     # store a blob, print its identity
 loom cat-object "$id"                  # read it back
-loom update-ref refs/heads/main "$id"  # point a ref at it (create)
 loom show-ref                          # list refs
 loom reflog refs/heads/main            # inspect the append-only log
 ```

@@ -62,6 +62,19 @@ its exact bytes and identity. This is how provenance and signatures written by
 a newer build survive handling by an older one: **preserve-or-refuse, never
 silently degrade.** An object of an unknown *type* is likewise preserved intact.
 
+### Reserved tag ranges
+
+| Range                       | Purpose                                            |
+|-----------------------------|----------------------------------------------------|
+| `1 … 0x0FFF_FFFF`           | Semantic core tags, assigned per object type       |
+| `0xF000_0000 … 0xFFFF_FFFF` | Interop metadata (not part of the semantic core)   |
+
+Interop-range tags carry data needed to reproduce foreign formats exactly but
+which does not participate in Loom's own semantics. They round-trip like any
+other unknown field. The Git bridge uses `0xF000_0001` to retain an imported
+commit's exact git object body so that re-export reproduces a byte-identical
+git commit (and thus an identical git SHA-1).
+
 ## Object types
 
 ### Blob (`objectType = 1`)
