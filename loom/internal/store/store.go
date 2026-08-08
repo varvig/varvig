@@ -84,6 +84,33 @@ func (s *Store) Put(o *object.Object) (multihash.Multihash, error) {
 	return s.PutRaw(o.Encode())
 }
 
+// PutVerified stores raw bytes under a caller-supplied identity, after
+// verifying the bytes hash to it under the identity's own algorithm. Unlike
+// PutRaw it preserves the given multihash (and thus its algorithm) rather than
+// recomputing under the store default — this is what lets sync replicate
+// objects written by a peer using a different digest.
+func (s *Store) PutVerified(id multihash.Multihash, b []byte) error {
+	ok, err := multihash.Verify(id, b)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrCorrupt
+	}
+	dir, file, err := s.path(id)
+	if err != nil {
+		return err
+	}
+	full := filepath.Join(dir, file)
+	if _, err := os.Stat(full); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return writeFileAtomic(full, b)
+}
+
 // Has reports whether an object exists in the store.
 func (s *Store) Has(id multihash.Multihash) bool {
 	dir, file, err := s.path(id)

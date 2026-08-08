@@ -8,7 +8,7 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Steps 1–2 complete
+## Status: Steps 1–3 complete
 
 ### Step 1 — the frozen core
 
@@ -47,6 +47,21 @@ Modes are stored in tree entries using Git's own vocabulary
 (`100644`/`100755`/`120000`/`40000`), so export is a straight translation.
 Packfile reading is a later addition; loose objects are supported now.
 
+### Step 3 — P2P sync with a capability-negotiated wire protocol
+
+- **Any peer is a full replica** — the same binary `serve`s an open port and
+  `clone`/`fetch`/`push`es against one; there is no separate server (§3.1).
+- **Capability negotiation by feature bits, never a version number** — peers
+  exchange a `Hello`, intersect their advertised capability tokens, and use the
+  frozen core as the always-available fallback (§4.2). See
+  [`WIRE.md`](./WIRE.md).
+- **Reachability transfer** — sync streams only the objects the receiver lacks,
+  pruning the Merkle-DAG walk at everything it already has. Each object is
+  verified against its multihash on arrival.
+- **Force-with-lease push** — a push advances the peer's ref by
+  compare-and-swap against the client's last-observed remote value, so a peer
+  that moved underneath you is rejected rather than overwritten (§2).
+
 ## Layout
 
 ```
@@ -61,7 +76,10 @@ loom/
     worktree/          working tree <-> objects (checkout / write-tree)
     gitobj/            git object codec + loose-object store
     gitport/           lossless Loom <-> Git export/import
-  FORMAT.md            the frozen format specification
+    wire/              frozen framing + capability-negotiated handshake
+    p2p/               reachability sync: serve / fetch / push
+  FORMAT.md            the frozen object-format specification
+  WIRE.md              the wire-protocol specification
 ```
 
 ## Build
@@ -88,6 +106,11 @@ loom commit -m "first change"          # capture the working tree, advance HEAD
 loom log                               # walk the change DAG
 loom git-export ./out main             # write a repo plain git can read
 git --git-dir=./out/.git log --oneline # ...and read it with real git
+
+# peer-to-peer (any peer is a full replica):
+loom serve :9418 &                     # serve this repo to peers
+loom clone localhost:9418 ../copy main # replicate a branch into a new repo
+loom push localhost:9418 main          # push (force-with-lease)
 
 # lower-level plumbing:
 id=$(loom hash-object -w note.txt)     # store a blob, print its identity

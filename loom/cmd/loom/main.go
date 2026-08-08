@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/loom/internal/gitport"
 	"github.com/dividebyzero/claude-experiments/loom/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/loom/internal/object"
+	"github.com/dividebyzero/claude-experiments/loom/internal/p2p"
 	"github.com/dividebyzero/claude-experiments/loom/internal/refs"
 	"github.com/dividebyzero/claude-experiments/loom/internal/repo"
 	"github.com/dividebyzero/claude-experiments/loom/internal/worktree"
@@ -35,6 +37,10 @@ var commands = map[string]func([]string) error{
 	"log":         cmdLog,
 	"git-export":  cmdGitExport,
 	"git-import":  cmdGitImport,
+	"serve":       cmdServe,
+	"clone":       cmdClone,
+	"fetch":       cmdFetch,
+	"push":        cmdPush,
 }
 
 func main() {
@@ -94,6 +100,10 @@ usage:
   loom reflog <name>                  print a ref's append-only log
   loom git-export <dir> [branch]      export HEAD to a plain git repository
   loom git-import <dir> [branch]      import a git branch into this repository
+  loom serve <addr>                   serve this repository to peers (e.g. :9418)
+  loom clone <addr> <dir> [branch]    replicate a peer's branch into a new repo
+  loom fetch <addr> [branch]          fetch a peer's branch into refs/remotes/origin
+  loom push <addr> [branch]           push a local branch to a peer (CAS lease)
 `)
 }
 
@@ -465,6 +475,197 @@ func cmdGitImport(args []string) error {
 	}
 	fmt.Printf("imported branch %s as %s\n", branch, id.Hex())
 	return nil
+}
+
+func cmdServe(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: loom serve <addr>")
+	}
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	ln, err := net.Listen("tcp", args[0])
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	fmt.Printf("serving %s on %s\n", r.Root(), ln.Addr())
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return err
+		}
+		go func() {
+			defer conn.Close()
+			if err := p2p.Serve(r, conn); err != nil && !errors.Is(err, io.EOF) {
+				fmt.Fprintf(os.Stderr, "loom serve: peer %s: %v\n", conn.RemoteAddr(), err)
+			}
+		}()
+	}
+}
+
+func cmdClone(args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: loom clone <addr> <dir> [branch]")
+	}
+	addr, dir := args[0], args[1]
+	branch := "main"
+	if len(args) > 2 {
+		branch = args[2]
+	}
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client, err := p2p.Dial(conn)
+	if err != nil {
+		return err
+	}
+	tip, err := refTip(client, "refs/heads/"+branch)
+	if err != nil {
+		return err
+	}
+	r, err := repo.Init(dir)
+	if err != nil {
+		return err
+	}
+	if err := client.Fetch(r.Objects, []multihash.Multihash{tip}, nil); err != nil {
+		return err
+	}
+	if err := r.Refs.Create("refs/heads/"+branch, tip, "clone", "clone "+addr); err != nil {
+		return err
+	}
+	// Record where the remote was, so a later push can lease against it.
+	if err := r.Refs.Create("refs/remotes/origin/"+branch, tip, "clone", "clone "+addr); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(r.GitDir(), "HEAD"), []byte("ref: refs/heads/"+branch+"\n"), 0o644); err != nil {
+		return err
+	}
+	if err := checkoutChange(r, tip); err != nil {
+		return err
+	}
+	fmt.Printf("cloned %s (branch %s) into %s at %s\n", addr, branch, dir, tip.Hex())
+	return nil
+}
+
+func cmdFetch(args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: loom fetch <addr> [branch]")
+	}
+	branch := "main"
+	if len(args) > 1 {
+		branch = args[1]
+	}
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	conn, err := net.Dial("tcp", args[0])
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client, err := p2p.Dial(conn)
+	if err != nil {
+		return err
+	}
+	tip, err := refTip(client, "refs/heads/"+branch)
+	if err != nil {
+		return err
+	}
+	tracking := "refs/remotes/origin/" + branch
+	var have []multihash.Multihash
+	if cur, err := r.Refs.Resolve(tracking); err == nil {
+		have = append(have, cur)
+	}
+	if err := client.Fetch(r.Objects, []multihash.Multihash{tip}, have); err != nil {
+		return err
+	}
+	cur, _ := r.Refs.Resolve(tracking)
+	if err := r.Refs.CompareAndSwap(tracking, cur, tip, "fetch", "fetch "+args[0]); err != nil {
+		return err
+	}
+	fmt.Printf("fetched %s into %s\n", tip.Hex(), tracking)
+	return nil
+}
+
+func cmdPush(args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: loom push <addr> [branch]")
+	}
+	branch := "main"
+	if len(args) > 1 {
+		branch = args[1]
+	}
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	name := "refs/heads/" + branch
+	local, err := r.Refs.Resolve(name)
+	if err != nil {
+		return fmt.Errorf("nothing to push: %w", err)
+	}
+	// The lease is what we last observed the remote to be — the remote-tracking
+	// ref — NOT a fresh query. If the peer has moved since, the CAS is rejected
+	// rather than silently overwriting the peer's work (force-with-lease, §2).
+	// Enforcing that the new tip descends from the lease is left to the merge
+	// step; for now the lease alone guards against unseen concurrent changes.
+	tracking := "refs/remotes/origin/" + branch
+	var old multihash.Multihash
+	if cur, err := r.Refs.Resolve(tracking); err == nil {
+		old = cur
+	}
+	conn, err := net.Dial("tcp", args[0])
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	client, err := p2p.Dial(conn)
+	if err != nil {
+		return err
+	}
+	if err := client.Push(r.Objects, name, old, local); err != nil {
+		return err
+	}
+	// Advance our record of the remote to what we just pushed.
+	prev, _ := r.Refs.Resolve(tracking)
+	_ = r.Refs.CompareAndSwap(tracking, prev, local, "push", "update tracking after push")
+	fmt.Printf("pushed %s to %s (%s)\n", local.Hex(), args[0], name)
+	return nil
+}
+
+// refTip runs ListRefs and returns the id advertised for name.
+func refTip(client *p2p.Client, name string) (multihash.Multihash, error) {
+	refsList, err := client.ListRefs()
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range refsList {
+		if ref.Name == name {
+			return multihash.Multihash(ref.ID), nil
+		}
+	}
+	return nil, fmt.Errorf("peer has no %s", name)
+}
+
+func checkoutChange(r *repo.Repo, id multihash.Multihash) error {
+	o, err := r.Objects.Get(id)
+	if err != nil {
+		return err
+	}
+	treeID := id
+	if o.Type() == object.TypeChange {
+		c, err := o.AsChange()
+		if err != nil {
+			return err
+		}
+		treeID = c.Tree
+	}
+	return worktree.Checkout(r.Objects, treeID, r.Root())
 }
 
 // resolve interprets a string as a ref name or, failing that, an object id.
