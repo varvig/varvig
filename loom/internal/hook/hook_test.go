@@ -171,6 +171,27 @@ func TestRunTimeoutInterrupts(t *testing.T) {
 	}
 }
 
+func TestEvaluateRefUpdate(t *testing.T) {
+	mod := getModule(t)
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if _, err := SetHook(r, EventRefUpdate, mod, "tester"); err != nil {
+		t.Fatalf("SetHook: %v", err)
+	}
+	ctx := context.Background()
+	// The fixture vetoes when its stdin contains "deny"; the ref name carries
+	// into the JSON payload, so a "deny"-named ref is refused.
+	if err := EvaluateRefUpdate(ctx, r, "refs/heads/deny-this", nil, nil); err == nil {
+		t.Fatal("expected ref-update veto")
+	}
+	// A benign ref name is allowed.
+	if err := EvaluateRefUpdate(ctx, r, "refs/heads/main", nil, nil); err != nil {
+		t.Fatalf("benign ref-update rejected: %v", err)
+	}
+}
+
 func TestFireViaManifest(t *testing.T) {
 	mod := getModule(t)
 	r, err := repo.Init(t.TempDir())

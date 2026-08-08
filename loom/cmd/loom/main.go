@@ -539,18 +539,30 @@ func cmdUpdateRef(args []string) error {
 	if err != nil {
 		return err
 	}
+	var oldVal multihash.Multihash
 	if len(args) == 3 {
-		oldVal, err := parseValueOrZero(args[2])
+		oldVal, err = parseValueOrZero(args[2])
 		if err != nil {
 			return fmt.Errorf("old value: %w", err)
 		}
-		return r.Refs.CompareAndSwap(name, oldVal, newVal, author(), "update-ref")
+	} else {
+		cur, rerr := r.Refs.Resolve(name)
+		if rerr != nil && !errors.Is(rerr, refs.ErrNotExist) {
+			return rerr
+		}
+		oldVal = cur
 	}
-	cur, err := r.Refs.Resolve(name)
-	if err != nil && !errors.Is(err, refs.ErrNotExist) {
+	// Ref updates are a trigger point: run ref-update hooks as a policy gate.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := hook.EvaluateRefUpdate(ctx, r, name, oldVal, newVal); err != nil {
 		return err
 	}
-	return r.Refs.CompareAndSwap(name, cur, newVal, author(), "update-ref")
+	if err := r.Refs.CompareAndSwap(name, oldVal, newVal, author(), "update-ref"); err != nil {
+		return err
+	}
+	_ = hook.NotifyRefUpdate(ctx, r, name, oldVal, newVal)
+	return nil
 }
 
 func cmdShowRef(args []string) error {

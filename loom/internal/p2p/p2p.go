@@ -14,9 +14,12 @@ package p2p
 import (
 	"bytes"
 	"compress/zlib"
+	"context"
 	"fmt"
 	"io"
+	"time"
 
+	"github.com/dividebyzero/claude-experiments/loom/internal/hook"
 	"github.com/dividebyzero/claude-experiments/loom/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/loom/internal/object"
 	"github.com/dividebyzero/claude-experiments/loom/internal/repo"
@@ -200,10 +203,20 @@ func servePush(r *repo.Repo, conn *wire.Conn, payload []byte) error {
 	if len(newv) > 0 {
 		newMH = multihash.Multihash(newv)
 	}
+
+	// A push is a ref update: run server-side ref-update hooks as a policy gate
+	// (design §2). A veto refuses the push before the ref moves.
+	hookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := hook.EvaluateRefUpdate(hookCtx, r, name, oldMH, newMH); err != nil {
+		_ = conn.WriteError(fmt.Sprintf("push rejected: %v", err))
+		return conn.Flush()
+	}
 	if err := r.Refs.CompareAndSwap(name, oldMH, newMH, "p2p-push", "push"); err != nil {
 		_ = conn.WriteError(fmt.Sprintf("push rejected: %v", err))
 		return conn.Flush()
 	}
+	_ = hook.NotifyRefUpdate(hookCtx, r, name, oldMH, newMH)
 	if err := conn.WriteOK(); err != nil {
 		return err
 	}
