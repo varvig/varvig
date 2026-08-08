@@ -8,7 +8,7 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Steps 1–8 complete
+## Status: Steps 1–9 complete
 
 ### Step 1 — the frozen core
 
@@ -158,6 +158,26 @@ textual diff3, re-run the losing change's *intent* against the new base.
   model wired in this environment) and leaves markers in the working tree on
   conflict.
 
+### Step 9 — speculation store, scoring, promotion, and garbage collection
+
+Branching becomes search (§1.5): produce many ephemeral attempts, score them,
+promote the winner, and reclaim the rest — with retention designed in, since at
+speculation volume it is a first-order problem (§1.5, §5).
+
+- **Speculation pool** (`internal/spec`) — candidates are grouped under a task,
+  one file per candidate (`.loom/spec/<task>/<change>`), so concurrent agents
+  add attempts with independent atomic writes and no branch-name ceremony.
+- **Scoring against an objective** — a `Scorer` interface ranks candidates; the
+  objective (a test suite, a wasm scorer) is injected, never embedded (§3.3).
+- **Promotion** — `spec promote` advances a real ref to the best candidate by
+  compare-and-swap; the winner becomes permanent, losers stay in the pool.
+- **Retention** — `spec prune` keeps the top-K by score and drops the rest from
+  the pool; dropping a candidate stops protecting it, it does not delete it.
+- **Garbage collection** (`internal/gc`) — mark-and-sweep from a root set of
+  **all refs, every reflog id, and every live pool candidate**. Because reflog
+  ids are roots, anything recoverable through the reflog survives GC —
+  **universal undo is preserved** (§2). `gc [--dry-run]`.
+
 ## Layout
 
 ```
@@ -180,6 +200,8 @@ loom/
     affected/          tree diff + dependency graph -> affected-set index
     txn/               read/write-set scheduler: serialize conflicts, retry on CAS
     merge/             three-way merge + merge-by-regeneration driver
+    spec/              speculation pool: score, promote, retention
+    gc/                mark-and-sweep GC rooted at refs + reflog + pool
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
 ```

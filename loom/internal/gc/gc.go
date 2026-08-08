@@ -1,0 +1,140 @@
+// Package gc is Loom's garbage collector (design §1.5: retention is a
+// first-order problem, so GC is designed in, not bolted on). It is a
+// mark-and-sweep over the object store from a fixed root set:
+//
+//   - every ref (branches, tags, notes, hooks, remotes) and its target
+//   - every id ever recorded in a reflog (old and new), so anything recoverable
+//     through the reflog survives — universal undo is preserved (design §2)
+//   - every live speculation candidate in the pool
+//
+// Anything not reachable from those roots is unreferenced and swept. Retention
+// (spec.Prune) decides what stops being a root; GC reclaims what retention let
+// go. GC is an offline maintenance operation, not run concurrently with writers.
+package gc
+
+import (
+	"github.com/dividebyzero/claude-experiments/loom/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/loom/internal/repo"
+	"github.com/dividebyzero/claude-experiments/loom/internal/spec"
+)
+
+// Report summarizes a collection.
+type Report struct {
+	Roots   int
+	Scanned int
+	Kept    int
+	Deleted int
+	// DeletedIDs lists reclaimed objects (populated on dry runs and real runs).
+	DeletedIDs []multihash.Multihash
+}
+
+// Roots returns the garbage-collection roots: ref targets, all reflog ids, and
+// live speculation candidates. pool may be nil.
+func Roots(r *repo.Repo, pool *spec.Pool) ([]multihash.Multihash, error) {
+	var roots []multihash.Multihash
+
+	names, err := r.Refs.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range names {
+		if id, err := r.Refs.Resolve(n); err == nil {
+			roots = append(roots, id)
+		}
+	}
+
+	logs, err := r.Refs.LogNames()
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range logs {
+		entries, err := r.Refs.ReadLog(n)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if e.Old != nil {
+				roots = append(roots, e.Old)
+			}
+			if e.New != nil {
+				roots = append(roots, e.New)
+			}
+		}
+	}
+
+	if pool != nil {
+		changes, err := pool.AllChanges()
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, changes...)
+	}
+	return roots, nil
+}
+
+// Collect marks everything reachable from the roots and sweeps the rest. When
+// dryRun is true nothing is deleted; the report still lists what would be.
+func Collect(r *repo.Repo, pool *spec.Pool, dryRun bool) (Report, error) {
+	roots, err := Roots(r, pool)
+	if err != nil {
+		return Report{}, err
+	}
+
+	live := map[string]bool{}
+	var mark func(id multihash.Multihash) error
+	mark = func(id multihash.Multihash) error {
+		key := id.Hex()
+		if live[key] {
+			return nil
+		}
+		// A root may name an object that no longer exists (e.g. a reflog id
+		// from a prior GC); skip such gracefully.
+		if !r.Objects.Has(id) {
+			return nil
+		}
+		live[key] = true
+		obj, err := r.Objects.Get(id)
+		if err != nil {
+			return err
+		}
+		links, err := obj.Links()
+		if err != nil {
+			return err
+		}
+		for _, l := range links {
+			if err := mark(l); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, root := range roots {
+		if err := mark(root); err != nil {
+			return Report{}, err
+		}
+	}
+
+	rep := Report{Roots: len(roots), Kept: len(live)}
+	var doomed []multihash.Multihash
+	err = r.Objects.Walk(func(id multihash.Multihash) error {
+		rep.Scanned++
+		if !live[id.Hex()] {
+			doomed = append(doomed, id)
+		}
+		return nil
+	})
+	if err != nil {
+		return Report{}, err
+	}
+
+	for _, id := range doomed {
+		if !dryRun {
+			if err := r.Objects.Delete(id); err != nil {
+				return rep, err
+			}
+		}
+		rep.Deleted++
+		rep.DeletedIDs = append(rep.DeletedIDs, id)
+	}
+	return rep, nil
+}
