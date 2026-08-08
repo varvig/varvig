@@ -148,9 +148,13 @@ not a human command:
 Merge-by-regeneration (§1.2): when two changes conflict, rather than forcing a
 textual diff3, re-run the losing change's *intent* against the new base.
 
-- **Three-way merge** — finds the merge base (DAG ancestor), then merges each
-  file. Files changed on one side, or identically on both, resolve trivially;
-  the Merkle tree makes untouched subtrees free.
+- **Three-way merge with a recursive base** — finds the *best common
+  ancestors* (all maximal common ancestors, not just the first). A linear
+  history has one; a criss-cross history has several, which are recursively
+  merged into a synthesized virtual base so the merge measures change against a
+  base that already reconciles the ancestors (the two-ancestor case is exact).
+  Files changed on one side, or identically on both, resolve trivially; the
+  Merkle tree makes untouched subtrees free.
 - **Textual fast path** — a line-level three-way merge (`diff3`) resolves
   non-overlapping edits to the same file cleanly.
 - **Regeneration on conflict** — an overlapping conflict hands the incoming
