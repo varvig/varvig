@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/loom/internal/affected"
+	"github.com/dividebyzero/claude-experiments/loom/internal/conformance"
 	"github.com/dividebyzero/claude-experiments/loom/internal/gc"
 	"github.com/dividebyzero/claude-experiments/loom/internal/gitport"
 	"github.com/dividebyzero/claude-experiments/loom/internal/hook"
@@ -60,6 +61,7 @@ var commands = map[string]func([]string) error{
 	"merge":       cmdMerge,
 	"spec":        cmdSpec,
 	"gc":          cmdGc,
+	"conform":     cmdConform,
 }
 
 func main() {
@@ -137,6 +139,7 @@ usage:
   loom spec promote <task> [ref]      promote the best candidate onto a ref
   loom spec prune <task> <keepK>      retention: keep top-K, drop the rest
   loom gc [--dry-run]                 sweep unreachable objects
+  loom conform [--emit|--id]          check this build against the frozen format
 `)
 }
 
@@ -1263,6 +1266,40 @@ func cmdGc(args []string) error {
 		verb = "would delete"
 	}
 	fmt.Printf("roots:%d scanned:%d kept:%d %s:%d\n", rep.Roots, rep.Scanned, rep.Kept, verb, rep.Deleted)
+	return nil
+}
+
+func cmdConform(args []string) error {
+	// The conformance suite is about the binary and the frozen format, not any
+	// repository, so this command opens nothing.
+	for _, a := range args {
+		switch a {
+		case "--emit":
+			b, err := conformance.CanonicalJSON(conformance.Build())
+			if err != nil {
+				return err
+			}
+			os.Stdout.Write(b)
+			return nil
+		case "--id":
+			b, err := conformance.CanonicalJSON(conformance.Build())
+			if err != nil {
+				return err
+			}
+			fmt.Println(conformance.SuiteID(b).Hex())
+			return nil
+		}
+	}
+	fails := conformance.Verify(conformance.Golden())
+	if len(fails) > 0 {
+		for _, f := range fails {
+			fmt.Fprintf(os.Stderr, "  FAIL %s\n", f)
+		}
+		return fmt.Errorf("conformance: %d failure(s) against suite %s", len(fails), conformance.GoldenSuiteID)
+	}
+	g := conformance.Golden()
+	n := len(g.Generated.Objects) + len(g.Generated.Multihash) + len(g.Generated.Wire) + len(g.RoundTrip)
+	fmt.Printf("conformant: %d vectors pass suite %s\n", n, conformance.GoldenSuiteID)
 	return nil
 }
 

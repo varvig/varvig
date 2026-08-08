@@ -8,7 +8,7 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Steps 1–9 complete
+## Status: Steps 1–10 complete — the full design build order is implemented
 
 ### Step 1 — the frozen core
 
@@ -178,6 +178,23 @@ speculation volume it is a first-order problem (§1.5, §5).
   ids are roots, anything recoverable through the reflog survives GC —
   **universal undo is preserved** (§2). `gc [--dry-run]`.
 
+### Step 10 — conformance suite and cross-version interop matrix
+
+Compatibility that isn't tested is just a promise (§4.7). See
+[`CONFORMANCE.md`](./CONFORMANCE.md).
+
+- **The suite is a content-addressed artifact** — `internal/conformance/
+  vectors.json` pins the frozen surfaces (object encodings + identities,
+  multihash framing, wire frame format, and unknown-field / unknown-type
+  round-trips), and its own multihash is the suite's stable identity.
+- **A hard gate** — `loom conform` and `go test ./internal/conformance/` fail
+  loudly on any drift; a `TestSuiteIDStable` check makes an artifact change
+  visible in review. Legitimate format evolution is additive-only.
+- **The cross-version matrix** — every conformance-bearing release must satisfy
+  the same suite; CI builds each tagged release in history and runs its
+  `conform`, so the matrix grows as releases accrue. `loom conform --emit` /
+  `--id` are the comparison points.
+
 ## Layout
 
 ```
@@ -202,8 +219,10 @@ loom/
     merge/             three-way merge + merge-by-regeneration driver
     spec/              speculation pool: score, promote, retention
     gc/                mark-and-sweep GC rooted at refs + reflog + pool
+    conformance/       frozen-format golden vectors + cross-version suite
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
+  CONFORMANCE.md       the conformance suite + cross-version matrix protocol
 ```
 
 ## Build

@@ -1,0 +1,104 @@
+{
+  "generated": {
+    "objects": [
+      {
+        "name": "blob/hello",
+        "type": 1,
+        "hex": "4c4f4d310101010e68656c6c6f2c206167656e74730a",
+        "id": "1e20e152df602bc5c3814c83a2c993ace5fc119fdd4bee4d35e5c857757d3a9b0845"
+      },
+      {
+        "name": "blob/empty",
+        "type": 1,
+        "hex": "4c4f4d3101010100",
+        "id": "1e20097b10bc241e7f5fc423a9d2d248ad874f48e7e3bed94c937c83eae7e51d5593"
+      },
+      {
+        "name": "tree/two-entries",
+        "type": 2,
+        "hex": "4c4f4d31020101600209524541444d452e6d64a4830201221e20cfe4a43e4a2d8e9e448ba87680d3bd60a3d5a7770959c3b0b4409a1859eca6b60672756e2e7368ed830201221e20a34feb2acd585dc8cadd9871162d3f4fe0e26f61e688673781c961b98abbea26",
+        "id": "1e208c8e1c0c2dd9f3be295c56facedcfcb8f91ab57f1e0fed302e1d9d9c0930fcd7"
+      },
+      {
+        "name": "change/minimal",
+        "type": 3,
+        "hex": "4c4f4d31030501221e206baa6c9f461fe834a9da0ebb62e0f6fb8c11988a58cbc51b8da8040aea19bc3a0201000307696e697469616c0405e0d6d1b50605076167656e742d30",
+        "id": "1e2010c31275420124ecb5fbc39d7fe4202c887010557952bbef514f01c50ba50e86"
+      },
+      {
+        "name": "change/signed-with-provenance",
+        "type": 3,
+        "hex": "4c4f4d31030701221e206baa6c9f461fe834a9da0ebb62e0f6fb8c11988a58cbc51b8da8040aea19bc3a022401221e20ebdea6058df2230dc25b7a7c7b487b470c508c2e0a5119c96893c443de3a9e79030d64696420746865207468696e670405e0d6d1b50605076167656e742d3706221e2016e4963ca00b4897a7a5194778c15e6c6065d450ab8bb0e3bfe0ea1d3bcdcafd070501deadbeef",
+        "id": "1e2018d95161892a9218935308a1b52fae58c91b1d46408bf7dacb9f1835e09b057c"
+      },
+      {
+        "name": "provenance/full",
+        "type": 4,
+        "hex": "4c4f4d3104090105616c6963650206636c61756465030178040f74656d70657261747572653d302e37050c02047265616405777269746506221e205c9cc8c53d49a31722f68557e0ef0f12ec15232a4fb43c284e92b22367927e9907047461736b08036374780904706c616e",
+        "id": "1e20c6d90f63383f354d7b10e5a72390ea00bbc43b6bfa9d66f66f912f2170978f3d"
+      },
+      {
+        "name": "note/review",
+        "type": 5,
+        "hex": "4c4f4d31050601221e206baa6c9f461fe834a9da0ebb62e0f6fb8c11988a58cbc51b8da8040aea19bc3a020672657669657703044c47544d04221e20ebdea6058df2230dc25b7a7c7b487b470c508c2e0a5119c96893c443de3a9e790505e0d6d1b5060603626f62",
+        "id": "1e20b884084c2f498fd337e52e5a83ed5cc883ae52cdddcd4d415bd7f5df286a3e54"
+      },
+      {
+        "name": "hookconfig/one",
+        "type": 6,
+        "hex": "4c4f4d310601012f010a7072652d636f6d6d6974221e20a34feb2acd585dc8cadd9871162d3f4fe0e26f61e688673781c961b98abbea26",
+        "id": "1e2053b275657554bc8e3593b1ed8345fe488ee29969009aff2fc6c4cd1d24b98ff8"
+      }
+    ],
+    "multihash": [
+      {
+        "algo": "sha2-256",
+        "code": 18,
+        "input_hex": "6c6f6f6d",
+        "mh": "1220784a2ddf5d4d61b6ae157ca800ce8ab7694b7141dc6f652a2600323d706a3d86"
+      },
+      {
+        "algo": "sha2-256",
+        "code": 18,
+        "input_hex": "",
+        "mh": "1220e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "algo": "blake3",
+        "code": 30,
+        "input_hex": "6c6f6f6d",
+        "mh": "1e204bc380f95f77b418905513934a85a643b988cfdfc3f2c73c6161f9ac1e36284f"
+      },
+      {
+        "algo": "blake3",
+        "code": 30,
+        "input_hex": "",
+        "mh": "1e20af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+      }
+    ],
+    "wire": [
+      {
+        "name": "handshake",
+        "hex": "4c4d57310113066c6f6f6d2f3101076465666c617465021e12"
+      },
+      {
+        "name": "refs-frame",
+        "hex": "0316010f726566732f68656164732f6d61696e041e200102"
+      }
+    ]
+  },
+  "round_trip": [
+    {
+      "name": "blob/unknown-field",
+      "type": 1,
+      "hex": "4c4f4d31010201077061796c6f6164631a70726f76656e616e63652d66726f6d2d7468652d667574757265",
+      "id": "1e205603786cce5603784dcc75793fc7a1be7d03857289cfdff96566abb3ef381965"
+    },
+    {
+      "name": "opaque/unknown-type",
+      "type": 9999,
+      "hex": "4c4f4d318f4e010703616263",
+      "id": "1e2099ca4617218ac69490d988dbd37c061a9903838d9402e307ed1a1a436f17b8f6"
+    }
+  ]
+}
