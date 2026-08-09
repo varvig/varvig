@@ -129,7 +129,15 @@ func usage() {
 
 usage:
   varvig version | --version            print the version and platform
-  varvig init [dir]                     initialize a repository
+  varvig init [dir]                     initialize a repository; also writes the
+                                        agent-rules files (VARVIG-AGENTS.md +
+                                        an AGENTS.md pointer)
+  varvig init --no-agent-rules [dir]    initialize without the agent-rules files
+  varvig init --agent-rules [opts]      (re)write the agent-rules files
+                                        --check  exit 2 if stale/missing (CI)
+                                        --diff   print diffs; write nothing
+                                        --print  print VARVIG-AGENTS.md
+                                        --json   machine-readable result
   varvig whoami                         print the active principal and fingerprint
   varvig key init --name <name>         create a fallback key (only if no SSH key)
   varvig trust [list|check [scope]]     inspect .varvig.d/allowed_keys
@@ -190,18 +198,8 @@ usage:
 `)
 }
 
-func cmdInit(args []string) error {
-	dir := "."
-	if len(args) > 0 {
-		dir = args[0]
-	}
-	r, err := repo.Init(dir)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("initialized empty varvig repository in %s\n", r.GitDir())
-	return nil
-}
+// cmdInit lives in init.go — it grew a flag surface (agent rules) too large for
+// main.go's dispatch table neighborhood.
 
 func cmdHashObject(args []string) error {
 	write := false
