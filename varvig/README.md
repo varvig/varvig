@@ -228,7 +228,7 @@ frame, or on-disk layout (the conformance suite is untouched). See
   (`SSH_AUTH_SOCK`), then the key file read directly, then a `~/.varvig/keys`
   fallback. Ed25519 only. The SSH wire formats are hand-rolled and cgo-free, so
   no dependency is added. `whoami`, `key init`.
-- **The repo is the trust store** (`internal/trust`, §3) — `.vcs/allowed_keys`
+- **The repo is the trust store** (`internal/trust`, §3) — `.varvig.d/allowed_keys`
   is a versioned table of principals with path-prefix scopes and
   `read`<`propose`<`promote` rights. Comments, blank lines, and unknown columns
   round-trip byte-for-byte (§3.1). `trust list` / `trust check`.
@@ -274,7 +274,7 @@ varvig/
     conformance/       frozen-format golden vectors + cross-version suite
     sshkey/            hand-rolled, cgo-free SSH key + ssh-agent primitives
     identity/          resolve the active principal (agent / ssh key / fallback)
-    trust/             .vcs/allowed_keys: principals, scopes, rights
+    trust/             .varvig.d/allowed_keys: principals, scopes, rights
     refupdate/         signed ref updates: canonical payload + verify pipeline
     readapi/           one read query layer: HTTP/JSON + CLI plumbing
   FORMAT.md            the frozen object-format specification
@@ -323,8 +323,8 @@ varvig reflog refs/heads/main            # inspect the append-only log
 
 # identity, trust, and signed promotion (see AUTH.md):
 varvig whoami                            # the active principal + fingerprint
-mkdir -p .vcs                            # the trust store is a versioned file
-echo "$(varvig whoami | awk '{print $2}') me / promote" > .vcs/allowed_keys
+mkdir -p .varvig.d                       # the trust store is a versioned file
+echo "$(varvig whoami | awk '{print $2}') me / promote" > .varvig.d/allowed_keys
 varvig trust check /                     # what may I do here?
 varvig promote refs/heads/main "$id" --ttl 3600   # move a ref via a signed update
 

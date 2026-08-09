@@ -45,7 +45,7 @@ varvig key init --name jan       # fallback only; refuses to overwrite; 0600
 ## 2. The trust store (`internal/trust`)
 
 **The repo is the trust store** (auth design §3): the list of allowed principals
-is a versioned file, `.vcs/allowed_keys`, changed like any other file.
+is a versioned file, `.varvig.d/allowed_keys`, changed like any other file.
 
 ```
 # fingerprint       name    scope        rights
@@ -66,9 +66,10 @@ SHA256:dK1oIu5Vb…   sam     src/web/     promote
   You cannot authorize yourself — a principal already holding `promote` must
   grant access (§3.2).
 
-The file lives at the tracked path `.vcs/allowed_keys`, deliberately **outside**
-the untracked `.varvig/` metadata directory (which `write-tree` skips), so the
-trust store is versioned and travels with the repository.
+The file lives at the tracked path `.varvig.d/allowed_keys` (the Unix `.d`
+config-directory convention, on brand with the tool). It is deliberately **not**
+the untracked `.varvig/` metadata directory — `write-tree` skips that one by
+exact name — so the trust store is versioned and travels with the repository.
 
 ```
 varvig trust list                # show principals

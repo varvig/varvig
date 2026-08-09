@@ -27,10 +27,11 @@ import (
 )
 
 // DefaultPath is the store's conventional location: a tracked file under the
-// .vcs/ configuration directory. It is deliberately NOT under .varvig/, which
-// is this implementation's private (untracked) metadata; .vcs/ is versioned
-// like any other path and travels with the repository.
-const DefaultPath = ".vcs/allowed_keys"
+// .varvig.d/ configuration directory (the Unix ".d" convention, on brand with
+// the tool). It is deliberately NOT the untracked .varvig/ metadata directory —
+// write-tree skips that one by exact name, so .varvig.d/ is versioned like any
+// other path and travels with the repository.
+const DefaultPath = ".varvig.d/allowed_keys"
 
 // Right is a privilege level. Rights are ordered: a principal holding a higher
 // right implicitly holds the lower ones (auth design §3.1).

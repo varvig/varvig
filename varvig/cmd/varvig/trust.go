@@ -11,7 +11,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
 )
 
-// cmdTrust inspects the repository trust store (.vcs/allowed_keys). It reads the
+// cmdTrust inspects the repository trust store (.varvig.d/allowed_keys). It reads the
 // working-tree copy — the file a user edits and commits — rather than a
 // committed snapshot; ref-update verification is the path that reads the store
 // as of a specific ref state (auth design §5.2).

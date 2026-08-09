@@ -118,7 +118,7 @@ usage:
   varvig init [dir]                     initialize a repository
   varvig whoami                         print the active principal and fingerprint
   varvig key init --name <name>         create a fallback key (only if no SSH key)
-  varvig trust [list|check [scope]]     inspect .vcs/allowed_keys
+  varvig trust [list|check [scope]]     inspect .varvig.d/allowed_keys
   varvig hash-object [-w] <file|->      hash (and optionally store) a blob
   varvig cat-object <id>                print an object's content/summary
   varvig write-tree                     store the working tree, print tree id
