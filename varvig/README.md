@@ -260,8 +260,12 @@ frame, or on-disk layout (the conformance suite is untouched). See
   holds the grant table in memory and keeps the repo warm. `task start` mints a
   grant *in the daemon* and opens a per-task 0600 Unix socket; the ephemeral key
   then lives only in the daemon (never on disk, never on the wire) and a reaper
-  revokes it at expiry. `task list` / `task stop` manage live tasks; `mcp
-  --connect` is a drain-correct stdio↔socket bridge for MCP clients. Without a
+  revokes it at expiry. `varvig mcp` is the stdio entry point a harness spawns:
+  by default it *relays through the daemon* — minting an ephemeral task and
+  bridging stdio to its per-task socket, stopping the task on disconnect — so
+  the credential and warm repo stay in the daemon. `daemon status` / `daemon
+  stop` and `task list` / `task stop` manage it; `mcp --connect` bridges a
+  specific socket and `mcp --standalone` forces an in-process gate. Without a
   daemon the same commands still work standalone — one process, its own key.
 
 ## Layout
@@ -363,9 +367,11 @@ varvig read proposals                             # unpromoted speculative state
 
 # ...or run a long-lived daemon so the key persists and many tasks share it:
 varvig daemon &                                   # holds grants in memory, serves per-task sockets
-varvig task start --scope src --ttl 1h ./task-a   # minted in the daemon; prints a task socket
+varvig daemon status                              # pid, uptime, live task count
+varvig mcp --scope src --ttl 1h                   # stdio gate; relays through the daemon if up
+varvig task start --scope src --ttl 1h ./task-a   # or mint a persistent task + its socket
 varvig task list                                  # the daemon's live tasks
-varvig mcp --connect <task.sock>                  # stdio bridge for an MCP client
+varvig mcp --connect <task.sock>                  # stdio bridge to a specific task socket
 ```
 
 An identity like `1e20…` reads as: `1e` = blake3, `20` = 32-byte digest length,

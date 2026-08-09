@@ -162,6 +162,8 @@ usage:
   varvig conform [--emit|--id]          check this build against the frozen format
   varvig daemon [--socket PATH]         run the long-running local daemon: holds task
                                         credentials in memory, serves a per-task MCP socket
+  varvig daemon status                  report a running daemon's pid, uptime, task count
+  varvig daemon stop                    ask a running daemon to exit
   varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]
                                       mint an ephemeral, scoped, propose-only task
                                       credential and a sparse checkout of its read set
@@ -169,9 +171,11 @@ usage:
   varvig task list                      list the daemon's live tasks
   varvig task stop <id>                 revoke a task early
   varvig mcp [--scope S] [--ttl DUR] [--base REF]
-                                      serve the MCP gate over stdio for a scoped task
+                                      MCP gate over stdio for a scoped task; relays through
+                                      the daemon when one is up, else a standalone gate
                                       (reads logged into provenance; propose, never promote)
-  varvig mcp --connect <task.sock>      bridge stdio to a daemon-hosted task socket
+  varvig mcp --connect <task.sock>      bridge stdio to a specific per-task socket
+  varvig mcp --standalone [...]         force an in-process gate (ignore any daemon)
 `)
 }
 

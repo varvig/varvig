@@ -60,9 +60,11 @@ type Daemon struct {
 
 	now func() time.Time // injectable clock; nil defaults to time.Now
 
-	mu     sync.Mutex
-	tasks  map[string]*taskServer
-	closed bool
+	mu      sync.Mutex
+	tasks   map[string]*taskServer
+	closed  bool
+	started int64              // unix seconds the daemon came up
+	cancel  context.CancelFunc // set while ServeControl runs; shutdown op calls it
 }
 
 type taskServer struct {
@@ -74,7 +76,9 @@ type taskServer struct {
 
 // New creates a daemon over repo r, placing per-task sockets under runDir.
 func New(r *repo.Repo, runDir string) *Daemon {
-	return &Daemon{repo: r, table: task.NewTable(), runDir: runDir, tasks: map[string]*taskServer{}}
+	d := &Daemon{repo: r, table: task.NewTable(), runDir: runDir, tasks: map[string]*taskServer{}}
+	d.started = d.clock().Unix()
+	return d
 }
 
 // SetClock overrides the daemon's clock (tests pin expiry). It also propagates
@@ -138,6 +142,23 @@ func (d *Daemon) acceptLoop(ts *taskServer) {
 			_ = gate.Serve(conn)
 		}()
 	}
+}
+
+// StatusInfo summarizes a running daemon.
+type StatusInfo struct {
+	Pid         int    `json:"pid"`
+	StartedUnix int64  `json:"started"`
+	Tasks       int    `json:"tasks"`
+	RunDir      string `json:"run_dir"`
+}
+
+// Status reports the daemon's live task count and uptime anchor. It reaps
+// expired tasks first so the count reflects reality.
+func (d *Daemon) Status() StatusInfo {
+	d.Reap()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return StatusInfo{Pid: os.Getpid(), StartedUnix: d.started, Tasks: len(d.tasks), RunDir: d.runDir}
 }
 
 // ListTasks returns every live task, pruning any that have expired first.
@@ -237,16 +258,25 @@ type ctrlRequest struct {
 
 // ctrlResponse is the reply to a ctrlRequest.
 type ctrlResponse struct {
-	OK    bool       `json:"ok"`
-	Error string     `json:"error,omitempty"`
-	Task  *TaskInfo  `json:"task,omitempty"`
-	Tasks []TaskInfo `json:"tasks,omitempty"`
+	OK     bool        `json:"ok"`
+	Error  string      `json:"error,omitempty"`
+	Task   *TaskInfo   `json:"task,omitempty"`
+	Tasks  []TaskInfo  `json:"tasks,omitempty"`
+	Status *StatusInfo `json:"status,omitempty"`
 }
 
 // ServeControl runs the control protocol over ln and a background reaper until
 // ctx is canceled or ln closes. Each connection carries one or more requests as
 // newline-delimited JSON; each gets one JSON response.
 func (d *Daemon) ServeControl(ctx context.Context, ln net.Listener) error {
+	// A derived context so a "shutdown" control op can stop the daemon from the
+	// inside, in addition to the caller canceling ctx (e.g. on SIGINT).
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	d.mu.Lock()
+	d.cancel = cancel
+	d.mu.Unlock()
+
 	// Background reaper: expiry does the revocation work without any client call.
 	reaper := time.NewTicker(30 * time.Second)
 	defer reaper.Stop()
@@ -315,6 +345,17 @@ func (d *Daemon) handleControl(req ctrlRequest) ctrlResponse {
 	case "stop":
 		if err := d.StopTask(req.ID); err != nil {
 			return ctrlResponse{Error: err.Error()}
+		}
+		return ctrlResponse{OK: true}
+	case "status":
+		s := d.Status()
+		return ctrlResponse{OK: true, Status: &s}
+	case "shutdown":
+		d.mu.Lock()
+		cancel := d.cancel
+		d.mu.Unlock()
+		if cancel != nil {
+			cancel() // stops ServeControl's accept loop; the process then exits
 		}
 		return ctrlResponse{OK: true}
 	default:
@@ -398,3 +439,9 @@ func StopRequest(id string) ctrlRequest { return ctrlRequest{Op: "stop", ID: id}
 
 // PingRequest builds a "ping" control request.
 func PingRequest() ctrlRequest { return ctrlRequest{Op: "ping"} }
+
+// StatusRequest builds a "status" control request.
+func StatusRequest() ctrlRequest { return ctrlRequest{Op: "status"} }
+
+// ShutdownRequest builds a "shutdown" control request, asking the daemon to exit.
+func ShutdownRequest() ctrlRequest { return ctrlRequest{Op: "shutdown"} }

@@ -44,13 +44,19 @@ func repoRuntimeDir(r *repo.Repo) string {
 func controlSocket(r *repo.Repo) string { return filepath.Join(repoRuntimeDir(r), "daemon.sock") }
 func runDir(r *repo.Repo) string        { return filepath.Join(repoRuntimeDir(r), "run") }
 
-// cmdDaemon runs the long-running local daemon (auth design §6.1, §7.4). It holds
-// task credentials in memory, keeps the repo warm, and serves the MCP gate on a
-// per-task socket for each task it mints. Nothing is persisted; the keys live and
-// die with the process. It runs until interrupted.
+// cmdDaemon runs or controls the long-running local daemon (auth design §6.1,
+// §7.4). It holds task credentials in memory, keeps the repo warm, and serves
+// the MCP gate on a per-task socket for each task it mints. Nothing is persisted;
+// the keys live and die with the process.
 //
-//	varvig daemon [--socket PATH]
+//	varvig daemon [--socket PATH]   run until interrupted
+//	varvig daemon status            report a running daemon's pid, uptime, task count
+//	varvig daemon stop              ask a running daemon to exit
 func cmdDaemon(args []string) error {
+	if len(args) >= 1 && (args[0] == "status" || args[0] == "stop") {
+		return daemonControl(args[0])
+	}
+
 	socket := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -69,6 +75,11 @@ func cmdDaemon(args []string) error {
 	}
 	if socket == "" {
 		socket = controlSocket(r)
+	}
+	// Refuse to start a second daemon on the same socket: if one answers a ping,
+	// bail with a clear message instead of a confusing bind error.
+	if resp, derr := daemon.DialControl(socket, daemon.PingRequest()); derr == nil && resp.OK {
+		return fmt.Errorf("daemon: already running (control socket %s responds to ping)", socket)
 	}
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		return err
@@ -89,21 +100,63 @@ func cmdDaemon(args []string) error {
 	return d.ServeControl(ctx, ln)
 }
 
-// cmdMcp serves or bridges the MCP gate (auth design §8). It is a subcommand of
-// the core binary, not a client: agents are the primary user, a sandbox needs
-// MCP on every task, and read-logging into provenance is a core write concern.
-// Two modes:
+// daemonControl implements `varvig daemon status` and `varvig daemon stop` by
+// talking to a running daemon's control socket.
+func daemonControl(op string) error {
+	r, err := repo.Open(".")
+	if err != nil {
+		return err
+	}
+	sock := controlSocket(r)
+	switch op {
+	case "status":
+		resp, err := daemon.DialControl(sock, daemon.StatusRequest())
+		if err != nil {
+			return fmt.Errorf("daemon status: no daemon running for this repo (%w)", err)
+		}
+		if !resp.OK || resp.Status == nil {
+			return fmt.Errorf("daemon status: %s", resp.Error)
+		}
+		s := resp.Status
+		fmt.Printf("running  pid %d  up since %s  tasks %d\n",
+			s.Pid, time.Unix(s.StartedUnix, 0).Format(time.RFC3339), s.Tasks)
+		fmt.Printf("control  %s\n", sock)
+		fmt.Printf("run dir  %s\n", s.RunDir)
+		return nil
+	case "stop":
+		resp, err := daemon.DialControl(sock, daemon.ShutdownRequest())
+		if err != nil {
+			return fmt.Errorf("daemon stop: no daemon running for this repo (%w)", err)
+		}
+		if !resp.OK {
+			return fmt.Errorf("daemon stop: %s", resp.Error)
+		}
+		fmt.Println("daemon stopping")
+		return nil
+	default:
+		return fmt.Errorf("daemon: unknown subcommand %q", op)
+	}
+}
+
+// cmdMcp is the stdio entry point an agent harness spawns (auth design §8). It
+// speaks the MCP JSON-RPC stream on stdin/stdout; human-facing output goes to
+// stderr so it cannot corrupt the protocol channel. Three modes, in precedence:
 //
-//	varvig mcp [--scope S] [--ttl DUR] [--base REF]   # standalone: mint a key, serve over stdio
-//	varvig mcp --connect <task.sock>                  # bridge stdio to a daemon-hosted task
+//	varvig mcp --connect <task.sock>                  # bridge stdio to a specific task socket
+//	varvig mcp [--scope S] [--ttl DUR] [--base REF]   # relay through the daemon (if one is up)
+//	varvig mcp --standalone [...]                     # force an in-process gate, no daemon
 //
-// stdin/stdout carry the JSON-RPC stream; all human-facing output goes to stderr
-// so it cannot corrupt the protocol channel.
+// The default (no flags beyond scope/ttl) is the relay: if a daemon is running
+// for the repo, mcp asks it to mint an ephemeral task, then bridges stdio to the
+// per-task socket — so the credential and the warm repo live in the daemon, and
+// the task is stopped when the client disconnects. With no daemon it falls back
+// to a standalone in-process gate that mints its own key.
 func cmdMcp(args []string) error {
 	scope := "/"
 	ttl := time.Hour
 	base := ""
 	connect := ""
+	standalone := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--connect":
@@ -111,6 +164,8 @@ func cmdMcp(args []string) error {
 				return errors.New("mcp: --connect requires a socket path")
 			}
 			connect, i = args[i+1], i+1
+		case "--standalone":
+			standalone = true
 		case "--scope":
 			if i+1 >= len(args) {
 				return errors.New("mcp: --scope requires a value")
@@ -137,8 +192,7 @@ func cmdMcp(args []string) error {
 		}
 	}
 
-	// Bridge mode: relay stdio to a daemon-hosted per-task socket, so an MCP
-	// client that only launches stdio servers can reach a long-lived task.
+	// Explicit bridge to a specific per-task socket.
 	if connect != "" {
 		fmt.Fprintf(os.Stderr, "varvig mcp: bridging stdio to %s\n", connect)
 		return daemon.Bridge(stdio{}, connect)
@@ -152,11 +206,34 @@ func cmdMcp(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Relay through the daemon when one is running (the default): mint an
+	// ephemeral task there and bridge stdio to it, so the key stays in the
+	// daemon and the repo stays warm. Stop the task when the client disconnects.
+	if !standalone {
+		sock := controlSocket(r)
+		if resp, derr := daemon.DialControl(sock, daemon.PingRequest()); derr == nil && resp.OK {
+			sresp, err := daemon.DialControl(sock, daemon.StartRequest(scope, ttl.String(), hexOrEmpty(baseID)))
+			if err != nil {
+				return fmt.Errorf("mcp: daemon start: %w", err)
+			}
+			if !sresp.OK || sresp.Task == nil {
+				return fmt.Errorf("mcp: daemon refused: %s", sresp.Error)
+			}
+			t := sresp.Task
+			fmt.Fprintf(os.Stderr, "varvig mcp: relaying task %s scope %s via daemon (key %s, expires %s)\n",
+				t.ID, t.Scope, t.Fingerprint, time.Unix(t.Expires, 0).Format(time.Kitchen))
+			defer daemon.DialControl(sock, daemon.StopRequest(t.ID)) // clean up the ephemeral relay task
+			return daemon.Bridge(stdio{}, t.Socket)
+		}
+	}
+
+	// Standalone: an in-process gate minting its own key (no daemon, or forced).
 	grant, err := task.New(scope, true, ttl, time.Now())
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "varvig mcp: task %s scope %s key %s (expires %s)\n",
+	fmt.Fprintf(os.Stderr, "varvig mcp: standalone task %s scope %s key %s (expires %s)\n",
 		grant.ID, grant.Scope, grant.Fingerprint(),
 		time.Unix(grant.NotAfter, 0).Format(time.Kitchen))
 	fmt.Fprintf(os.Stderr, "varvig mcp: base %s; propose-only, cannot promote\n", hexOrNone(baseID))

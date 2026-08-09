@@ -240,17 +240,26 @@ permissions are the authentication, §7.4). The key then lives only in the
 daemon's memory for the task's life — never on disk, never on the wire — and is
 used there to sign the task's proposals. A background reaper prunes expired
 grants and closes their sockets; expiry is the revocation mechanism (§6.2), so
-`task stop` (early revocation) is a convenience, not a requirement. The gate
-speaks JSON-RPC over any stream, so the daemon simply serves the same gate over
-each connection; an MCP client that only launches stdio servers reaches a
-daemon-hosted task through `mcp --connect`, a drain-correct stdio↔socket bridge.
+`task stop` (early revocation) is a convenience, not a requirement.
+
+The gate speaks JSON-RPC over any stream, so the daemon serves the same gate
+over each connection. **`varvig mcp` is the stdio entry point a harness spawns**,
+and by default it *relays through the daemon*: it asks the daemon to mint an
+ephemeral task, bridges stdio to that per-task socket (drain-correct, so the
+final replies are never truncated), and stops the task when the client
+disconnects. The credential and the warm repo stay in the daemon; the spawned
+process is a thin relay. `mcp --connect` bridges to a specific socket, and `mcp
+--standalone` forces an in-process gate when no daemon is wanted.
 
 ```
 varvig daemon [--socket PATH]                        # run the local daemon
+varvig daemon status                                 # pid, uptime, live task count
+varvig daemon stop                                   # ask it to exit
 varvig task start --scope S --ttl DUR [dir]          # mint (in the daemon, if up)
 varvig task list                                     # the daemon's live tasks
 varvig task stop <id>                                # revoke early
-varvig mcp --connect <task.sock>                     # stdio bridge to a task
+varvig mcp --scope S --ttl DUR                       # stdio gate; relays via daemon if up
+varvig mcp --connect <task.sock>                     # bridge to a specific task socket
 ```
 
 Without a daemon, `task start` still produces the scoped sparse checkout and

@@ -209,6 +209,51 @@ func TestControlProtocolStartAndList(t *testing.T) {
 	}
 }
 
+func TestStatusAndShutdown(t *testing.T) {
+	r, _ := newRepo(t)
+	d := New(r, filepath.Join(t.TempDir(), "run"))
+	defer d.Close()
+
+	ctrlSock := filepath.Join(t.TempDir(), "daemon.sock")
+	ln, err := readapi.ListenUnix(ctrlSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- d.ServeControl(context.Background(), ln) }()
+
+	// status reflects the live task count.
+	if _, err := DialControl(ctrlSock, StartRequest("/", "1h", "")); err != nil {
+		t.Fatal(err)
+	}
+	sresp, err := DialControl(ctrlSock, StatusRequest())
+	if err != nil || sresp.Status == nil {
+		t.Fatalf("status failed: %+v %v", sresp, err)
+	}
+	if sresp.Status.Tasks != 1 {
+		t.Fatalf("status tasks = %d, want 1", sresp.Status.Tasks)
+	}
+	if sresp.Status.Pid == 0 {
+		t.Error("status should report a pid")
+	}
+
+	// shutdown makes ServeControl return and the socket stop answering.
+	if resp, err := DialControl(ctrlSock, ShutdownRequest()); err != nil || !resp.OK {
+		t.Fatalf("shutdown failed: %+v %v", resp, err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ServeControl returned %v, want nil after shutdown", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeControl did not return after shutdown")
+	}
+	if _, err := DialControl(ctrlSock, PingRequest()); err == nil {
+		t.Fatal("control socket should be closed after shutdown")
+	}
+}
+
 func TestBridgeStdioToTaskSocket(t *testing.T) {
 	r, base := newRepo(t)
 	d := New(r, filepath.Join(t.TempDir(), "run"))
