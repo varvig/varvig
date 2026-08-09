@@ -154,6 +154,19 @@ func (t *Table) Get(id string, now time.Time) (*Grant, bool) {
 	return g, true
 }
 
+// Remove drops a grant by id, reporting whether it was present. It is how a
+// daemon revokes a task early (before expiry) — closing its socket and forgetting
+// its key.
+func (t *Table) Remove(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.grants[id]; !ok {
+		return false
+	}
+	delete(t.grants, id)
+	return true
+}
+
 // Active returns every still-valid grant, pruning expired ones as it goes.
 func (t *Table) Active(now time.Time) []*Grant {
 	t.mu.Lock()

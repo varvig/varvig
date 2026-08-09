@@ -256,6 +256,22 @@ frame, or on-disk layout (the conformance suite is untouched). See
   `list_proposals`, `propose`), scope enforced on every path, a hash in every
   response, every resolved hash logged into the change's provenance, and writes
   that are proposals into the speculation pool — never ref promotions.
+- **The daemon** (`internal/daemon`, §6.1) — the long-running local process that
+  holds the grant table in memory and keeps the repo warm. `task start` mints a
+  grant *in the daemon* and opens a per-task 0600 Unix socket; the ephemeral key
+  then lives only in the daemon (never on disk, never on the wire) and a reaper
+  revokes it at expiry. `varvig mcp` is the stdio entry point a harness spawns:
+  by default it *relays through the daemon* — minting an ephemeral task and
+  bridging stdio to its per-task socket, stopping the task on disconnect — so
+  the credential and warm repo stay in the daemon. `daemon status` / `daemon
+  stop` and `task list` / `task stop` manage it; `mcp --connect` bridges a
+  specific socket and `mcp --standalone` forces an in-process gate. Without a
+  daemon the same commands still work standalone — one process, its own key.
+- **Socket auth** (`internal/peercred`, §7.4) — every daemon and read-API Unix
+  socket is 0600 *and* gated by a kernel peer-uid check, so the kernel — not just
+  the file mode — confirms the connecting process's uid. Cgo-free on Linux
+  (`SO_PEERCRED`), macOS and FreeBSD (`LOCAL_PEERCRED`); other platforms fall back
+  to the 0600 mode.
 
 ## Layout
 
@@ -289,6 +305,8 @@ varvig/
     readapi/           one read query layer: HTTP/JSON + CLI plumbing
     task/              ephemeral, scoped, propose-only task credentials (§6)
     mcp/               in-process MCP gate over the query layer (§8)
+    daemon/            long-running local daemon: grant table + per-task sockets
+    peercred/          kernel peer-uid attestation for local sockets (§7.4)
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol
@@ -352,6 +370,14 @@ varvig mcp --scope src --ttl 1h                   # serve the gate over stdio (J
 # the agent reads within scope, and every propose lands in the speculation pool,
 # signed by the task key — never a ref promotion:
 varvig read proposals                             # unpromoted speculative states
+
+# ...or run a long-lived daemon so the key persists and many tasks share it:
+varvig daemon &                                   # holds grants in memory, serves per-task sockets
+varvig daemon status                              # pid, uptime, live task count
+varvig mcp --scope src --ttl 1h                   # stdio gate; relays through the daemon if up
+varvig task start --scope src --ttl 1h ./task-a   # or mint a persistent task + its socket
+varvig task list                                  # the daemon's live tasks
+varvig mcp --connect <task.sock>                  # stdio bridge to a specific task socket
 ```
 
 An identity like `1e20…` reads as: `1e` = blake3, `20` = 32-byte digest length,

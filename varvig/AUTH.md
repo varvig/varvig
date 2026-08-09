@@ -231,6 +231,48 @@ it is ready. Its rules:
 varvig mcp [--scope S] [--ttl DUR] [--base REF]      # serve the gate over stdio
 ```
 
+**The daemon** (`internal/daemon`, auth design §6.1, §7.4) is the long-running
+local process that makes `task start` and the gate two halves of one flow. One
+daemon per repository keeps the repo open (warm indices, §7.1) and holds the
+in-memory grant table. `task start` asks it to mint a grant: the daemon generates
+the ephemeral key, records it, and opens a **per-task Unix socket** (0600 — file
+permissions are the authentication, §7.4), backed by a **kernel peer-uid check**
+(`internal/peercred`) so only the daemon's own uid may connect — kernel-attested,
+unforgeable, nothing on the wire to leak. It is cgo-free on every platform that
+has it: `SO_PEERCRED` on Linux, `LOCAL_PEERCRED` (struct xucred) on macOS and
+FreeBSD. The read-only server's socket carries the same check; both fall back to
+the 0600 mode alone on platforms without one (Windows, OpenBSD/NetBSD). The key then lives only in the
+daemon's memory for the task's life — never on disk, never on the wire — and is
+used there to sign the task's proposals. A background reaper prunes expired
+grants and closes their sockets; expiry is the revocation mechanism (§6.2), so
+`task stop` (early revocation) is a convenience, not a requirement.
+
+The gate speaks JSON-RPC over any stream, so the daemon serves the same gate
+over each connection. **`varvig mcp` is the stdio entry point a harness spawns**,
+and by default it *relays through the daemon*: it asks the daemon to mint an
+ephemeral task, bridges stdio to that per-task socket (drain-correct, so the
+final replies are never truncated), and stops the task when the client
+disconnects. The credential and the warm repo stay in the daemon; the spawned
+process is a thin relay. `mcp --connect` bridges to a specific socket, and `mcp
+--standalone` forces an in-process gate when no daemon is wanted.
+
+```
+varvig daemon [--socket PATH]                        # run the local daemon
+varvig daemon status                                 # pid, uptime, live task count
+varvig daemon stop                                   # ask it to exit
+varvig task start --scope S --ttl DUR [dir]          # mint (in the daemon, if up)
+varvig task list                                     # the daemon's live tasks
+varvig task stop <id>                                # revoke early
+varvig mcp --scope S --ttl DUR                       # stdio gate; relays via daemon if up
+varvig mcp --connect <task.sock>                     # bridge to a specific task socket
+```
+
+Without a daemon, `task start` still produces the scoped sparse checkout and
+`varvig mcp` serves a standalone gate that mints its own key — the same
+capability model, just without a shared table across processes. Sockets live
+under a short per-uid runtime dir (the `sun_path` length cap rules out a deep
+`.varvig/` path), keyed by a hash of the repo root so daemon and client agree.
+
 > **Residual risk (auth design §8.3).** Repository content reaching an agent is
 > untrusted input: a comment in a source file can attempt to redirect the
 > agent's behavior. Scoping limits the blast radius; it does not eliminate the
@@ -248,7 +290,7 @@ condition occurs (auth design §11):
 |---|---|
 | Signed `allowed_keys` | Untrusted peers relay the repo |
 | Short-lived certificates for task keys | Agents propose to *remote* peers |
-| `SO_PEERCRED` / `getpeereid` peer-uid attestation | Beyond the 0600 socket, kept off now to stay cgo-free/cross-platform |
+| Peer-uid attestation on OpenBSD/NetBSD | `internal/peercred` covers Linux (`SO_PEERCRED`), macOS and FreeBSD (`LOCAL_PEERCRED`), all cgo-free; OpenBSD/NetBSD (`getpeereid`/`LOCAL_PEEREID`) and Windows still fall back to the 0600 mode |
 | DNS-rebinding token → HttpOnly cookie | A client serves HTML to a browser over TCP |
 | OS-keychain encryption of the fallback key at rest | Platform integration is available |
 | Signed ref updates over the wire protocol | Remote promotion is wired (local promote is implemented) |

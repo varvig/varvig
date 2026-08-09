@@ -29,6 +29,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/p2p"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/peercred"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
@@ -70,6 +71,7 @@ var commands = map[string]func([]string) error{
 	"conform":     cmdConform,
 	"task":        cmdTask,
 	"mcp":         cmdMcp,
+	"daemon":      cmdDaemon,
 }
 
 func main() {
@@ -159,12 +161,22 @@ usage:
                                       sweep unreachable objects; optionally
                                       expire reflogs older than <dur> first
   varvig conform [--emit|--id]          check this build against the frozen format
+  varvig daemon [--socket PATH]         run the long-running local daemon: holds task
+                                        credentials in memory, serves a per-task MCP socket
+  varvig daemon status                  report a running daemon's pid, uptime, task count
+  varvig daemon stop                    ask a running daemon to exit
   varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]
                                       mint an ephemeral, scoped, propose-only task
                                       credential and a sparse checkout of its read set
+                                      (minted in the daemon when one is running)
+  varvig task list                      list the daemon's live tasks
+  varvig task stop <id>                 revoke a task early
   varvig mcp [--scope S] [--ttl DUR] [--base REF]
-                                      serve the MCP gate over stdio for a scoped task
+                                      MCP gate over stdio for a scoped task; relays through
+                                      the daemon when one is up, else a standalone gate
                                       (reads logged into provenance; propose, never promote)
+  varvig mcp --connect <task.sock>      bridge stdio to a specific per-task socket
+  varvig mcp --standalone [...]         force an in-process gate (ignore any daemon)
 `)
 }
 
@@ -777,6 +789,14 @@ func serveReadOnly(r *repo.Repo, socket, tcp string) error {
 			socket = filepath.Join(r.GitDir(), "read.sock")
 		}
 		ln, err = readapi.ListenUnix(socket)
+		if err == nil {
+			// SO_PEERCRED: back the 0600 socket with a kernel-attested uid check
+			// (auth design §7.4). On platforms without it, the mode is the guard.
+			uid := os.Getuid()
+			ln = peercred.FilterListener(ln, uid, func(c peercred.Cred) {
+				fmt.Fprintf(os.Stderr, "varvig serve: rejected read connection from uid %d (allow %d)\n", c.UID, uid)
+			})
+		}
 	}
 	if err != nil {
 		return err
