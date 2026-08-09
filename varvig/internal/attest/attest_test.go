@@ -263,3 +263,65 @@ func TestGCRetainsAttestationAndTarget(t *testing.T) {
 		t.Fatalf("attestations after gc = %v (err %v), want 1", atts, err)
 	}
 }
+
+// TestVetoGateAdmit exercises the promotion gate directly (tickets M1): a change
+// with a vetoed ancestor is refused with ErrVetoed; a clean one is admitted.
+func TestVetoGateAdmit(t *testing.T) {
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s := newSigner(t)
+
+	anc := object.NewChange(object.Change{Message: "anc", Timestamp: 1, Author: "a"})
+	ancID, _ := r.Objects.Put(anc)
+	veto, _ := Sign(s, object.Attestation{Target: ancID, Decision: object.DecisionVeto, Strength: object.StrengthStrong})
+	if _, err := Attach(r, veto, "a", 1); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	child := object.NewChange(object.Change{Message: "child", Timestamp: 2, Author: "a", Parents: []multihash.Multihash{ancID}})
+	childID, _ := r.Objects.Put(child)
+
+	if err := (VetoGate{}).Admit(r, childID); !errors.Is(err, ErrVetoed) {
+		t.Fatalf("VetoGate.Admit(vetoed descendant) = %v, want ErrVetoed", err)
+	}
+	clean := object.NewChange(object.Change{Message: "clean", Timestamp: 3, Author: "a"})
+	cleanID, _ := r.Objects.Put(clean)
+	if err := (VetoGate{}).Admit(r, cleanID); err != nil {
+		t.Fatalf("VetoGate.Admit(clean) = %v, want nil", err)
+	}
+}
+
+// TestApprovalGateAdmit: an ApprovalGate requiring strong admits only a change
+// that derives to approved at strong, and still enforces the veto rule.
+func TestApprovalGateAdmit(t *testing.T) {
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s := newSigner(t)
+	gate := ApprovalGate{Required: object.StrengthStrong}
+
+	// Unapproved change is refused.
+	c := object.NewChange(object.Change{Message: "needs approval", Timestamp: 1, Author: "d"})
+	cID, _ := r.Objects.Put(c)
+	if err := gate.Admit(r, cID); !errors.Is(err, ErrNotApproved) {
+		t.Fatalf("Admit(unapproved) = %v, want ErrNotApproved", err)
+	}
+	// A weak approval does not satisfy a strong gate.
+	weak, _ := Sign(s, object.Attestation{Target: cID, Decision: object.DecisionApprove, Strength: object.StrengthWeak})
+	if _, err := Attach(r, weak, "b", 1); err != nil {
+		t.Fatalf("Attach weak: %v", err)
+	}
+	if err := gate.Admit(r, cID); !errors.Is(err, ErrNotApproved) {
+		t.Fatalf("Admit(weak under strong) = %v, want ErrNotApproved", err)
+	}
+	// A strong approval admits it.
+	strong, _ := Sign(s, object.Attestation{Target: cID, Decision: object.DecisionApprove, Strength: object.StrengthStrong})
+	if _, err := Attach(r, strong, "d", 2); err != nil {
+		t.Fatalf("Attach strong: %v", err)
+	}
+	if err := gate.Admit(r, cID); err != nil {
+		t.Fatalf("Admit(strong) = %v, want nil", err)
+	}
+}

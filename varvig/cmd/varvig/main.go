@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/affected"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/conformance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/gc"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/gitport"
@@ -1338,7 +1339,10 @@ func cmdSpec(args []string) error {
 				return err
 			}
 		}
-		id, err := spec.Promote(pool, r, task, ref, author())
+		// The promotion checkpoint is on by default: a candidate whose ancestry
+		// carries a veto is disqualified before scoring can pick it (tickets §4,
+		// M1). Constraints carry the safety (§3.3).
+		id, err := spec.PromoteWithPolicy(pool, r, task, ref, author(), attest.VetoGate{})
 		if err != nil {
 			return err
 		}

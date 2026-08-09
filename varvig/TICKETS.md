@@ -58,8 +58,9 @@ Build-on-top governance layers landed so far:
 |---|---|---|
 | **Attestations** (§2.1–§2.4) — signed decisions bound to a version, strength typing, derived status | **implemented** | `object.Attestation`/`object.Principal` (types 7/8); `internal/attest` (sign/verify, `Derive`, `PromotionBlocked`); frozen vectors `attestation/approve`, `principal/human` |
 | **Veto blocks descendants** (§2.3) — the veto half of the promotion checkpoint | **implemented** | `attest.PromotionBlocked` walks ancestors for a veto |
+| **Promotion checkpoint** (M1, §4) — policy consulted before scoring in the promote path | **implemented** | `spec.PromoteWithPolicy` + `spec.PromotionPolicy`; `attest.VetoGate` / `attest.ApprovalGate`; wired into `varvig spec promote` by default |
 | **Principals / org chart** (§1.4) — content-addressed keyholder records | **partial** | `object.Principal` + `attest.PrincipalSet`; a versioned org-chart ref is future work |
-| **Policy checkpoint / scoring / bridge** (§2.5, §3, §5) | **pending** | build-on-top work (§6.4) |
+| **Wasm policy module / scoring / bridge** (§2.5, §3, §5) | **pending** | build-on-top work (§6.4) |
 
 Everything else in §1–§5 above the object model (the wasm policy module, scoring stages,
 the Jira/GitHub bridge) is **build-on-top** work (§6.4) and is not yet present. The design
@@ -356,10 +357,15 @@ of any ticket work. D2, D3, and D4 are satisfied by the core as it already stand
 
 ### 6.3 Modify above the freeze line
 
-**M1 — Policy checkpoint in the promotion path** (step 9). Promotion currently scores and
-promotes. It must first consult the policy module and treat a veto on any ancestor
-revision as disqualifying. If the promotion path has no hook, this is a genuine
-modification — but to the scoring layer, not the store.
+**M1 — Policy checkpoint in the promotion path** (step 9). *Implemented as a module
+boundary.* `spec.Promote` now delegates to `spec.PromoteWithPolicy`, which consults an
+injected `spec.PromotionPolicy` before scoring selects a winner: a candidate the policy
+refuses is disqualified regardless of score, so a refusal can never be outranked. The
+speculation store stays policy-agnostic (the policy is injected, exactly like the Scorer);
+governance supplies the gate. `attest.VetoGate` disqualifies any change whose ancestry
+carries a veto, and `attest.ApprovalGate{Required}` additionally requires an approval of a
+given strength. `varvig spec promote` applies the veto gate by default. The wasm policy
+module (§2.5) is a future `PromotionPolicy` implementation that slots into the same hook.
 
 **M2 — Pluggable ordering in the transaction scheduler** (step 7). If ordering is
 hardcoded, replace it with a module boundary. Not frozen, but load-bearing code with
@@ -446,7 +452,8 @@ Cases already covered are marked.
   parallel (§1.4).
 - Derived blocking matches the affected-set index; no hand-declared links exist anywhere.
 - Promotion consults policy **before** scoring, and a policy refusal cannot be outranked
-  by a high score (M1).
+  by a high score (M1). *(covered: `TestPromoteWithPolicyRefusalNotOutranked`,
+  `TestPromoteWithPolicyAllRefused`, `TestVetoGateAdmit`, `TestApprovalGateAdmit`)*
 - A pluggable scorer swap changes ordering and changes nothing else (M2).
 - Deterministic replay: the same ticket set, scorer hash, and policy hash produce the same
   admission order.

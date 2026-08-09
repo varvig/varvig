@@ -318,6 +318,16 @@ On top of those primitives, the first governance layer is built:
   namespace, keyed by the intent hash, so they list by intent, pin the revision
   as a GC root, and sync like any object. The `attestation` and `principal`
   encodings are pinned into the frozen conformance suite.
+- **Promotion checkpoint** (`spec.PromoteWithPolicy`, `attest.VetoGate`, M1) —
+  the promote path consults an injected `PromotionPolicy` *before* scoring picks
+  a winner, so a policy refusal is never outranked by a high score: a refused
+  candidate is skipped in favor of a lower-scored admissible one. The
+  speculation store stays policy-agnostic (the policy is injected like the
+  Scorer); governance supplies the gate. `VetoGate` disqualifies any change
+  whose ancestry carries a veto, `ApprovalGate{Required}` also demands an
+  approval of a given strength, and `varvig spec promote` applies the veto gate
+  by default. The wasm policy module (§2.5) is a future gate that slots into the
+  same hook.
 
 ## Layout
 

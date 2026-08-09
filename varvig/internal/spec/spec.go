@@ -229,15 +229,56 @@ func (p *Pool) ScoreAll(ctx context.Context, task string, r *repo.Repo, s Scorer
 	return nil
 }
 
+// PromotionPolicy is the promotion checkpoint (design §4, tickets M1). It is
+// consulted *before* scoring decides a winner: a candidate it refuses is
+// disqualified regardless of how high it scores, so a policy refusal can never
+// be outranked (tickets §7.4). Like Scorer, it is an injected interface — the
+// speculation store stays policy-agnostic, and a real policy (a veto gate, a
+// wasm module) is supplied by the caller, never embedded here.
+type PromotionPolicy interface {
+	// Admit returns nil if change may be promoted, or a non-nil error naming
+	// the reason it is disqualified.
+	Admit(r *repo.Repo, change multihash.Multihash) error
+}
+
 // Promote advances ref to the task's best-scored candidate via compare-and-swap
 // (design §1.5: promote the winner). The promoted change becomes reachable from
 // the ref and is thereafter permanent; losers remain in the pool until pruned.
 func Promote(p *Pool, r *repo.Repo, task, ref, actor string) (multihash.Multihash, error) {
-	best, ok, err := p.Best(task)
+	return PromoteWithPolicy(p, r, task, ref, actor, nil)
+}
+
+// PromoteWithPolicy is Promote with a promotion checkpoint. The policy is
+// applied to each scored candidate first; the winner is the highest-scored
+// candidate the policy admits. If policy is nil the behavior is exactly
+// Promote. A candidate the policy refuses is skipped in favor of a lower-scored
+// admissible one, so a high score cannot buy past a refusal (tickets §7.4).
+func PromoteWithPolicy(p *Pool, r *repo.Repo, task, ref, actor string, policy PromotionPolicy) (multihash.Multihash, error) {
+	entries, err := p.List(task)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
+	best := Entry{}
+	found := false
+	refused := 0
+	for _, e := range entries {
+		if !e.Scored {
+			continue
+		}
+		if policy != nil {
+			if err := policy.Admit(r, e.Change); err != nil {
+				refused++
+				continue
+			}
+		}
+		if !found || e.Score > best.Score {
+			best, found = e, true
+		}
+	}
+	if !found {
+		if refused > 0 {
+			return nil, fmt.Errorf("spec: no promotable candidate for task %q (%d refused by policy)", task, refused)
+		}
 		return nil, fmt.Errorf("spec: no scored candidate to promote for task %q", task)
 	}
 	cur, err := r.Refs.Resolve(ref)
