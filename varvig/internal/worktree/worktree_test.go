@@ -69,6 +69,31 @@ func TestWriteTreeCheckoutRoundTrip(t *testing.T) {
 	assertContent(t, filepath.Join(dst, "pkg", "sub", "b.txt"), "deep\n")
 }
 
+// TestWriteTreeTracksVarvigDConfig guards the trust-store premise (AUTH.md §2):
+// the metadata directory .varvig/ is skipped by exact name, but the tracked
+// config directory .varvig.d/ (which holds allowed_keys) must be captured like
+// any other path, so the trust store is versioned and travels with the repo.
+func TestWriteTreeTracksVarvigDConfig(t *testing.T) {
+	src := t.TempDir()
+	mustWrite(t, filepath.Join(src, ".varvig", "HEAD"), "ref: x\n", 0o644)
+	mustWrite(t, filepath.Join(src, ".varvig.d", "allowed_keys"), "SHA256:x jan / promote\n", 0o644)
+
+	s := newStore(t)
+	treeID, err := WriteTree(s, src)
+	if err != nil {
+		t.Fatalf("WriteTree: %v", err)
+	}
+	dst := t.TempDir()
+	if err := Checkout(s, treeID, dst); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dst, ".varvig")); !os.IsNotExist(err) {
+		t.Fatal(".varvig metadata dir must be skipped by write-tree")
+	}
+	assertContent(t, filepath.Join(dst, ".varvig.d", "allowed_keys"), "SHA256:x jan / promote\n")
+}
+
 func TestWriteTreeSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks require privilege on windows")

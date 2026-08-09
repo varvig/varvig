@@ -48,6 +48,24 @@ func (s *Store) appendLog(name string, oldval, newval multihash.Multihash, actor
 	return f.Sync()
 }
 
+// AppendLog records an entry in a ref's log without changing the ref's value.
+// It is the audit hook for operations that must be recorded regardless of
+// outcome: a *rejected* signed ref update still leaves a trace (auth design
+// §5.2 step 8). Passing equal old and new signals "no state change" — the
+// message carries the reason. The append takes the ref lock so it cannot race
+// a concurrent CompareAndSwap.
+func (s *Store) AppendLog(name string, old, newval multihash.Multihash, actor, msg string) error {
+	if err := validName(name); err != nil {
+		return err
+	}
+	unlock, err := s.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return s.appendLog(name, old, newval, actor, msg)
+}
+
 // formatLogLine renders one reflog entry, sanitizing the actor and message.
 func formatLogLine(e LogEntry) string {
 	return fmt.Sprintf("%s %s %d %s\t%s\n",

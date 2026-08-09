@@ -30,6 +30,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/p2p"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
@@ -39,9 +40,13 @@ import (
 // commands maps a subcommand name to its handler.
 var commands = map[string]func([]string) error{
 	"init":        cmdInit,
+	"whoami":      cmdWhoami,
+	"key":         cmdKey,
+	"trust":       cmdTrust,
 	"hash-object": cmdHashObject,
 	"cat-object":  cmdCatObject,
 	"update-ref":  cmdUpdateRef,
+	"promote":     cmdPromote,
 	"show-ref":    cmdShowRef,
 	"reflog":      cmdReflog,
 	"write-tree":  cmdWriteTree,
@@ -52,6 +57,7 @@ var commands = map[string]func([]string) error{
 	"git-export":  cmdGitExport,
 	"git-import":  cmdGitImport,
 	"serve":       cmdServe,
+	"read":        cmdRead,
 	"clone":       cmdClone,
 	"fetch":       cmdFetch,
 	"push":        cmdPush,
@@ -110,6 +116,9 @@ func usage() {
 
 usage:
   varvig init [dir]                     initialize a repository
+  varvig whoami                         print the active principal and fingerprint
+  varvig key init --name <name>         create a fallback key (only if no SSH key)
+  varvig trust [list|check [scope]]     inspect .varvig.d/allowed_keys
   varvig hash-object [-w] <file|->      hash (and optionally store) a blob
   varvig cat-object <id>                print an object's content/summary
   varvig write-tree                     store the working tree, print tree id
@@ -118,11 +127,17 @@ usage:
   varvig log [ref|id]                   walk the change DAG from HEAD (or arg)
   varvig verify [ref|id]                check provenance and signatures on changes
   varvig update-ref <name> <new> [old]  atomically set a ref (CAS on old)
+  varvig promote <ref> <new> [opts]     move a ref via a signed ref update
+                                        (--scope S, --ttl SECONDS)
   varvig show-ref [name]                list refs or resolve one
   varvig reflog <name>                  print a ref's append-only log
   varvig git-export <dir> [branch]      export HEAD to a plain git repository
   varvig git-import <dir> [branch]      import a git branch into this repository
   varvig serve <addr>                   serve this repository to peers (e.g. :9418)
+  varvig serve --read-only [--socket P] serve the read-only HTTP query API
+              [--tcp ADDR]              (Unix socket by default; TCP opt-in)
+  varvig read <object|tree|blob|change|log|refs|proposals> [args]
+                                      read via the query layer, as JSON
   varvig clone <addr> <dir> [branch]    replicate a peer's branch into a new repo
   varvig fetch <addr> [branch]          fetch a peer's branch into refs/remotes/origin
   varvig push <addr> [branch]           push a local branch to a peer (CAS lease)
@@ -686,14 +701,39 @@ func cmdGitImport(args []string) error {
 }
 
 func cmdServe(args []string) error {
-	if len(args) != 1 {
-		return errors.New("usage: varvig serve <addr>")
+	readOnly := false
+	socket, tcp, addr := "", "", ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--read-only":
+			readOnly = true
+		case "--socket":
+			if i+1 >= len(args) {
+				return errors.New("serve: --socket requires a path")
+			}
+			socket, i = args[i+1], i+1
+		case "--tcp":
+			if i+1 >= len(args) {
+				return errors.New("serve: --tcp requires an address")
+			}
+			tcp, i = args[i+1], i+1
+		default:
+			addr = args[i]
+		}
 	}
 	r, err := repo.Open(".")
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", args[0])
+
+	if readOnly {
+		return serveReadOnly(r, socket, tcp)
+	}
+
+	if addr == "" {
+		return errors.New("usage: varvig serve <addr>  |  varvig serve --read-only [--socket PATH | --tcp ADDR]")
+	}
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
@@ -711,6 +751,31 @@ func cmdServe(args []string) error {
 			}
 		}()
 	}
+}
+
+// serveReadOnly runs the read-only HTTP query API. It defaults to a Unix socket
+// (whose 0600 mode is the authentication, auth design §7.4); TCP is an explicit
+// opt-in that binds loopback only, since it crosses a trust boundary a socket
+// does not (§7.4, §7.5).
+func serveReadOnly(r *repo.Repo, socket, tcp string) error {
+	q := readapi.New(r)
+	var ln net.Listener
+	var err error
+	switch {
+	case tcp != "":
+		ln, err = net.Listen("tcp", tcp)
+	default:
+		if socket == "" {
+			socket = filepath.Join(r.GitDir(), "read.sock")
+		}
+		ln, err = readapi.ListenUnix(socket)
+	}
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	fmt.Printf("serving read-only API for %s on %s\n", r.Root(), ln.Addr())
+	return readapi.Serve(q, ln)
 }
 
 func cmdClone(args []string) error {
