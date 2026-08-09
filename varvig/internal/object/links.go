@@ -64,6 +64,21 @@ func (o *Object) Links() ([]multihash.Multihash, error) {
 			ids = append(ids, e.Module)
 		}
 		return ids, nil
+	case TypeAttestation:
+		a, err := o.AsAttestation()
+		if err != nil {
+			return nil, err
+		}
+		var ids []multihash.Multihash
+		if a.Target != nil {
+			ids = append(ids, a.Target)
+		}
+		if a.Policy != nil {
+			ids = append(ids, a.Policy)
+		}
+		return ids, nil
+	case TypePrincipal:
+		return nil, nil
 	default:
 		return nil, nil
 	}

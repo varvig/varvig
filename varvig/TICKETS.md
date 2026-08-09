@@ -52,9 +52,18 @@ object is written under the frozen format.
 | **D5** — wasm host ABI feature-bit negotiated, never version-numbered | **pending** | wire capability bits exist (`internal/wire`); host-ABI negotiation for policy modules is future work |
 | **D6** — reserve the ref and note namespaces | **implemented** | `internal/reserved`; notes now accept the hierarchical `varvig/attest` form |
 
-Everything in §1–§5 above the object model (attestation objects, the policy checkpoint,
-scoring stages, the Jira/GitHub bridge) is **build-on-top** work (§6.4) and is not yet
-present. The design below is the target; the table above is the current truth.
+Build-on-top governance layers landed so far:
+
+| Layer | Status | Where |
+|---|---|---|
+| **Attestations** (§2.1–§2.4) — signed decisions bound to a version, strength typing, derived status | **implemented** | `object.Attestation`/`object.Principal` (types 7/8); `internal/attest` (sign/verify, `Derive`, `PromotionBlocked`); frozen vectors `attestation/approve`, `principal/human` |
+| **Veto blocks descendants** (§2.3) — the veto half of the promotion checkpoint | **implemented** | `attest.PromotionBlocked` walks ancestors for a veto |
+| **Principals / org chart** (§1.4) — content-addressed keyholder records | **partial** | `object.Principal` + `attest.PrincipalSet`; a versioned org-chart ref is future work |
+| **Policy checkpoint / scoring / bridge** (§2.5, §3, §5) | **pending** | build-on-top work (§6.4) |
+
+Everything else in §1–§5 above the object model (the wasm policy module, scoring stages,
+the Jira/GitHub bridge) is **build-on-top** work (§6.4) and is not yet present. The design
+below is the target; the tables above are the current truth.
 
 ---
 
@@ -397,19 +406,26 @@ Cases already covered are marked.
 
 - **Approval does not survive a spec edit.** Edit intent, assert promotion is refused.
   This is the single most important test in the suite; if it ever passes silently, the
-  audit chain is theatre.
+  audit chain is theatre. *(covered: `TestApprovalDoesNotSurviveSpecEdit`)*
 - Veto on an ancestor revision blocks promotion of every descendant, including
-  descendants created after the veto.
+  descendants created after the veto. *(covered: `TestVetoBlocksDescendants`,
+  `attest.PromotionBlocked`)*
 - Veto is non-destructive: vetoed speculation is GC-eligible, and the attestation and its
-  target survive GC (D4).
+  target survive GC (D4). *(covered: `TestGCRetainsAttestationAndTarget`; the
+  vetoed-speculation-is-GC-eligible half arrives with the speculation/promotion slice)*
 - A `weak` attestation cannot satisfy a policy requiring `strong`, and no code path
-  upgrades strength.
+  upgrades strength. *(covered: `TestWeakDoesNotSatisfyStrong`, `Strength.Satisfies`)*
 - A bridge key cannot mint a `strong` attestation, under any inbound payload.
+  *(covered: `TestBridgeCannotMintStrong`, `attest.VerifyWithPrincipal`)*
 - Delegated authority is bounded: an agent acting for a director cannot approve outside
-  the delegated scope.
+  the delegated scope. *(pending: needs delegation records; strength `delegated` is
+  represented but scope-bounding is future work)*
 - Signature over a mutated target fails verification (tamper test).
+  *(covered: `TestTamperedTargetFailsVerification`)*
 - Policy hash recorded at signing time is preserved, and evaluating "was this approved
   under the rules then in force" returns the right answer after a policy change.
+  *(partial: the policy hash is stored in the attestation and round-trips; the policy
+  module and its evaluation arrive with the policy-checkpoint slice)*
 
 ### 7.3 Replication and GC
 

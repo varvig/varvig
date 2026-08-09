@@ -300,6 +300,25 @@ those land first:
   a note pins its target as a GC root (D4). These needed no new code; see
   §0.1 of the note for where each is exercised.
 
+On top of those primitives, the first governance layer is built:
+
+- **Attestations** (`internal/attest`, object types `attestation` and
+  `principal`, §2) — a governance decision is a *signed decision object bound to
+  a specific intent revision hash*, never a `status: approved` field. Status is
+  derived from the attestations, not authored. Because the signature covers the
+  target hash, an approval **does not survive a spec edit**: a rewrite yields a
+  new revision hash that no attestation covers, so it derives back to pending —
+  the single most important property in the design, and the one that makes the
+  audit chain mean something. Strength is typed `weak` < `delegated` < `strong`,
+  recorded at signing and never upgraded: a compromised bridge cannot mint a
+  strong approval, because `VerifyWithPrincipal` checks the asserted strength
+  against the signer's principal kind. A veto on any ancestor revision makes
+  every descendant unpromotable (`PromotionBlocked`), even descendants created
+  after the veto. Attestations attach as notes in the reserved `varvig/attest`
+  namespace, keyed by the intent hash, so they list by intent, pin the revision
+  as a GC root, and sync like any object. The `attestation` and `principal`
+  encodings are pinned into the frozen conformance suite.
+
 ## Layout
 
 ```
@@ -335,6 +354,7 @@ varvig/
     daemon/            long-running local daemon: grant table + per-task sockets
     peercred/          kernel peer-uid attestation for local sockets (§7.4)
     reserved/          reserved ticket/governance ref + note namespaces (D6)
+    attest/            signed governance decisions: sign, verify, derive status
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol

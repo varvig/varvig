@@ -182,13 +182,52 @@ The entry list is `count` records of `eventLen event moduleLen module`, binding
 an event name to a wasm module blob's id. Modules are content-addressed, so
 triggers are versioned alongside the code they guard.
 
+### Attestation (`objectType = 7`)
+
+A signed governance decision bound to a specific intent revision hash
+(tickets §2.1). Status is never a stored field; it is derived from the set of
+attestations bound to a revision. Because the signature covers the target hash,
+editing the spec — which yields a new revision hash — leaves an approval
+attached to the bytes that were actually read and signed, so it does not carry
+forward (tickets §2.2).
+
+| Tag | Meaning                                               |
+|-----|-------------------------------------------------------|
+| 1   | target intent revision id (multihash)                 |
+| 2   | decision (uvarint: 1 approve, 2 veto, 3 delegate, 4 request-change) |
+| 3   | strength (uvarint: 1 weak, 2 delegated, 3 strong)     |
+| 4   | timestamp (uvarint, unix secs)                        |
+| 5   | rationale (UTF-8, optional)                           |
+| 6   | policy module id in force at signing (multihash, optional) |
+| 7   | signature blob                                        |
+
+Strength is recorded at signing time and **never upgraded** (tickets §2.4): a
+bridge, which signs on behalf of a keyless principal, can only ever produce a
+weak attestation, and no code path raises weak to strong. The signature (tag 7,
+excluded from the signed bytes) commits to the target, decision, and strength,
+so any mutation invalidates it.
+
+### Principal (`objectType = 8`)
+
+A keyholder (tickets §1.4). Principal records are content-addressed objects, so
+the org chart is versioned, hash-pinned, diffable, and auditable — including
+retroactively. Agent-specific provenance fields are additive future tags that
+older builds preserve untouched.
+
+| Tag | Meaning                                     |
+|-----|---------------------------------------------|
+| 1   | Ed25519 public key (32 bytes)               |
+| 2   | display name (UTF-8)                        |
+| 3   | kind (uvarint: 1 human, 2 agent, 3 bridge)  |
+
 ### Signatures
 
-The signature blob (change tag 7) is `uvarint(scheme) bytes(pubkey)
-bytes(sig)`; scheme 1 is Ed25519. A signature covers the change's canonical
-bytes **with the signature field omitted** — which still includes the
-provenance id (change tag 6), so the signature transitively commits to the
-provenance object's content. The object model treats the blob as opaque; its
+The signature blob (change tag 7, attestation tag 7) is `uvarint(scheme)
+bytes(pubkey) bytes(sig)`; scheme 1 is Ed25519. A signature covers the object's
+canonical bytes **with the signature field omitted**. For a change that still
+includes the provenance id (change tag 6), so the signature transitively commits
+to the provenance object's content; for an attestation it includes the target,
+decision, and strength. The object model treats the blob as opaque; its
 interpretation lives above the frozen core, keeping crypto policy out of the
 format (design §2 format neutrality).
 
