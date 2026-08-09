@@ -445,6 +445,11 @@ func cmdCheckout(args []string) error {
 		if err != nil {
 			return err
 		}
+		if !c.Materialized() {
+			// An unmaterialized change (a ticket) has no tree to lay down; this
+			// is a specific, named failure, not an empty working tree (D1).
+			return fmt.Errorf("%w: %s", object.ErrUnmaterialized, id.Hex())
+		}
 		treeID = c.Tree
 	}
 	if err := worktree.Checkout(r.Objects, treeID, r.Root()); err != nil {
@@ -973,6 +978,9 @@ func checkoutChange(r *repo.Repo, id multihash.Multihash) error {
 		c, err := o.AsChange()
 		if err != nil {
 			return err
+		}
+		if !c.Materialized() {
+			return fmt.Errorf("%w: %s", object.ErrUnmaterialized, id.Hex())
 		}
 		treeID = c.Tree
 	}

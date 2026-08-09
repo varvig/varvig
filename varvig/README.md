@@ -273,6 +273,33 @@ frame, or on-disk layout (the conformance suite is untouched). See
   (`SO_PEERCRED`), macOS and FreeBSD (`LOCAL_PEERCRED`); other platforms fall back
   to the 0600 mode.
 
+## Governance and tickets (Design Notes III)
+
+The third design note — governance, attestations, and intent intake (tickets as
+unmaterialized change records) — layers almost entirely above the frozen core.
+See [`TICKETS.md`](./TICKETS.md). It is mostly build-on-top work, but it turns on
+a handful of decisions that are cheap now and impossible after first run, so
+those land first:
+
+- **Unmaterialized changes** (`internal/object`, decision D1) — a ticket is a
+  change with intent but no tree. "No tree" is encoded as the explicit absence
+  of the tree field, never as the empty-tree hash, so an unmaterialized change
+  and a change materialized to the empty tree stay two distinct states that hash
+  differently and can never be silently conflated. `Change.Materialized`
+  reports the difference; checkout of an unmaterialized change fails with the
+  named `object.ErrUnmaterialized`. Pinned into the frozen suite as the
+  `change/unmaterialized` conformance vector.
+- **Reserved namespaces** (`internal/reserved`, decision D6) — the ref namespace
+  `refs/varvig/tickets/` and the note namespaces `varvig/attest`,
+  `varvig/external`, and `varvig/score` are fixed now, in the object-store
+  milestone, because identity cannot be retrofitted. Note namespaces may be
+  slash-separated so the hierarchical governance spaces are addressable. An old
+  binary lists, syncs, and preserves an empty reserved namespace intact.
+- **Already held by the core** — unknown object *kinds* round-trip (D2), notes
+  replicate like any other ref and an incomplete closure fails loudly (D3), and
+  a note pins its target as a GC root (D4). These needed no new code; see
+  §0.1 of the note for where each is exercised.
+
 ## Layout
 
 ```
@@ -307,10 +334,12 @@ varvig/
     mcp/               in-process MCP gate over the query layer (§8)
     daemon/            long-running local daemon: grant table + per-task sockets
     peercred/          kernel peer-uid attestation for local sockets (§7.4)
+    reserved/          reserved ticket/governance ref + note namespaces (D6)
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol
   AUTH.md              identity, auth, and the read API (Design Notes II)
+  TICKETS.md           governance, attestations, intent intake (Design Notes III)
 ```
 
 ## Build

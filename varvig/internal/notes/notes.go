@@ -31,10 +31,33 @@ type Entry struct {
 }
 
 func refName(namespace string, target multihash.Multihash) (string, error) {
-	if namespace == "" || strings.ContainsAny(namespace, "/\\ \t") {
-		return "", fmt.Errorf("notes: invalid namespace %q", namespace)
+	if err := validNamespace(namespace); err != nil {
+		return "", err
 	}
 	return "refs/notes/" + namespace + "/" + target.Hex(), nil
+}
+
+// validNamespace accepts a slash-separated namespace of non-empty segments, so
+// hierarchical namespaces such as the reserved governance spaces
+// "varvig/attest", "varvig/external", and "varvig/score" (tickets §1.3) are
+// expressible. It rejects leading/trailing slashes, path traversal, and
+// whitespace or control characters that would not map safely to a ref path.
+func validNamespace(namespace string) error {
+	if namespace == "" {
+		return fmt.Errorf("notes: invalid namespace %q: empty", namespace)
+	}
+	if strings.HasPrefix(namespace, "/") || strings.HasSuffix(namespace, "/") {
+		return fmt.Errorf("notes: invalid namespace %q: leading/trailing slash", namespace)
+	}
+	for _, seg := range strings.Split(namespace, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return fmt.Errorf("notes: invalid namespace %q: bad segment %q", namespace, seg)
+		}
+		if strings.ContainsAny(seg, "\\ \t\x00") {
+			return fmt.Errorf("notes: invalid namespace %q: illegal character", namespace)
+		}
+	}
+	return nil
 }
 
 // Add attaches a note to target under namespace, chaining onto any existing

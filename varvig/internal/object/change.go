@@ -2,16 +2,33 @@ package object
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 )
 
+// ErrUnmaterialized reports that a change carries intent but no tree: it has
+// not been materialized (tickets §1.1, decision D1). This is a legitimate,
+// distinct state — the object model of an intent whose code does not yet
+// exist — and it is deliberately *not* the same as a change materialized to
+// the empty tree (a real, meaningful repository state with no files). The two
+// encode to different bytes and hash differently; the distinction is preserved
+// so it can never be silently conflated after first run.
+var ErrUnmaterialized = errors.New("object: change is unmaterialized (no tree)")
+
 // Change is a history node in the DAG: a snapshot (a tree) plus its parents
 // and minimal metadata. It is the analogue of a Git commit, but deliberately
 // thin for step 1 — intent, provenance, and signing are layered on later as
 // new field tags (design §1.1, §2.1), which older builds preserve untouched.
+//
+// Tree is nullable. A change with no tree is *unmaterialized*: intent without
+// a materialization, the object underlying a ticket (tickets §1.1). The tree
+// field is therefore encoded as an explicit absence — the tag is omitted
+// entirely — rather than as the empty-tree hash, so that "not materialized"
+// and "materialized to an empty tree" remain two distinct, non-conflatable
+// states (decision D1). Use Materialized to tell them apart.
 type Change struct {
 	Tree      multihash.Multihash
 	Parents   []multihash.Multihash
@@ -24,6 +41,12 @@ type Change struct {
 	// verify layers require it for native changes.
 	Provenance multihash.Multihash
 }
+
+// Materialized reports whether the change carries a tree. A change with no
+// tree is an unmaterialized intent (a ticket, tickets §1.1); this is a normal
+// state, not an error, and is distinct from a change materialized to the empty
+// tree, for which Materialized reports true.
+func (c Change) Materialized() bool { return c.Tree != nil }
 
 // The parents list is serialized into one field value:
 //
@@ -55,11 +78,17 @@ func NewChange(c Change) *Object {
 	}
 
 	fields := []field{
-		{tag: tagChangeTree, val: append([]byte(nil), c.Tree...)},
 		{tag: tagChangeParents, val: pv},
 		{tag: tagChangeMessage, val: []byte(c.Message)},
 		{tag: tagChangeTimestamp, val: appendUvarint(nil, uint64(c.Timestamp))},
 		{tag: tagChangeAuthor, val: []byte(c.Author)},
+	}
+	// The tree is nullable (decision D1): emit the field only when the change
+	// is materialized. An unmaterialized change (a ticket) omits the tag
+	// entirely, encoding absence explicitly rather than as an empty-valued
+	// field or the empty-tree hash.
+	if c.Tree != nil {
+		fields = append(fields, field{tag: tagChangeTree, val: append([]byte(nil), c.Tree...)})
 	}
 	// Provenance is optional at the codec level: emit the field only when set,
 	// so changes without it (git-imported, legacy) encode exactly as before.
@@ -76,7 +105,12 @@ func (o *Object) AsChange() (Change, error) {
 	}
 	var c Change
 	if v, ok := o.Field(tagChangeTree); ok {
-		c.Tree = multihash.Multihash(append([]byte(nil), v...))
+		// Presence of the tag means materialized (decision D1). Copy into a
+		// guaranteed non-nil slice so Materialized reflects presence, not the
+		// value's length — absence of the tag is the only unmaterialized state.
+		tree := make([]byte, len(v))
+		copy(tree, v)
+		c.Tree = multihash.Multihash(tree)
 	}
 	if v, ok := o.Field(tagChangeMessage); ok {
 		c.Message = string(v)

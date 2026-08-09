@@ -114,6 +114,66 @@ func TestChangeRoundTrip(t *testing.T) {
 	}
 }
 
+// TestUnmaterializedChangeRoundTrip covers decision D1: a change with no tree
+// (a ticket, tickets §1.1) round-trips with its unmaterialized state intact,
+// and the tree tag is absent from the encoding rather than present-but-empty.
+func TestUnmaterializedChangeRoundTrip(t *testing.T) {
+	ch := NewChange(Change{
+		Message:   "add rate limiting to the auth module",
+		Timestamp: 1723100000,
+		Author:    "director",
+	})
+	// The tree tag must be absent, not present with an empty value.
+	if _, ok := ch.Field(tagChangeTree); ok {
+		t.Fatal("unmaterialized change emitted a tree field")
+	}
+	got, err := Decode(ch.Encode())
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	c, err := got.AsChange()
+	if err != nil {
+		t.Fatalf("AsChange: %v", err)
+	}
+	if c.Materialized() {
+		t.Fatal("decoded change reports materialized, want unmaterialized")
+	}
+	if c.Tree != nil {
+		t.Fatalf("unmaterialized change has a tree: %x", c.Tree)
+	}
+	if !bytes.Equal(got.Encode(), ch.Encode()) {
+		t.Fatal("unmaterialized change not byte-identical on round-trip")
+	}
+}
+
+// TestUnmaterializedNotEqualEmptyTree is the core D1 guarantee: an
+// unmaterialized change must not encode as, or hash as, a change materialized
+// to the empty tree. Conflating them is unrecoverable once written.
+func TestUnmaterializedNotEqualEmptyTree(t *testing.T) {
+	base := Change{Message: "same intent", Timestamp: 1, Author: "director"}
+
+	unmaterialized := NewChange(base)
+
+	withEmptyTree := base
+	withEmptyTree.Tree = mustID(t, NewTree(nil)) // materialized to the empty tree
+	materialized := NewChange(withEmptyTree)
+
+	if bytes.Equal(unmaterialized.Encode(), materialized.Encode()) {
+		t.Fatal("unmaterialized change encodes identically to an empty-tree change")
+	}
+	if mustID(t, unmaterialized).Equal(mustID(t, materialized)) {
+		t.Fatal("unmaterialized change hashes identically to an empty-tree change")
+	}
+	// And the empty-tree change is genuinely materialized.
+	mc, err := materialized.AsChange()
+	if err != nil {
+		t.Fatalf("AsChange: %v", err)
+	}
+	if !mc.Materialized() {
+		t.Fatal("empty-tree change reports unmaterialized")
+	}
+}
+
 // TestUnknownFieldsRoundTrip is the load-bearing §4.4 guarantee: a build that
 // does not understand a field must preserve it byte-for-byte on rewrite.
 func TestUnknownFieldsRoundTrip(t *testing.T) {

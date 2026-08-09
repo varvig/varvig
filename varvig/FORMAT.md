@@ -125,6 +125,17 @@ Tags 6 and 7 are optional at the codec level so that git-imported and legacy
 changes remain representable; the commit and verify layers require both on
 native changes (design §2.1).
 
+**Tag 1 (tree) is nullable.** A change with no tree is *unmaterialized*: it
+carries intent but no materialization — the object underlying a ticket
+(tickets §1.1, decision D1). Unmaterialized is encoded as **explicit absence of
+the tag**, never as an empty-valued tag and never as the empty-tree hash. This
+matters because a change materialized to the *empty tree* (a real repository
+state with no files) is a legitimate, different thing: it carries tag 1 set to
+the empty tree's identity. The two states therefore differ in their canonical
+bytes and hash differently, and the distinction can never be silently
+conflated. Checkout of an unmaterialized change is a specific named failure,
+not an empty working tree.
+
 ### Provenance (`objectType = 4`)
 
 Records who or what produced a change (design §1.1 intent, §2.1 signed
@@ -200,3 +211,25 @@ substrate: no ref state is ever silently lost.
 These are repository mechanics rather than object-format rules; the on-disk
 representation of refs and logs is a cache and may change. Only the object
 encoding and identity above are frozen.
+
+### Reserved namespaces (tickets §1.3, decision D6)
+
+The governance and ticket layers are built purely on top of the primitives
+above, but their **names** are reserved now, before first run — identity is the
+one thing that cannot be retrofitted. Reservation changes no frozen format: ref
+names and note namespaces already accept arbitrary values. See package
+`internal/reserved` for the canonical constants.
+
+| Namespace                       | Purpose                                         |
+|---------------------------------|-------------------------------------------------|
+| `refs/varvig/tickets/<id>`      | ticket identity (a ref moved by CAS)            |
+| `refs/varvig/tickets/<id>/spec` | current intent revision, if separated           |
+| note ns `varvig/attest`         | signed approve / veto / delegate decisions      |
+| note ns `varvig/external`       | foreign tracker IDs and sync watermarks         |
+| note ns `varvig/score`          | computed, cached scoring output                 |
+
+A note namespace `N` lives at `refs/notes/N/<target>`; note namespaces may be
+slash-separated, so the hierarchical governance spaces above are addressable. A
+build that has never heard of these namespaces still lists, syncs, and preserves
+them intact: an empty reserved namespace is simply the absence of any ref, so it
+is neither an error nor something garbage collection can reclaim.
