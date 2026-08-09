@@ -103,11 +103,6 @@ var Commands = []Command{
 		Usage:   "varvig affected [<base> <new>]",
 	},
 	{
-		Name: "checkout", AgentFacing: true,
-		Summary: "Materialize a change or tree into the working tree so you can inspect it. Never moves a ref.",
-		Usage:   "varvig checkout <ref|id>",
-	},
-	{
 		Name: "task", AgentFacing: true,
 		Summary: "Mint an ephemeral, scoped, propose-only task credential and a sparse checkout of its read set.",
 		Usage:   "varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]",
@@ -135,6 +130,7 @@ var Commands = []Command{
 	{Name: "key", NoRules: "identity setup; a human creates keys, an agent is issued a task credential"},
 	{Name: "trust", NoRules: "trust-store administration; a human manages allowed keys"},
 	{Name: "commit", NoRules: "advances HEAD directly; an agent proposes through the gate and never commits"},
+	{Name: "checkout", NoRules: "overwrites the working tree for an edit-then-commit flow a propose-only agent cannot complete; `task start` already materializes the read set"},
 	{Name: "promote", NoRules: "promotion is the human-gated step; a propose-only credential can never promote"},
 	{Name: "update-ref", NoRules: "moves a ref directly; agents are propose-only and cannot move refs"},
 	{Name: "write-tree", NoRules: "plumbing; the propose path writes the tree for you"},

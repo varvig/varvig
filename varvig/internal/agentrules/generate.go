@@ -199,6 +199,16 @@ func PointerBlock() string {
 		"proposal must pass the repo's acceptance gates before it can land.\n"
 }
 
+// mdcPointer is the pointer block for a Cursor `.mdc` rule file: the same block
+// under the frontmatter Cursor needs to always apply the rule. Only used when
+// creating a fresh rule file in an existing `.cursor/rules/` directory.
+func mdcPointer() string {
+	return "---\n" +
+		"description: varvig version-control rules for agents\n" +
+		"alwaysApply: true\n" +
+		"---\n\n" + PointerBlock()
+}
+
 // hasPointer reports whether AGENTS.md already carries the pointer — either the
 // marker, or any literal mention of the generated file (users hand-write their
 // own pointers, and a duplicate is exactly the clutter that gets a tool

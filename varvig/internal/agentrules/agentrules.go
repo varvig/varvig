@@ -45,7 +45,8 @@ type Options struct {
 type Result struct {
 	Code      string            `json:"code"`
 	Generated string            `json:"generated"` // created|replaced|current|stale|missing
-	Pointer   string            `json:"pointer"`   // added|present|skipped|missing
+	Pointer   string            `json:"pointer"`   // AGENTS.md: added|present|skipped|missing
+	Fanout    map[string]string `json:"fanout,omitempty"`
 	Paths     map[string]string `json:"paths"`
 	Surface   string            `json:"surface"`
 	Exit      int               `json:"exit"`
@@ -92,23 +93,29 @@ func Run(opts Options) (Result, error) {
 			Stdout:    content}, nil
 
 	case ModeCheck:
-		return runCheck(surface, genExists, existingGen, ptrExists, existingPtr, paths), nil
+		return runCheck(opts.Root, surface, genExists, existingGen, paths), nil
 
 	case ModeDiff:
-		gd := unifiedDiff(GeneratedName, existingGen, content)
-		var pd string
-		if newPtr, changed := plannedPointer(ptrExists, existingPtr); changed {
-			pd = unifiedDiff(PointerName, existingPtr, newPtr)
-		}
-		out := gd
-		if pd != "" {
-			if out != "" {
-				out += "\n"
+		out := unifiedDiff(GeneratedName, existingGen, content)
+		for _, tgt := range fanoutTargets(opts.Root) {
+			existing, exists := readFileString(filepath.Join(opts.Root, tgt.Rel))
+			if !exists && !tgt.Ensure {
+				continue // a tool file we would not create; nothing to diff
 			}
-			out += pd
+			_, planned, write := planPointer(exists, existing, tgt.Fresh)
+			if !write {
+				continue
+			}
+			d := unifiedDiff(tgt.Rel, existing, planned)
+			if d != "" {
+				if out != "" {
+					out += "\n"
+				}
+				out += d
+			}
 		}
 		if out == "" {
-			out = "both files are current; no diff\n"
+			out = "all files are current; no diff\n"
 		}
 		return Result{Code: CodeOK, Exit: 0, Surface: surface, Paths: paths,
 			Generated: genState(genExists, existingGen, content),
@@ -116,14 +123,12 @@ func Run(opts Options) (Result, error) {
 			Stdout:    out}, nil
 
 	default: // ModeWrite
-		return runWrite(opts, content, surface, genPath, ptrPath, paths,
-			genExists, existingGen, ptrExists, existingPtr)
+		return runWrite(opts, content, surface, genPath, paths, genExists, existingGen)
 	}
 }
 
-func runCheck(surface string, genExists bool, existingGen string, ptrExists bool, existingPtr string, paths map[string]string) Result {
+func runCheck(root, surface string, genExists bool, existingGen string, paths map[string]string) Result {
 	genStale := !genExists || readSurface(existingGen) != surface
-	ptrMissing := !(ptrExists && hasPointer(existingPtr))
 
 	genField := "current"
 	if !genExists {
@@ -131,34 +136,62 @@ func runCheck(surface string, genExists bool, existingGen string, ptrExists bool
 	} else if genStale {
 		genField = "stale"
 	}
-	ptrField := "present"
-	if !ptrExists {
-		ptrField = "missing"
-	} else if ptrMissing {
-		ptrField = "missing"
+
+	var problems []string
+	if !genExists {
+		problems = append(problems, fmt.Sprintf("%s is missing", GeneratedName))
+	} else if genStale {
+		problems = append(problems, fmt.Sprintf("%s surface %q != current %q",
+			GeneratedName, readSurface(existingGen), surface))
 	}
 
-	if genStale || ptrMissing {
+	// Pointer + fanout: AGENTS.md must carry a pointer; any tool file that
+	// exists must too (an existing CLAUDE.md with no pointer means a Claude agent
+	// gets no varvig rules — exactly the silent failure this guards against).
+	ptrField := "present"
+	fanout := map[string]string{}
+	for _, tgt := range fanoutTargets(root) {
+		existing, exists := readFileString(filepath.Join(root, tgt.Rel))
+		switch {
+		case !exists && tgt.Primary:
+			ptrField = "missing"
+			problems = append(problems, fmt.Sprintf("%s is missing", tgt.Rel))
+		case !exists:
+			// A tool file we would not create; its absence is not a problem.
+			continue
+		case hasPointer(existing):
+			if !tgt.Primary {
+				fanout[tgt.Rel] = "present"
+			}
+		default:
+			problems = append(problems, fmt.Sprintf("%s has no pointer to %s", tgt.Rel, GeneratedName))
+			if tgt.Primary {
+				ptrField = "missing"
+			} else {
+				fanout[tgt.Rel] = "missing"
+			}
+		}
+	}
+	if len(fanout) == 0 {
+		fanout = nil
+	}
+
+	if len(problems) > 0 {
 		var sb strings.Builder
 		sb.WriteString(CodeStale + ": agent rules are stale or missing\n")
-		if !genExists {
-			fmt.Fprintf(&sb, "  - %s is missing\n", GeneratedName)
-		} else if genStale {
-			fmt.Fprintf(&sb, "  - %s surface %q != current %q\n", GeneratedName, readSurface(existingGen), surface)
-		}
-		if ptrMissing {
-			fmt.Fprintf(&sb, "  - %s has no pointer to %s\n", PointerName, GeneratedName)
+		for _, p := range problems {
+			fmt.Fprintf(&sb, "  - %s\n", p)
 		}
 		sb.WriteString("  do: run `varvig init --agent-rules` to regenerate.\n")
 		return Result{Code: CodeStale, Exit: 2, Surface: surface, Paths: paths,
-			Generated: genField, Pointer: ptrField, Stderr: sb.String()}
+			Generated: genField, Pointer: ptrField, Fanout: fanout, Stderr: sb.String()}
 	}
 	return Result{Code: CodeOK, Exit: 0, Surface: surface, Paths: paths,
-		Generated: "current", Pointer: "present"}
+		Generated: "current", Pointer: "present", Fanout: fanout}
 }
 
-func runWrite(opts Options, content, surface, genPath, ptrPath string, paths map[string]string,
-	genExists bool, existingGen string, ptrExists bool, existingPtr string) (Result, error) {
+func runWrite(opts Options, content, surface, genPath string, paths map[string]string,
+	genExists bool, existingGen string) (Result, error) {
 
 	res := Result{Code: CodeOK, Exit: 0, Surface: surface, Paths: paths}
 
@@ -191,40 +224,33 @@ func runWrite(opts Options, content, surface, genPath, ptrPath string, paths map
 		}
 	}
 
-	// AGENTS.md: append the pointer exactly once; never rewrite.
-	switch {
-	case !ptrExists:
-		if err := writeAtomic(ptrPath, []byte(PointerBlock())); err != nil {
-			return usageError(paths, err), err
+	// Pointers: append the pointer exactly once to each rules file, never
+	// rewriting. AGENTS.md (and a Cursor rule when its dir exists) are created if
+	// absent; other tool files are linked only when they already exist.
+	res.Fanout = map[string]string{}
+	for _, tgt := range fanoutTargets(opts.Root) {
+		p := filepath.Join(opts.Root, tgt.Rel)
+		existing, exists := readFileString(p)
+		if !exists && !tgt.Ensure {
+			continue // never create a tool's config just to guess it is used
 		}
-		res.Pointer = "added"
-	case strings.Contains(existingPtr, pointerMarker):
-		res.Pointer = "present"
-	case strings.Contains(existingPtr, GeneratedName):
-		// A hand-written pointer already mentions the file; adding ours would be
-		// duplicate clutter. Leave it untouched.
-		res.Pointer = "skipped"
-	default:
-		if err := writeAtomic(ptrPath, []byte(appendPointer(existingPtr))); err != nil {
-			return usageError(paths, err), err
+		status, toWrite, write := planPointer(exists, existing, tgt.Fresh)
+		if write {
+			if err := writeAtomic(p, []byte(toWrite)); err != nil {
+				return usageError(paths, err), err
+			}
 		}
-		res.Pointer = "added"
+		if tgt.Primary {
+			res.Pointer = status
+		} else {
+			res.Fanout[tgt.Rel] = status
+		}
+	}
+	if len(res.Fanout) == 0 {
+		res.Fanout = nil
 	}
 
 	return res, nil
-}
-
-// plannedPointer returns what AGENTS.md would become and whether that differs
-// from the current contents — used by --diff without writing.
-func plannedPointer(ptrExists bool, existing string) (string, bool) {
-	switch {
-	case !ptrExists:
-		return PointerBlock(), true
-	case hasPointer(existing):
-		return existing, false
-	default:
-		return appendPointer(existing), true
-	}
 }
 
 // appendPointer appends the pointer block at the end of an existing file,

@@ -164,6 +164,17 @@ func printWriteNotice(res agentrules.Result) {
 	case "skipped":
 		fmt.Printf("%s already mentions %s; left as-is\n", agentrules.PointerName, agentrules.GeneratedName)
 	}
+	// Report any other tool rules files we linked (sorted for stable output).
+	linked := make([]string, 0, len(res.Fanout))
+	for path, status := range res.Fanout {
+		if status == "added" {
+			linked = append(linked, path)
+		}
+	}
+	sort.Strings(linked)
+	for _, path := range linked {
+		fmt.Printf("linked %s to %s\n", path, agentrules.GeneratedName)
+	}
 	fmt.Printf("regenerate with `varvig init --agent-rules`, skip with `--no-agent-rules`\n")
 }
 
