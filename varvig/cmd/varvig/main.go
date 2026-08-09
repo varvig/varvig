@@ -41,6 +41,7 @@ var commands = map[string]func([]string) error{
 	"init":        cmdInit,
 	"whoami":      cmdWhoami,
 	"key":         cmdKey,
+	"trust":       cmdTrust,
 	"hash-object": cmdHashObject,
 	"cat-object":  cmdCatObject,
 	"update-ref":  cmdUpdateRef,
@@ -114,6 +115,7 @@ usage:
   varvig init [dir]                     initialize a repository
   varvig whoami                         print the active principal and fingerprint
   varvig key init --name <name>         create a fallback key (only if no SSH key)
+  varvig trust [list|check [scope]]     inspect .vcs/allowed_keys
   varvig hash-object [-w] <file|->      hash (and optionally store) a blob
   varvig cat-object <id>                print an object's content/summary
   varvig write-tree                     store the working tree, print tree id
