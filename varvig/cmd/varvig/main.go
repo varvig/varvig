@@ -68,6 +68,8 @@ var commands = map[string]func([]string) error{
 	"spec":        cmdSpec,
 	"gc":          cmdGc,
 	"conform":     cmdConform,
+	"task":        cmdTask,
+	"mcp":         cmdMcp,
 }
 
 func main() {
@@ -157,6 +159,12 @@ usage:
                                       sweep unreachable objects; optionally
                                       expire reflogs older than <dur> first
   varvig conform [--emit|--id]          check this build against the frozen format
+  varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]
+                                      mint an ephemeral, scoped, propose-only task
+                                      credential and a sparse checkout of its read set
+  varvig mcp [--scope S] [--ttl DUR] [--base REF]
+                                      serve the MCP gate over stdio for a scoped task
+                                      (reads logged into provenance; propose, never promote)
 `)
 }
 
