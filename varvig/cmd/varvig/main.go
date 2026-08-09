@@ -45,6 +45,7 @@ var commands = map[string]func([]string) error{
 	"hash-object": cmdHashObject,
 	"cat-object":  cmdCatObject,
 	"update-ref":  cmdUpdateRef,
+	"promote":     cmdPromote,
 	"show-ref":    cmdShowRef,
 	"reflog":      cmdReflog,
 	"write-tree":  cmdWriteTree,
@@ -124,6 +125,8 @@ usage:
   varvig log [ref|id]                   walk the change DAG from HEAD (or arg)
   varvig verify [ref|id]                check provenance and signatures on changes
   varvig update-ref <name> <new> [old]  atomically set a ref (CAS on old)
+  varvig promote <ref> <new> [opts]     move a ref via a signed ref update
+                                        (--scope S, --ttl SECONDS)
   varvig show-ref [name]                list refs or resolve one
   varvig reflog <name>                  print a ref's append-only log
   varvig git-export <dir> [branch]      export HEAD to a plain git repository
