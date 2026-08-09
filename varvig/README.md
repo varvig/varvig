@@ -256,6 +256,13 @@ frame, or on-disk layout (the conformance suite is untouched). See
   `list_proposals`, `propose`), scope enforced on every path, a hash in every
   response, every resolved hash logged into the change's provenance, and writes
   that are proposals into the speculation pool — never ref promotions.
+- **The daemon** (`internal/daemon`, §6.1) — the long-running local process that
+  holds the grant table in memory and keeps the repo warm. `task start` mints a
+  grant *in the daemon* and opens a per-task 0600 Unix socket; the ephemeral key
+  then lives only in the daemon (never on disk, never on the wire) and a reaper
+  revokes it at expiry. `task list` / `task stop` manage live tasks; `mcp
+  --connect` is a drain-correct stdio↔socket bridge for MCP clients. Without a
+  daemon the same commands still work standalone — one process, its own key.
 
 ## Layout
 
@@ -289,6 +296,7 @@ varvig/
     readapi/           one read query layer: HTTP/JSON + CLI plumbing
     task/              ephemeral, scoped, propose-only task credentials (§6)
     mcp/               in-process MCP gate over the query layer (§8)
+    daemon/            long-running local daemon: grant table + per-task sockets
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol
@@ -352,6 +360,12 @@ varvig mcp --scope src --ttl 1h                   # serve the gate over stdio (J
 # the agent reads within scope, and every propose lands in the speculation pool,
 # signed by the task key — never a ref promotion:
 varvig read proposals                             # unpromoted speculative states
+
+# ...or run a long-lived daemon so the key persists and many tasks share it:
+varvig daemon &                                   # holds grants in memory, serves per-task sockets
+varvig task start --scope src --ttl 1h ./task-a   # minted in the daemon; prints a task socket
+varvig task list                                  # the daemon's live tasks
+varvig mcp --connect <task.sock>                  # stdio bridge for an MCP client
 ```
 
 An identity like `1e20…` reads as: `1e` = blake3, `20` = 32-byte digest length,

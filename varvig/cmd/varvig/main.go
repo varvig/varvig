@@ -70,6 +70,7 @@ var commands = map[string]func([]string) error{
 	"conform":     cmdConform,
 	"task":        cmdTask,
 	"mcp":         cmdMcp,
+	"daemon":      cmdDaemon,
 }
 
 func main() {
@@ -159,12 +160,18 @@ usage:
                                       sweep unreachable objects; optionally
                                       expire reflogs older than <dur> first
   varvig conform [--emit|--id]          check this build against the frozen format
+  varvig daemon [--socket PATH]         run the long-running local daemon: holds task
+                                        credentials in memory, serves a per-task MCP socket
   varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]
                                       mint an ephemeral, scoped, propose-only task
                                       credential and a sparse checkout of its read set
+                                      (minted in the daemon when one is running)
+  varvig task list                      list the daemon's live tasks
+  varvig task stop <id>                 revoke a task early
   varvig mcp [--scope S] [--ttl DUR] [--base REF]
                                       serve the MCP gate over stdio for a scoped task
                                       (reads logged into provenance; propose, never promote)
+  varvig mcp --connect <task.sock>      bridge stdio to a daemon-hosted task socket
 `)
 }
 

@@ -231,6 +231,34 @@ it is ready. Its rules:
 varvig mcp [--scope S] [--ttl DUR] [--base REF]      # serve the gate over stdio
 ```
 
+**The daemon** (`internal/daemon`, auth design §6.1, §7.4) is the long-running
+local process that makes `task start` and the gate two halves of one flow. One
+daemon per repository keeps the repo open (warm indices, §7.1) and holds the
+in-memory grant table. `task start` asks it to mint a grant: the daemon generates
+the ephemeral key, records it, and opens a **per-task Unix socket** (0600 — file
+permissions are the authentication, §7.4). The key then lives only in the
+daemon's memory for the task's life — never on disk, never on the wire — and is
+used there to sign the task's proposals. A background reaper prunes expired
+grants and closes their sockets; expiry is the revocation mechanism (§6.2), so
+`task stop` (early revocation) is a convenience, not a requirement. The gate
+speaks JSON-RPC over any stream, so the daemon simply serves the same gate over
+each connection; an MCP client that only launches stdio servers reaches a
+daemon-hosted task through `mcp --connect`, a drain-correct stdio↔socket bridge.
+
+```
+varvig daemon [--socket PATH]                        # run the local daemon
+varvig task start --scope S --ttl DUR [dir]          # mint (in the daemon, if up)
+varvig task list                                     # the daemon's live tasks
+varvig task stop <id>                                # revoke early
+varvig mcp --connect <task.sock>                     # stdio bridge to a task
+```
+
+Without a daemon, `task start` still produces the scoped sparse checkout and
+`varvig mcp` serves a standalone gate that mints its own key — the same
+capability model, just without a shared table across processes. Sockets live
+under a short per-uid runtime dir (the `sun_path` length cap rules out a deep
+`.varvig/` path), keyed by a hash of the repo root so daemon and client agree.
+
 > **Residual risk (auth design §8.3).** Repository content reaching an agent is
 > untrusted input: a comment in a source file can attempt to redirect the
 > agent's behavior. Scoping limits the blast radius; it does not eliminate the
