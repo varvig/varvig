@@ -8,7 +8,11 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: Steps 1–10 complete — the full design build order is implemented
+## Status: core build order (steps 1–10) complete, plus the identity/auth/read-API slice
+
+The ten steps below implement [`DESIGN.md`](./DESIGN.md)'s build order (§6). A
+second slice — identity, authorization, and the read API — implements the
+[`AUTH.md`](./AUTH.md) build order and is summarized [further down](#identity-auth-and-the-read-api-design-notes-ii).
 
 ### Step 1 — the frozen core
 
@@ -211,6 +215,38 @@ Compatibility that isn't tested is just a promise (§4.7). See
   `conform`, so the matrix grows as releases accrue. `varvig conform --emit` /
   `--id` are the comparison points.
 
+## Identity, auth, and the read API (Design Notes II)
+
+The second design note — identity, authorization, and how clients read the
+store — layers entirely above the frozen core, changing no object type, wire
+frame, or on-disk layout (the conformance suite is untouched). See
+[`AUTH.md`](./AUTH.md). Cited sections below are from that note.
+
+- **SSH identity, reused** (`internal/sshkey`, `internal/identity`, §2) — a
+  user's existing `~/.ssh/id_ed25519` *is* their identity; the fingerprint is
+  the identity, and there is nothing to register. Resolution tries ssh-agent
+  (`SSH_AUTH_SOCK`), then the key file read directly, then a `~/.varvig/keys`
+  fallback. Ed25519 only. The SSH wire formats are hand-rolled and cgo-free, so
+  no dependency is added. `whoami`, `key init`.
+- **The repo is the trust store** (`internal/trust`, §3) — `.vcs/allowed_keys`
+  is a versioned table of principals with path-prefix scopes and
+  `read`<`propose`<`promote` rights. Comments, blank lines, and unknown columns
+  round-trip byte-for-byte (§3.1). `trust list` / `trust check`.
+- **Signed ref updates** (`internal/refupdate`, §5) — the load-bearing
+  mechanism: a ref update is a *signed compare-and-swap assertion* whose
+  authority is in the payload, so it can be relayed through untrusted peers and
+  verified at its destination. Canonical encoding with the same critical /
+  non-critical unknown-field rule as the object format; a verification pipeline
+  of signature → expiry (with skew) → promote-scope authority → object presence
+  → nonce replay guard → atomic CAS → reflog audit. `promote --scope --ttl`.
+- **The read API** (`internal/readapi`, §7) — one query layer behind both an
+  HTTP/JSON server and the CLI plumbing, so the two can never drift; nothing
+  reads the on-disk layout directly. Hash-addressed routes with content
+  negotiation and branch→hash redirects; `/change` leads with intent, not the
+  diff. `serve --read-only` binds a 0600 Unix socket (filesystem permissions are
+  the authentication); `read {object,tree,blob,change,log,refs,proposals}` is
+  the JSON plumbing.
+
 ## Layout
 
 ```
@@ -236,9 +272,15 @@ varvig/
     spec/              speculation pool: score, promote, retention
     gc/                mark-and-sweep GC rooted at refs + reflog + pool
     conformance/       frozen-format golden vectors + cross-version suite
+    sshkey/            hand-rolled, cgo-free SSH key + ssh-agent primitives
+    identity/          resolve the active principal (agent / ssh key / fallback)
+    trust/             .vcs/allowed_keys: principals, scopes, rights
+    refupdate/         signed ref updates: canonical payload + verify pipeline
+    readapi/           one read query layer: HTTP/JSON + CLI plumbing
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol
+  AUTH.md              identity, auth, and the read API (Design Notes II)
 ```
 
 ## Build
@@ -278,6 +320,19 @@ id=$(varvig hash-object -w note.txt)     # store a blob, print its identity
 varvig cat-object "$id"                  # read it back
 varvig show-ref                          # list refs
 varvig reflog refs/heads/main            # inspect the append-only log
+
+# identity, trust, and signed promotion (see AUTH.md):
+varvig whoami                            # the active principal + fingerprint
+mkdir -p .vcs                            # the trust store is a versioned file
+echo "$(varvig whoami | awk '{print $2}') me / promote" > .vcs/allowed_keys
+varvig trust check /                     # what may I do here?
+varvig promote refs/heads/main "$id" --ttl 3600   # move a ref via a signed update
+
+# read-only query API (one layer, two transports):
+varvig read change main                  # intent-first change view, as JSON
+varvig read tree main src                # a directory listing
+varvig serve --read-only &               # HTTP/JSON over a 0600 unix socket
+curl --unix-socket .varvig/read.sock http://localhost/refs
 ```
 
 An identity like `1e20…` reads as: `1e` = blake3, `20` = 32-byte digest length,
