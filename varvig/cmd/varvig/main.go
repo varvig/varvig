@@ -64,6 +64,7 @@ var commands = map[string]func([]string) error{
 	"fetch":       cmdFetch,
 	"push":        cmdPush,
 	"note":        cmdNote,
+	"attest":      cmdAttest,
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
 	"merge":       cmdMerge,
@@ -158,6 +159,11 @@ usage:
   varvig push <addr> [branch]           push a local branch to a peer (CAS lease)
   varvig note add <target> [opts]       attach a note (--ns NS, -m MSG or -f FILE)
   varvig note list <target> [--ns NS]   list notes attached to an object
+  varvig attest approve <ref|id>        sign an approval bound to an intent revision
+              [--strength strong|delegated] [-m rationale]
+  varvig attest veto <ref|id> [-m msg]  sign a veto (blocks all descendants)
+  varvig attest list <ref|id>           list attestations on an intent revision
+  varvig attest status <ref|id>         derived status (--require strong|delegated|weak)
   varvig hook set <event> <module.wasm> bind a wasm hook to an event
   varvig hook list                      list configured hooks
   varvig hook run <event> [file]        run an event's hooks with input (or stdin)

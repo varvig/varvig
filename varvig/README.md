@@ -317,7 +317,9 @@ On top of those primitives, the first governance layer is built:
   after the veto. Attestations attach as notes in the reserved `varvig/attest`
   namespace, keyed by the intent hash, so they list by intent, pin the revision
   as a GC root, and sync like any object. The `attestation` and `principal`
-  encodings are pinned into the frozen conformance suite.
+  encodings are pinned into the frozen conformance suite. `varvig attest
+  approve|veto|list|status` signs and inspects decisions with the active SSH
+  identity.
 - **Promotion checkpoint** (`spec.PromoteWithPolicy`, `attest.VetoGate`, M1) —
   the promote path consults an injected `PromotionPolicy` *before* scoring picks
   a winner, so a policy refusal is never outranked by a high score: a refused
