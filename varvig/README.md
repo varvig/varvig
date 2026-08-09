@@ -8,7 +8,7 @@ See [`DESIGN.md`](./DESIGN.md) for the full design. This repository is an
 implementation of that design, built in Go and shipped as a single portable,
 statically-linked binary (design §3).
 
-## Status: core build order (steps 1–10) complete, plus the identity/auth/read-API slice
+## Status: core build order (steps 1–10) complete, plus the identity/auth/read-API slice and the MCP gate
 
 The ten steps below implement [`DESIGN.md`](./DESIGN.md)'s build order (§6). A
 second slice — identity, authorization, and the read API — implements the
@@ -246,6 +246,16 @@ frame, or on-disk layout (the conformance suite is untouched). See
   diff. `serve --read-only` binds a 0600 Unix socket (filesystem permissions are
   the authentication); `read {object,tree,blob,change,log,refs,proposals}` is
   the JSON plumbing.
+- **Task credentials and the MCP gate** (`internal/task`, `internal/mcp`, §5, §8)
+  — the gate agents talk to, built into the core binary rather than shipped as a
+  client. A task is an ephemeral in-sandbox Ed25519 key, granted a scope (which
+  *is* the read set), propose-only, and an expiry; `task start` mints one and a
+  scoped sparse checkout. `mcp` serves a JSON-RPC gate over stdio bound to that
+  credential, holding no authority of its own: coarse domain tools
+  (`fetch_tree`, `fetch_blob`, `fetch_change_with_intent`, `fetch_evidence`,
+  `list_proposals`, `propose`), scope enforced on every path, a hash in every
+  response, every resolved hash logged into the change's provenance, and writes
+  that are proposals into the speculation pool — never ref promotions.
 
 ## Layout
 
@@ -277,6 +287,8 @@ varvig/
     trust/             .varvig.d/allowed_keys: principals, scopes, rights
     refupdate/         signed ref updates: canonical payload + verify pipeline
     readapi/           one read query layer: HTTP/JSON + CLI plumbing
+    task/              ephemeral, scoped, propose-only task credentials (§6)
+    mcp/               in-process MCP gate over the query layer (§8)
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol
@@ -333,6 +345,13 @@ varvig read change main                  # intent-first change view, as JSON
 varvig read tree main src                # a directory listing
 varvig serve --read-only &               # HTTP/JSON over a 0600 unix socket
 curl --unix-socket .varvig/read.sock http://localhost/refs
+
+# task credentials + the MCP gate (agents; see AUTH.md §5, §8):
+varvig task start --scope src --ttl 1h ./task-a   # ephemeral key + scoped sparse checkout
+varvig mcp --scope src --ttl 1h                   # serve the gate over stdio (JSON-RPC 2.0)
+# the agent reads within scope, and every propose lands in the speculation pool,
+# signed by the task key — never a ref promotion:
+varvig read proposals                             # unpromoted speculative states
 ```
 
 An identity like `1e20…` reads as: `1e` = blake3, `20` = 32-byte digest length,

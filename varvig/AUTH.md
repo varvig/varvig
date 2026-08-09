@@ -178,7 +178,68 @@ varvig read <object|tree|blob|change|log|refs|proposals> [args]   # JSON plumbin
 
 ---
 
-## 5. Deferred, with the upgrade path open
+## 5. Task credentials and the MCP gate (`internal/task`, `internal/mcp`)
+
+Agents are the primary user, so the gate they talk to is built into the **core
+binary**, not shipped as a client (auth design §8): a sandbox needs MCP on every
+task, and read-logging into provenance is a core write concern. Two pieces.
+
+**Task credentials** (`internal/task`, auth design §6). Per task, an ephemeral
+Ed25519 keypair is minted *in the sandbox*; the private key is held only in
+memory and never touches disk. It is granted a scope, a propose-only right, and
+an expiry:
+
+- **Scope is the read set.** The grant's scope is simultaneously the sparse
+  checkout, the gate's visibility, and the capability boundary — one thing
+  expressed three ways (design §1.4).
+- **Propose-only.** A task key can create objects and propose a speculative
+  state; it can never move a ref. A non-propose-only grant is refused at mint.
+- **Expiry does the revocation work.** A short TTL means the common case needs
+  no revocation infrastructure; an expired grant can do nothing. At v1 the grant
+  registry is an in-memory table the local daemon holds (§6.1); the short-lived
+  certificate for *remote* propose is additive and changes nothing below it.
+
+```
+varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]
+```
+
+mints a grant and carves out the scoped sparse checkout of its read set.
+
+**The MCP gate** (`internal/mcp`, auth design §8) is a JSON-RPC 2.0 server over
+stdio, bound to one task credential and holding **no authority of its own** — if
+it carried a broad credential, every agent that connected would inherit it, and
+you would have built a confused deputy. It is in-process and reads through the
+query layer (§4) directly, so it does not force the read API to stabilize before
+it is ready. Its rules:
+
+- **The capability is the read set.** Every path a tool touches is checked
+  against the grant's scope; out-of-scope reads and proposals are refused.
+- **Coarse, domain-shaped tools** rather than one wrapper per endpoint, because
+  context window is the scarce resource: `fetch_tree`, `fetch_blob`,
+  `fetch_change_with_intent`, `fetch_evidence`, `list_proposals`, `propose`.
+- **Hashes in every response**, so the agent's reads are pinned and its work is
+  reproducible.
+- **Reads are logged into provenance.** Every resolved hash is folded into the
+  task's read set and written into the `ContextRead` of the provenance a
+  proposal produces — audit and provenance become one mechanism (§8.2).
+- **Writes are proposals, never promotions.** `propose` overlays file contents
+  onto the base tree, signs the change with the ephemeral key, and records it in
+  the speculation pool. It never moves a ref; promotion stays a separate,
+  human-gated step.
+
+```
+varvig mcp [--scope S] [--ttl DUR] [--base REF]      # serve the gate over stdio
+```
+
+> **Residual risk (auth design §8.3).** Repository content reaching an agent is
+> untrusted input: a comment in a source file can attempt to redirect the
+> agent's behavior. Scoping limits the blast radius; it does not eliminate the
+> class. This is the argument for keeping read sets narrow and for making
+> promotion genuinely independent of the agent that proposed the change.
+
+---
+
+## 6. Deferred, with the upgrade path open
 
 None of these require changes below them; each is added only when its triggering
 condition occurs (auth design §11):
@@ -195,7 +256,7 @@ condition occurs (auth design §11):
 
 ---
 
-## 6. Known gaps (auth design §12)
+## 7. Known gaps (auth design §12)
 
 - **TOFU peer pinning** is genuine trust-on-first-use, not verification.
 - **Prompt injection via repo content** is not solved by scoping.
