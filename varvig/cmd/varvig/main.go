@@ -39,6 +39,8 @@ import (
 // commands maps a subcommand name to its handler.
 var commands = map[string]func([]string) error{
 	"init":        cmdInit,
+	"whoami":      cmdWhoami,
+	"key":         cmdKey,
 	"hash-object": cmdHashObject,
 	"cat-object":  cmdCatObject,
 	"update-ref":  cmdUpdateRef,
@@ -110,6 +112,8 @@ func usage() {
 
 usage:
   varvig init [dir]                     initialize a repository
+  varvig whoami                         print the active principal and fingerprint
+  varvig key init --name <name>         create a fallback key (only if no SSH key)
   varvig hash-object [-w] <file|->      hash (and optionally store) a blob
   varvig cat-object <id>                print an object's content/summary
   varvig write-tree                     store the working tree, print tree id
