@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
@@ -111,7 +112,11 @@ func TestWasmPolicyAdmitsAndRefuses(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 	s := newSigner(t)
-	policy := WasmPolicy{Module: mod}
+	// A generous timeout: under `go test -race` wazero compiles and runs the
+	// ~2 MB Go-compiled module far slower than in production, well past the 10s
+	// default. The default guards a runaway policy in real use; the test must
+	// not depend on race-mode speed.
+	policy := WasmPolicy{Module: mod, Timeout: 2 * time.Minute}
 
 	// Unapproved: refused.
 	c := object.NewChange(object.Change{Message: "ticket", Timestamp: 1, Author: "d"})
