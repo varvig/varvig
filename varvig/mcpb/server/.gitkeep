@@ -1,0 +1,4 @@
+# The platform binary (server/varvig or server/varvig.exe) is copied in at
+# release time by the bundle job (varvig-release-automation §6.1) and is never
+# committed — see varvig/.gitignore. This file keeps the directory in git so the
+# MCPB layout is self-contained.

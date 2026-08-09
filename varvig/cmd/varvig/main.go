@@ -72,6 +72,7 @@ var commands = map[string]func([]string) error{
 	"task":        cmdTask,
 	"mcp":         cmdMcp,
 	"daemon":      cmdDaemon,
+	"version":     cmdVersion,
 }
 
 func main() {
@@ -81,6 +82,14 @@ func main() {
 		if cmd == "" {
 			os.Exit(2)
 		}
+		return
+	}
+	// --version / -v are the conventional flag spellings of the `version`
+	// command; accept them at the top level so tooling that probes a binary
+	// with `--version` (release smoke tests, §7) works without knowing the
+	// subcommand form.
+	if cmd == "--version" || cmd == "-v" {
+		_ = cmdVersion(args)
 		return
 	}
 	h, ok := commands[cmd]
@@ -119,6 +128,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `varvig — a source control system for agents
 
 usage:
+  varvig version | --version            print the version and platform
   varvig init [dir]                     initialize a repository
   varvig whoami                         print the active principal and fingerprint
   varvig key init --name <name>         create a fallback key (only if no SSH key)

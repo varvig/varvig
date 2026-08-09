@@ -1,0 +1,33 @@
+{
+  "manifest_version": "0.1",
+  "name": "varvig",
+  "display_name": "Varvig",
+  "version": "0.0.0",
+  "description": "Varvig MCP gate — a scoped, propose-only source-control gate for agents. Reads are logged into provenance; the gate can create proposals but never promote a ref.",
+  "long_description": "The Varvig MCP gate exposes a single task's read set to an agent over stdio: fetch trees, blobs, changes and provenance evidence within a scope, and propose signed, speculative changes. Every proposal is append-only and human-gated for promotion. This bundle embeds the varvig binary for one platform; the version is stamped at release time and pinned by the varvig-tools marketplace.",
+  "author": {
+    "name": "Varvig"
+  },
+  "homepage": "https://github.com/varvig/varvig",
+  "documentation": "https://github.com/varvig/varvig/blob/main/varvig/AUTH.md",
+  "license": "see repository",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/varvig",
+    "mcp_config": {
+      "command": "${__dirname}/server/varvig",
+      "args": ["mcp"]
+    }
+  },
+  "tools": [
+    { "name": "fetch_tree", "description": "List a directory within the task's scope." },
+    { "name": "fetch_blob", "description": "Read a file's contents within the task's scope." },
+    { "name": "fetch_change_with_intent", "description": "Fetch a change intent-first." },
+    { "name": "fetch_evidence", "description": "Fetch a change's provenance evidence." },
+    { "name": "list_proposals", "description": "List this task's proposed, un-promoted changes." },
+    { "name": "propose", "description": "Propose a signed, speculative change; never promotes a ref." }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "linux", "win32"]
+  }
+}

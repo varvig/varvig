@@ -1,0 +1,87 @@
+# Drift detection — the safety net (varvig-release-automation §8).
+#
+# The one failure this whole system exists to prevent is silent rot: a lost
+# dispatch, an expired token, or a disabled workflow leaves the marketplace
+# serving a months-old binary while everything downstream looks healthy.
+#
+# The authoritative drift check lives in varvig/plugins (it reads its own
+# varvig.lock.json). This is the *release-side complement*: it watches from the
+# other end — "I shipped a release; did the marketplace pin follow?" — on a
+# different repo, token, and schedule, so a single point of failure in the
+# plugins repo cannot also silence the alarm. If the pin lags this repo's latest
+# release, it opens an issue here.
+name: drift-check
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # daily, 07:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The plugins repo (public, §1), overridable via a repo variable.
+      PLUGINS_REPO: ${{ vars.PLUGINS_REPO || 'varvig/plugins' }}
+    steps:
+      - name: Compare marketplace pin against the latest release
+        run: |
+          set -euo pipefail
+
+          LATEST=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
+          if [ -z "$LATEST" ]; then
+            echo "no releases yet — nothing to drift from"
+            exit 0
+          fi
+
+          # Read the pin from the plugins repo's lock file. The contents API
+          # resolves the default branch, so no branch guessing is needed.
+          if lock=$(gh api "repos/${PLUGINS_REPO}/contents/varvig.lock.json" -q '.content' 2>/dev/null | base64 -d 2>/dev/null); then
+            PINNED=$(printf '%s' "$lock" | jq -r '.version // empty')
+          else
+            PINNED=""
+          fi
+
+          echo "latest release : $LATEST"
+          echo "marketplace pin: ${PINNED:-<unreadable>}"
+
+          if [ "$PINNED" = "$LATEST" ]; then
+            echo "in sync"
+            exit 0
+          fi
+
+          # Drift (or an unreadable lock, which is itself a failure worth
+          # surfacing). Deduplicate against an already-open alert.
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search 'in:title "Marketplace pin is stale"' \
+            --json number -q '.[0].number // empty' || true)
+          if [ -n "$existing" ]; then
+            echo "alert already open (#$existing) — leaving it"
+            exit 0
+          fi
+
+          # Ensure the label exists (idempotent), then open the alert.
+          gh label create release --repo "$GITHUB_REPOSITORY" \
+            --color FBCA04 --description "release automation" --force || true
+
+          # Build the body without a heredoc so every line stays inside the YAML
+          # block scalar's indentation ($'\n' supplies the newlines).
+          body="The ${PLUGINS_REPO} marketplace pin does not match this repo's latest release."$'\n\n'
+          body+="- latest release: \`$LATEST\`"$'\n'
+          body+="- marketplace pin: \`${PINNED:-<unreadable>}\`"$'\n\n'
+          body+="Run the \`bump-core\` workflow in ${PLUGINS_REPO}, or investigate why the "
+          body+="\`core-release\` dispatch was lost — a disabled workflow, an expired token, "
+          body+="or a failing bump job. See varvig-release-automation §8."$'\n\n'
+          body+="If the pin is \`<unreadable>\`, the lock file could not be read from "
+          body+="${PLUGINS_REPO}; check that the repo is public and \`varvig.lock.json\` "
+          body+="exists at its root."
+
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Marketplace pin is stale: ${PINNED:-<unreadable>} vs $LATEST" \
+            --label release \
+            --body "$body"
