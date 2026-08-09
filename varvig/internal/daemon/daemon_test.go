@@ -3,13 +3,16 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/peercred"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 )
@@ -252,6 +255,43 @@ func TestStatusAndShutdown(t *testing.T) {
 	if _, err := DialControl(ctrlSock, PingRequest()); err == nil {
 		t.Fatal("control socket should be closed after shutdown")
 	}
+}
+
+func TestPeerCredRejectsMismatchedUID(t *testing.T) {
+	r, base := newRepo(t)
+	d := New(r, filepath.Join(t.TempDir(), "run"))
+	defer d.Close()
+	// Allow an impossible uid so this test process's own connections are refused
+	// by SO_PEERCRED (on Linux). Off Linux the check is a no-op and we skip.
+	d.SetAllowUID(os.Getuid() + 99999)
+
+	info, err := d.StartTask("/", time.Hour, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, uerr := peercred.Of(mustDialUnix(t, info.Socket)); errors.Is(uerr, peercred.ErrUnsupported) {
+		t.Skip("SO_PEERCRED unsupported on this platform")
+	}
+
+	// The per-task socket accepts the TCP-less connection then closes it (the
+	// guard rejects the uid), so an MCP request gets no response before EOF.
+	conn := mustDialUnix(t, info.Socket)
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _ = conn.Write([]byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"))
+	buf := make([]byte, 64)
+	if n, err := conn.Read(buf); err == nil && n > 0 {
+		t.Fatalf("expected the rejected connection to be closed, got %d bytes: %q", n, buf[:n])
+	}
+}
+
+func mustDialUnix(t *testing.T, socket string) net.Conn {
+	t.Helper()
+	c, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatalf("dial %s: %v", socket, err)
+	}
+	return c
 }
 
 func TestBridgeStdioToTaskSocket(t *testing.T) {

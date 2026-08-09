@@ -29,6 +29,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/p2p"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/peercred"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
@@ -788,6 +789,14 @@ func serveReadOnly(r *repo.Repo, socket, tcp string) error {
 			socket = filepath.Join(r.GitDir(), "read.sock")
 		}
 		ln, err = readapi.ListenUnix(socket)
+		if err == nil {
+			// SO_PEERCRED: back the 0600 socket with a kernel-attested uid check
+			// (auth design §7.4). On platforms without it, the mode is the guard.
+			uid := os.Getuid()
+			ln = peercred.FilterListener(ln, uid, func(c peercred.Cred) {
+				fmt.Fprintf(os.Stderr, "varvig serve: rejected read connection from uid %d (allow %d)\n", c.UID, uid)
+			})
+		}
 	}
 	if err != nil {
 		return err

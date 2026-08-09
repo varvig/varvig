@@ -267,6 +267,10 @@ frame, or on-disk layout (the conformance suite is untouched). See
   stop` and `task list` / `task stop` manage it; `mcp --connect` bridges a
   specific socket and `mcp --standalone` forces an in-process gate. Without a
   daemon the same commands still work standalone — one process, its own key.
+- **Socket auth** (`internal/peercred`, §7.4) — every daemon and read-API Unix
+  socket is 0600 *and* gated by an `SO_PEERCRED` uid check (cgo-free on Linux via
+  the stdlib), so the kernel — not just the file mode — confirms the connecting
+  process's uid. Platforms without it fall back to the 0600 mode.
 
 ## Layout
 
@@ -301,6 +305,7 @@ varvig/
     task/              ephemeral, scoped, propose-only task credentials (§6)
     mcp/               in-process MCP gate over the query layer (§8)
     daemon/            long-running local daemon: grant table + per-task sockets
+    peercred/          SO_PEERCRED peer-uid attestation for local sockets (§7.4)
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol

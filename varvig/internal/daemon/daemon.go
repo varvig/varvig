@@ -36,6 +36,7 @@ import (
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/mcp"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/peercred"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/task"
@@ -60,6 +61,11 @@ type Daemon struct {
 
 	now func() time.Time // injectable clock; nil defaults to time.Now
 
+	// allowUID is the only uid permitted to connect to the control and per-task
+	// sockets, confirmed by SO_PEERCRED (auth design §7.4). It defaults to the
+	// daemon's own uid; tests set it to force rejection.
+	allowUID int
+
 	mu      sync.Mutex
 	tasks   map[string]*taskServer
 	closed  bool
@@ -76,7 +82,7 @@ type taskServer struct {
 
 // New creates a daemon over repo r, placing per-task sockets under runDir.
 func New(r *repo.Repo, runDir string) *Daemon {
-	d := &Daemon{repo: r, table: task.NewTable(), runDir: runDir, tasks: map[string]*taskServer{}}
+	d := &Daemon{repo: r, table: task.NewTable(), runDir: runDir, tasks: map[string]*taskServer{}, allowUID: os.Getuid()}
 	d.started = d.clock().Unix()
 	return d
 }
@@ -84,6 +90,19 @@ func New(r *repo.Repo, runDir string) *Daemon {
 // SetClock overrides the daemon's clock (tests pin expiry). It also propagates
 // to the gates served for each task, so expiry is consistent end to end.
 func (d *Daemon) SetClock(now func() time.Time) { d.now = now }
+
+// SetAllowUID overrides the uid permitted to connect (default: the daemon's own
+// uid). Tests use it to force a peer-credential rejection.
+func (d *Daemon) SetAllowUID(uid int) { d.allowUID = uid }
+
+// guard wraps a Unix listener so only the allowed uid may connect, confirmed by
+// SO_PEERCRED. Where peer credentials cannot be read (unsupported platform), the
+// wrapper passes connections through and the 0600 mode remains the guard (§7.4).
+func (d *Daemon) guard(ln net.Listener) net.Listener {
+	return peercred.FilterListener(ln, d.allowUID, func(c peercred.Cred) {
+		fmt.Fprintf(os.Stderr, "varvig daemon: rejected connection from uid %d (allow %d)\n", c.UID, d.allowUID)
+	})
+}
 
 func (d *Daemon) clock() time.Time {
 	if d.now != nil {
@@ -103,10 +122,11 @@ func (d *Daemon) StartTask(scope string, ttl time.Duration, base multihash.Multi
 		return TaskInfo{}, err
 	}
 	socket := filepath.Join(d.runDir, "task-"+grant.ID+".sock")
-	ln, err := readapi.ListenUnix(socket) // 0600: filesystem perms are the auth (§7.4)
+	rawLn, err := readapi.ListenUnix(socket) // 0600: filesystem perms are the auth (§7.4)
 	if err != nil {
 		return TaskInfo{}, err
 	}
+	ln := d.guard(rawLn) // SO_PEERCRED: only the allowed uid may connect (§7.4)
 	ts := &taskServer{grant: grant, base: base, ln: ln, socket: socket}
 
 	d.mu.Lock()
@@ -276,6 +296,9 @@ func (d *Daemon) ServeControl(ctx context.Context, ln net.Listener) error {
 	d.mu.Lock()
 	d.cancel = cancel
 	d.mu.Unlock()
+
+	// Only the allowed uid may drive the control protocol (§7.4).
+	ln = d.guard(ln)
 
 	// Background reaper: expiry does the revocation work without any client call.
 	reaper := time.NewTicker(30 * time.Second)
