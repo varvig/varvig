@@ -164,6 +164,8 @@ usage:
   varvig attest veto <ref|id> [-m msg]  sign a veto (blocks all descendants)
   varvig attest list <ref|id>           list attestations on an intent revision
   varvig attest status <ref|id>         derived status (--require strong|delegated|weak)
+  varvig attest policy set <m.wasm>     set the promotion-policy wasm module (§2.5)
+  varvig attest policy show|clear       show or remove the promotion policy
   varvig hook set <event> <module.wasm> bind a wasm hook to an event
   varvig hook list                      list configured hooks
   varvig hook run <event> [file]        run an event's hooks with input (or stdin)
@@ -1345,10 +1347,17 @@ func cmdSpec(args []string) error {
 				return err
 			}
 		}
-		// The promotion checkpoint is on by default: a candidate whose ancestry
-		// carries a veto is disqualified before scoring can pick it (tickets §4,
-		// M1). Constraints carry the safety (§3.3).
-		id, err := spec.PromoteWithPolicy(pool, r, task, ref, author(), attest.VetoGate{})
+		// The promotion checkpoint is on by default (tickets §4, M1): the veto
+		// gate is always applied, plus the repository's policy wasm module if
+		// one is configured (refs/varvig/policy, §2.5). Constraints stack — any
+		// one refusing is decisive (§3.3).
+		policies := []attest.Policy{attest.VetoGate{}}
+		if wp, ok, perr := attest.LoadPolicy(r); perr != nil {
+			return perr
+		} else if ok {
+			policies = append(policies, wp)
+		}
+		id, err := spec.PromoteWithPolicy(pool, r, task, ref, author(), attest.AllOf(policies...))
 		if err != nil {
 			return err
 		}

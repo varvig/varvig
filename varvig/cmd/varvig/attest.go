@@ -11,6 +11,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 )
 
 // cmdAttest records and inspects governance attestations (tickets §2): signed
@@ -24,13 +25,23 @@ import (
 //	varvig attest list <ref|id>
 //	varvig attest status <ref|id> [--require weak|delegated|strong]
 func cmdAttest(args []string) error {
-	if len(args) < 2 {
-		return errors.New("usage: varvig attest <approve|veto|request-change|list|status> <ref|id> [opts]")
+	if len(args) < 1 {
+		return errors.New("usage: varvig attest <approve|veto|request-change|list|status|policy> ...")
 	}
 	sub := args[0]
 	r, err := repo.Open(".")
 	if err != nil {
 		return err
+	}
+
+	// `policy` manages the repository's promotion-policy module and takes no
+	// intent target, so it is handled before the target is resolved.
+	if sub == "policy" {
+		return attestPolicy(r, args[1:])
+	}
+
+	if len(args) < 2 {
+		return errors.New("usage: varvig attest <approve|veto|request-change|list|status> <ref|id> [opts]")
 	}
 	target, err := resolve(r, args[1])
 	if err != nil {
@@ -160,6 +171,59 @@ func attestStatus(r *repo.Repo, target multihash.Multihash, required object.Stre
 	}
 	fmt.Printf("%s (require %s)\n", attest.Derive(atts, required), required)
 	return nil
+}
+
+// attestPolicy manages the repository's promotion-policy wasm module
+// (refs/varvig/policy, tickets §2.5):
+//
+//	varvig attest policy set <module.wasm>   store the module and point the ref at it
+//	varvig attest policy show                print the module's id, or "(none)"
+//	varvig attest policy clear               remove the policy
+func attestPolicy(r *repo.Repo, args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: varvig attest policy <set <module.wasm>|show|clear>")
+	}
+	switch args[0] {
+	case "set":
+		if len(args) != 2 {
+			return errors.New("usage: varvig attest policy set <module.wasm>")
+		}
+		mod, err := os.ReadFile(args[1])
+		if err != nil {
+			return err
+		}
+		id, err := r.Objects.Put(object.NewBlob(mod))
+		if err != nil {
+			return err
+		}
+		cur, _ := r.Refs.Resolve(reserved.PolicyRef)
+		if err := r.Refs.CompareAndSwap(reserved.PolicyRef, cur, id, author(), "attest policy set"); err != nil {
+			return err
+		}
+		fmt.Printf("policy set to %s\n", id.Hex())
+		return nil
+	case "show":
+		id, err := r.Refs.Resolve(reserved.PolicyRef)
+		if err != nil {
+			fmt.Println("(none)")
+			return nil
+		}
+		fmt.Println(id.Hex())
+		return nil
+	case "clear":
+		cur, err := r.Refs.Resolve(reserved.PolicyRef)
+		if err != nil {
+			fmt.Println("(none)")
+			return nil
+		}
+		if err := r.Refs.Delete(reserved.PolicyRef, cur, author(), "attest policy clear"); err != nil {
+			return err
+		}
+		fmt.Println("policy cleared")
+		return nil
+	default:
+		return fmt.Errorf("attest: unknown policy subcommand %q", args[0])
+	}
 }
 
 func parseStrength(s string) (object.Strength, error) {

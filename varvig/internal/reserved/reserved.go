@@ -24,6 +24,11 @@ const (
 	// refs/varvig/tickets/<id>, with the current intent revision optionally
 	// separated at refs/varvig/tickets/<id>/spec.
 	TicketsPrefix = "refs/varvig/tickets/"
+
+	// PolicyRef points to the blob id of the repository's promotion-policy wasm
+	// module (tickets §2.5). A policy is a content-addressed object, versioned
+	// alongside the code it guards; the ref names the module in force.
+	PolicyRef = "refs/varvig/policy"
 )
 
 // Reserved note namespaces. A note namespace N lives at refs/notes/N/<target>;

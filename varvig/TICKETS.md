@@ -58,9 +58,10 @@ Build-on-top governance layers landed so far:
 |---|---|---|
 | **Attestations** (§2.1–§2.4) — signed decisions bound to a version, strength typing, derived status | **implemented** | `object.Attestation`/`object.Principal` (types 7/8); `internal/attest` (sign/verify, `Derive`, `PromotionBlocked`); frozen vectors `attestation/approve`, `principal/human` |
 | **Veto blocks descendants** (§2.3) — the veto half of the promotion checkpoint | **implemented** | `attest.PromotionBlocked` walks ancestors for a veto |
-| **Promotion checkpoint** (M1, §4) — policy consulted before scoring in the promote path | **implemented** | `spec.PromoteWithPolicy` + `spec.PromotionPolicy`; `attest.VetoGate` / `attest.ApprovalGate`; wired into `varvig spec promote` by default |
+| **Promotion checkpoint** (M1, §4) — policy consulted before scoring in the promote path | **implemented** | `spec.PromoteWithPolicy` + `spec.PromotionPolicy`; `attest.VetoGate` / `attest.ApprovalGate` / `attest.AllOf`; wired into `varvig spec promote` by default |
+| **Policy as a wasm module** (§2.5) — content-addressed, sandboxed policy | **implemented** (context-passing form) | `attest.WasmPolicy` runs a module in the WASI sandbox against a host-computed `PolicyInput`; `refs/varvig/policy`; `varvig attest policy set/show/clear`. Live host functions (M3/M4) are the pending refinement |
 | **Principals / org chart** (§1.4) — content-addressed keyholder records | **partial** | `object.Principal` + `attest.PrincipalSet`; a versioned org-chart ref is future work |
-| **Wasm policy module / scoring / bridge** (§2.5, §3, §5) | **pending** | build-on-top work (§6.4) |
+| **Scoring / bridge** (§3, §5) | **pending** | build-on-top work (§6.4) |
 
 Everything else in §1–§5 above the object model (the wasm policy module, scoring stages,
 the Jira/GitHub bridge) is **build-on-top** work (§6.4) and is not yet present. The design
@@ -196,6 +197,18 @@ strong attestations, and no later process promotes weak to strong.
 Who may sign what, and what suffices to promote, is a wasm module (§3.2) that is itself a
 content-addressed object in the repo. It is versioned alongside the code it guards,
 sandboxed, and portable.
+
+*Implemented (context-passing form):* `attest.WasmPolicy` runs a content-addressed module
+in the same closed WASI sandbox as hooks — no filesystem, network, environment, or
+unbounded clock. The host computes a `PolicyInput` (the change's metadata, whether its
+ancestry is vetoed, and every signature-verified attestation with its decision, strength,
+and signer) and passes it on stdin; the module exits 0 to admit, nonzero to refuse. The
+module is stored as a blob and named by `refs/varvig/policy` (`varvig attest policy set`),
+and it plugs into the promotion checkpoint as one more `PromotionPolicy` composed with the
+built-in constraints via `AllOf`. Exposing *live host functions* to the module (verify a
+signature, query the affected-set index, read scheduler state) — so a policy can pull
+facts rather than receive a pre-computed context — is the M3/M4 refinement (D5), and
+layers on without changing this shape.
 
 The attestation records the policy hash in force at signing. Policy changes therefore do
 not rewrite history, and "was this approved under the rules that applied at the time" is
@@ -373,7 +386,9 @@ concurrency semantics. Budget the most time here and the most testing.
 
 **M3 — Wasm host functions.** A policy module needs to: verify a signature, resolve
 principal identity, read notes on a target, query the affected-set index, and read
-scheduler state. Additive, feature-bit gated per D5.
+scheduler state. Additive, feature-bit gated per D5. *Not yet: the wasm policy module
+(§2.5) currently receives a host-computed `PolicyInput` on stdin rather than calling back
+into the host. Host functions are the refinement that lets a module pull facts live.*
 
 **M4 — Signature verification surfaced as a host capability.** Signing already exists as
 structural provenance (§2.1). What is new is exposing verification *to policy modules*

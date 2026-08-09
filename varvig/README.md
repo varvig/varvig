@@ -328,8 +328,16 @@ On top of those primitives, the first governance layer is built:
   Scorer); governance supplies the gate. `VetoGate` disqualifies any change
   whose ancestry carries a veto, `ApprovalGate{Required}` also demands an
   approval of a given strength, and `varvig spec promote` applies the veto gate
-  by default. The wasm policy module (§2.5) is a future gate that slots into the
-  same hook.
+  by default.
+- **Policy as a wasm module** (`attest.WasmPolicy`, §2.5) — who may sign what and
+  what suffices to promote is a content-addressed wasm module, versioned
+  alongside the code it guards. It runs in the same closed WASI sandbox as hooks;
+  the host computes a `PolicyInput` (the change's metadata, whether its ancestry
+  is vetoed, every signature-verified attestation) and passes it on stdin, and
+  the module exits 0 to admit. The module is named by `refs/varvig/policy`
+  (`varvig attest policy set`) and composes with the built-in constraints via
+  `AllOf`. Live host functions — a module pulling facts rather than receiving a
+  pre-computed context — are the pending M3/M4 refinement.
 
 ## Layout
 
