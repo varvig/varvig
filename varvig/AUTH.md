@@ -236,11 +236,12 @@ local process that makes `task start` and the gate two halves of one flow. One
 daemon per repository keeps the repo open (warm indices, §7.1) and holds the
 in-memory grant table. `task start` asks it to mint a grant: the daemon generates
 the ephemeral key, records it, and opens a **per-task Unix socket** (0600 — file
-permissions are the authentication, §7.4), backed by an **`SO_PEERCRED` check**
+permissions are the authentication, §7.4), backed by a **kernel peer-uid check**
 (`internal/peercred`) so only the daemon's own uid may connect — kernel-attested,
-unforgeable, nothing on the wire to leak. The read-only server's socket carries
-the same check; both fall back to the 0600 mode alone on platforms without
-`SO_PEERCRED`. The key then lives only in the
+unforgeable, nothing on the wire to leak. It is cgo-free on every platform that
+has it: `SO_PEERCRED` on Linux, `LOCAL_PEERCRED` (struct xucred) on macOS and
+FreeBSD. The read-only server's socket carries the same check; both fall back to
+the 0600 mode alone on platforms without one (Windows, OpenBSD/NetBSD). The key then lives only in the
 daemon's memory for the task's life — never on disk, never on the wire — and is
 used there to sign the task's proposals. A background reaper prunes expired
 grants and closes their sockets; expiry is the revocation mechanism (§6.2), so
@@ -289,7 +290,7 @@ condition occurs (auth design §11):
 |---|---|
 | Signed `allowed_keys` | Untrusted peers relay the repo |
 | Short-lived certificates for task keys | Agents propose to *remote* peers |
-| `getpeereid` peer-uid attestation on macOS/BSD | `SO_PEERCRED` is implemented for Linux (`internal/peercred`, cgo-free via the stdlib); the `getpeereid`/`LOCAL_PEERCRED` equivalent for other Unixes is still to come — they fall back to the 0600 mode until then |
+| Peer-uid attestation on OpenBSD/NetBSD | `internal/peercred` covers Linux (`SO_PEERCRED`), macOS and FreeBSD (`LOCAL_PEERCRED`), all cgo-free; OpenBSD/NetBSD (`getpeereid`/`LOCAL_PEEREID`) and Windows still fall back to the 0600 mode |
 | DNS-rebinding token → HttpOnly cookie | A client serves HTML to a browser over TCP |
 | OS-keychain encryption of the fallback key at rest | Platform integration is available |
 | Signed ref updates over the wire protocol | Remote promotion is wired (local promote is implemented) |

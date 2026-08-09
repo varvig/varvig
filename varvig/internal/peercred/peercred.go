@@ -5,9 +5,11 @@
 // "filesystem permissions are the authentication" — a 0600 socket already limits
 // connections to the owning uid, and peercred verifies that the kernel agrees.
 //
-// SO_PEERCRED (Linux) is read through the standard library's syscall package, so
-// this stays cgo-free. Platforms without an equivalent return ErrUnsupported and
-// callers fall back to the socket mode alone (the documented default, §7.4).
+// It is read cgo-free on every platform that has it: SO_PEERCRED on Linux (the
+// stdlib syscall package) and LOCAL_PEERCRED / struct xucred on macOS and FreeBSD
+// (via x/sys/unix, which carries the correct per-platform layout). The remaining
+// platforms (Windows, OpenBSD/NetBSD) return ErrUnsupported and callers fall back
+// to the socket mode alone (the documented default, §7.4).
 package peercred
 
 import (

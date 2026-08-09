@@ -13,9 +13,9 @@ import (
 // only the owning uid can open a 0600 socket. A stale socket left by a previous
 // run is removed first.
 //
-// A kernel-backed SO_PEERCRED peer-uid check (§7.4) layers on top of the 0600
-// mode: the caller wraps this listener with peercred.FilterListener (see
-// cmd/varvig serveReadOnly), which is cgo-free on Linux and falls back to the
+// A kernel-backed peer-uid check (§7.4) layers on top of the 0600 mode: the
+// caller wraps this listener with peercred.FilterListener (see cmd/varvig
+// serveReadOnly), which is cgo-free on Linux/macOS/FreeBSD and falls back to the
 // mode alone where the OS has no equivalent.
 func ListenUnix(path string) (net.Listener, error) {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
