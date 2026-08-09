@@ -107,6 +107,12 @@ func generateObjects() []ObjVector {
 		objVector("change/minimal", object.NewChange(object.Change{
 			Tree: tree, Message: "initial", Timestamp: 1723100000, Author: "agent-0",
 		})),
+		// An unmaterialized change (a ticket): intent with no tree. The tree tag
+		// is absent, not present-and-empty and not the empty-tree hash, so this
+		// vector pins decision D1 into the frozen suite (tickets §1.1, §7.1).
+		objVector("change/unmaterialized", object.NewChange(object.Change{
+			Message: "add rate limiting to the auth module", Timestamp: 1723100000, Author: "director",
+		})),
 		objVector("change/signed-with-provenance", changeSigned),
 		objVector("provenance/full", object.NewProvenance(object.Provenance{
 			Authority: "alice", Model: "claude", ModelVersion: "x",

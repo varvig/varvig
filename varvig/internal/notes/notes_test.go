@@ -81,6 +81,50 @@ func TestNamespaces(t *testing.T) {
 	}
 }
 
+// TestHierarchicalNamespace covers the slash-separated namespaces the
+// governance layer relies on (tickets §1.3): "varvig/attest" and friends must
+// be addressable, and must not collide with a sibling under the same root.
+func TestHierarchicalNamespace(t *testing.T) {
+	r, _ := repo.Init(t.TempDir())
+	target, _ := r.Objects.Put(object.NewBlob([]byte("x")))
+	s := New(r)
+
+	if _, err := s.Add("varvig/attest", target, []byte("approve"), "director", 1); err != nil {
+		t.Fatalf("Add attest: %v", err)
+	}
+	if _, err := s.Add("varvig/score", target, []byte("0.7"), "scorer", 2); err != nil {
+		t.Fatalf("Add score: %v", err)
+	}
+
+	attest, err := s.List("varvig/attest", target)
+	if err != nil || len(attest) != 1 || string(attest[0].Note.Payload) != "approve" {
+		t.Fatalf("attest list = %+v err=%v", attest, err)
+	}
+	// The score namespace is independent of the attest namespace.
+	if score, _ := s.List("varvig/score", target); len(score) != 1 {
+		t.Fatalf("score list = %+v, want 1", score)
+	}
+
+	ns, err := s.Namespaces(target)
+	if err != nil {
+		t.Fatalf("Namespaces: %v", err)
+	}
+	if len(ns) != 2 {
+		t.Fatalf("namespaces = %v, want [varvig/attest varvig/score]", ns)
+	}
+}
+
+func TestInvalidNamespaces(t *testing.T) {
+	r, _ := repo.Init(t.TempDir())
+	target, _ := r.Objects.Put(object.NewBlob([]byte("x")))
+	s := New(r)
+	for _, bad := range []string{"", "/leading", "trailing/", "a//b", "a/../b", "has space", "back\\slash"} {
+		if _, err := s.Add(bad, target, []byte("x"), "u", 1); err == nil {
+			t.Errorf("Add(%q) accepted an invalid namespace", bad)
+		}
+	}
+}
+
 func TestListEmpty(t *testing.T) {
 	r, _ := repo.Init(t.TempDir())
 	target, _ := r.Objects.Put(object.NewBlob([]byte("x")))

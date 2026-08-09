@@ -16,7 +16,7 @@ var goldenJSON []byte
 // GoldenSuiteID is the multihash of vectors.json — the suite's stable identity.
 // A change here means the frozen format's golden artifact changed, which must
 // be a deliberate, reviewed event.
-const GoldenSuiteID = "1e20759d4f9731ad6cf1dc4db6d6934fb6c90d9bc748e76ff329b076821accdbf220"
+const GoldenSuiteID = "1e205a696b35bede169782d371fd80c8ca63b4b73a746c2edff95575651cbf0b7980"
 
 // Golden returns the parsed golden suite.
 func Golden() Vectors {
