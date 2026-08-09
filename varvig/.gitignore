@@ -2,3 +2,11 @@
 /varvig
 /varvig.exe
 varvig-*
+
+# release artifacts
+/dist/
+
+# MCPB bundle: the platform binary is copied in at release time, never committed
+/mcpb/server/varvig
+/mcpb/server/varvig.exe
+/mcpb/*.mcpb

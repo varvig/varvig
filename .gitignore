@@ -1,0 +1,4 @@
+# Release build output. tools/build.sh writes cross-compiled binaries here (at
+# the repo root, alongside the varvig/ module) and the release workflow uploads
+# them as artifacts; they are never committed.
+/dist/

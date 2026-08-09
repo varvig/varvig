@@ -157,7 +157,13 @@ func TestInitializeAndToolsList(t *testing.T) {
 
 	var list struct {
 		Tools []struct {
-			Name string `json:"name"`
+			Name        string `json:"name"`
+			Title       string `json:"title"`
+			Annotations struct {
+				Title           string `json:"title"`
+				ReadOnlyHint    *bool  `json:"readOnlyHint"`
+				DestructiveHint *bool  `json:"destructiveHint"`
+			} `json:"annotations"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(resps[1].Result, &list); err != nil {
@@ -173,6 +179,52 @@ func TestInitializeAndToolsList(t *testing.T) {
 	for _, tl := range list.Tools {
 		if !want[tl.Name] {
 			t.Errorf("unexpected tool %q", tl.Name)
+		}
+		// Directory-submission blocker (release design §7): every advertised
+		// tool must carry a title and the readOnly/destructive hints.
+		if tl.Title == "" || tl.Annotations.Title == "" {
+			t.Errorf("tool %q is missing a title", tl.Name)
+		}
+		if tl.Annotations.ReadOnlyHint == nil || tl.Annotations.DestructiveHint == nil {
+			t.Errorf("tool %q is missing readOnly/destructive hints", tl.Name)
+		}
+	}
+}
+
+// TestToolsCarryTitleAndHints asserts, directly against the advertised catalog,
+// the requirement the release smoke test enforces (§7): every tool has a title
+// and the applicable readOnly/destructive hints, and propose is the only write.
+func TestToolsCarryTitleAndHints(t *testing.T) {
+	for _, tl := range toolList {
+		name, _ := tl["name"].(string)
+		if name == "" {
+			t.Fatalf("tool with no name: %+v", tl)
+		}
+		if title, _ := tl["title"].(string); title == "" {
+			t.Errorf("tool %q: missing top-level title", name)
+		}
+		ann, ok := tl["annotations"].(map[string]any)
+		if !ok {
+			t.Errorf("tool %q: missing annotations block", name)
+			continue
+		}
+		if title, _ := ann["title"].(string); title == "" {
+			t.Errorf("tool %q: annotations.title is empty", name)
+		}
+		ro, roOK := ann["readOnlyHint"].(bool)
+		if !roOK {
+			t.Errorf("tool %q: annotations.readOnlyHint absent", name)
+		}
+		if _, ok := ann["destructiveHint"].(bool); !ok {
+			t.Errorf("tool %q: annotations.destructiveHint absent", name)
+		}
+		// propose is the sole writer; everything else is read-only.
+		if name == "propose" {
+			if ro {
+				t.Errorf("propose must not be readOnly")
+			}
+		} else if !ro {
+			t.Errorf("tool %q should be readOnly", name)
 		}
 	}
 }

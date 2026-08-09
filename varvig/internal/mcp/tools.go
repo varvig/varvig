@@ -20,10 +20,28 @@ import (
 // hash is folded into the task's read set for provenance (§8.2).
 
 // toolList is advertised by tools/list. inputSchema is minimal JSON Schema.
+//
+// Every tool carries a human-readable title and the MCP behavioral hints
+// (readOnlyHint / destructiveHint), which the directory submission requires and
+// the release smoke test asserts (varvig-release-automation §7, referencing the
+// distribution §6.1 tool-annotation blocker). The hints are set from what the
+// tool actually does against core objects:
+//
+//   - The fetch_* / list_proposals tools only read: readOnly, non-destructive,
+//     idempotent.
+//   - propose writes — it creates objects and a speculative change — so it is
+//     not readOnly. It is still non-destructive: it is append-only and can never
+//     move a ref (§8.1), so no existing state is overwritten or lost. It is not
+//     idempotent: each call mints a distinct signed change.
+//
+// openWorldHint is false throughout: a task gate only ever touches its own
+// repository, never an open-ended external system.
 var toolList = []map[string]any{
 	{
 		"name":        "fetch_tree",
+		"title":       "Fetch directory listing",
 		"description": "List a directory within the task's scope. Returns the tree hash and each entry's hash. Omit path for the scope root.",
+		"annotations": readOnlyAnnotations("Fetch directory listing"),
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -33,7 +51,9 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "fetch_blob",
+		"title":       "Fetch file contents",
 		"description": "Read a file's contents by path, within the task's scope. Returns the blob hash and the content.",
+		"annotations": readOnlyAnnotations("Fetch file contents"),
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -44,7 +64,9 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "fetch_change_with_intent",
+		"title":       "Fetch change (intent first)",
 		"description": "Fetch a change intent-first: its intent (message), then provenance evidence, then the diff. Defaults to the task's base change.",
+		"annotations": readOnlyAnnotations("Fetch change (intent first)"),
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -54,7 +76,9 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "fetch_evidence",
+		"title":       "Fetch provenance evidence",
 		"description": "Fetch just the provenance evidence attached to a change (authority, model, tooling, intent). Defaults to the task's base change.",
+		"annotations": readOnlyAnnotations("Fetch provenance evidence"),
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -64,7 +88,9 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "list_proposals",
+		"title":       "List proposals",
 		"description": "List the speculative changes this task has proposed but not promoted.",
+		"annotations": readOnlyAnnotations("List proposals"),
 		"inputSchema": map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
@@ -72,7 +98,17 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "propose",
+		"title":       "Propose a change",
 		"description": "Propose a change: overlay file contents onto the base tree and record a signed, speculative change. Every path must be within the task's scope. This never moves a ref — promotion is a separate, human-gated step.",
+		// A write, but append-only: it never overwrites or moves a ref, so it is
+		// not destructive. Each call mints a distinct change, so not idempotent.
+		"annotations": map[string]any{
+			"title":           "Propose a change",
+			"readOnlyHint":    false,
+			"destructiveHint": false,
+			"idempotentHint":  false,
+			"openWorldHint":   false,
+		},
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -93,6 +129,18 @@ var toolList = []map[string]any{
 			"required": []string{"message", "files"},
 		},
 	},
+}
+
+// readOnlyAnnotations is the MCP annotation block for a pure read: it observes
+// state and neither writes nor destroys, and repeating it changes nothing.
+func readOnlyAnnotations(title string) map[string]any {
+	return map[string]any{
+		"title":           title,
+		"readOnlyHint":    true,
+		"destructiveHint": false,
+		"idempotentHint":  true,
+		"openWorldHint":   false,
+	}
 }
 
 // toolHandler runs one tool with its raw arguments and returns a JSON-able

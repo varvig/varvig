@@ -38,12 +38,27 @@ import (
 )
 
 const (
-	serverName    = "varvig-mcp"
-	serverVersion = "0.1.0"
+	serverName = "varvig-mcp"
 	// defaultProtocolVersion is used only when a client's initialize omits one;
 	// otherwise the gate echoes the client's requested version.
 	defaultProtocolVersion = "2024-11-05"
 )
+
+// serverVersion is what the gate advertises in initialize's serverInfo. It
+// defaults to a placeholder and is overwritten by the binary's build version
+// via SetServerVersion, so a released varvig reports its release tag here
+// rather than a number frozen in this package.
+var serverVersion = "0.1.0"
+
+// SetServerVersion sets the version advertised in the MCP handshake. The core
+// binary calls this once at startup with its build-stamped version, keeping the
+// version tag in a single source of truth (release design §2). An empty string
+// is ignored so a caller cannot blank out the advertised version.
+func SetServerVersion(v string) {
+	if v != "" {
+		serverVersion = v
+	}
+}
 
 // Gate is a running MCP gate bound to a single task credential. It is created
 // per task and serves that task's connection for the credential's lifetime.

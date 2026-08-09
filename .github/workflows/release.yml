@@ -1,0 +1,201 @@
+# Core release (varvig-release-automation §4, §6.1).
+#
+# On a v* tag this builds the per-platform binaries, fuses the macOS slices into
+# a universal binary, packs one MCPB bundle per platform (embedding the attested
+# binary), attaches everything to a GitHub Release with checksums and build
+# provenance, and finally dispatches the marketplace bump to the plugins repo.
+#
+# The pin lives in exactly one place downstream (varvig/plugins/varvig.lock.json);
+# this workflow only publishes artifacts and points at the new version. It never
+# carries hashes across the dispatch — the bump job derives those from the
+# artifacts themselves (§5.2).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # Manual re-run for a tag already pushed (e.g. to rebuild assets). The build
+  # order (§11) calls for exercising the pieces by hand before the tag path is
+  # trusted.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.3.1"
+        required: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false # never cancel a release mid-flight (§4)
+
+permissions:
+  contents: write # create the release, upload assets
+  id-token: write # build-provenance attestation
+  attestations: write # write the attestation
+
+env:
+  # The tag being released: the pushed ref, or the manual input.
+  VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Build static binary
+        run: varvig/tools/build.sh ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/varvig-${{ matrix.target }}*
+          if-no-files-found: error
+
+  bundle:
+    name: bundle ${{ matrix.target }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The shipping platforms: the two macOS slices are fused into one
+        # universal bundle, matching varvig.lock.json's artifact set (§2.1).
+        target: [linux-amd64, linux-arm64, darwin-universal, windows-amd64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: dist
+      - name: Install MCPB
+        run: npm install -g @anthropic-ai/mcpb
+      - name: Pack MCPB bundle
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          ver="${VERSION#v}"
+
+          # Resolve the binary for this platform, fusing the darwin slices when
+          # the target is the universal one (§6.1: the bundle embeds the binary,
+          # so a version bump is a rebuild, not a string substitution).
+          case "$TARGET" in
+            darwin-universal) varvig/tools/lipo.sh; bin="dist/varvig-darwin-universal" ;;
+            windows-amd64)    bin="dist/varvig-windows-amd64.exe" ;;
+            *)                bin="dist/varvig-$TARGET" ;;
+          esac
+
+          mkdir -p varvig/mcpb/server
+          if [ "$TARGET" = "windows-amd64" ]; then
+            cp "$bin" varvig/mcpb/server/varvig.exe
+            jq --arg ver "$ver" --arg cmd '${__dirname}/server/varvig.exe' \
+               '.version=$ver | .server.entry_point="server/varvig.exe" | .server.mcp_config.command=$cmd' \
+               varvig/mcpb/manifest.json > varvig/mcpb/manifest.patched.json
+          else
+            cp "$bin" varvig/mcpb/server/varvig
+            jq --arg ver "$ver" '.version=$ver' \
+               varvig/mcpb/manifest.json > varvig/mcpb/manifest.patched.json
+          fi
+          mv varvig/mcpb/manifest.patched.json varvig/mcpb/manifest.json
+
+          mkdir -p bundles
+          mcpb pack varvig/mcpb "bundles/varvig-$TARGET.mcpb"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.target }}
+          path: bundles/varvig-${{ matrix.target }}.mcpb
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: [build, bundle]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: dist
+      - name: Create macOS universal binary
+        run: varvig/tools/lipo.sh # darwin-amd64 + darwin-arm64 -> darwin-universal
+      - name: Assemble release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          # Only the shipping platforms are published; the raw darwin slices are
+          # a build intermediate, not an artifact (they match varvig.lock.json).
+          cp dist/varvig-linux-amd64 release/
+          cp dist/varvig-linux-arm64 release/
+          cp dist/varvig-darwin-universal release/
+          cp dist/varvig-windows-amd64.exe release/
+      - name: Download bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          merge-multiple: true
+          path: release
+      - name: Checksums
+        run: cd release && sha256sum varvig-* > SHA256SUMS && cat SHA256SUMS
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "release/varvig-*"
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          generate_release_notes: true
+          files: |
+            release/varvig-*
+            release/SHA256SUMS
+
+  bump-marketplace:
+    name: dispatch marketplace bump
+    needs: publish
+    runs-on: ubuntu-latest
+    # Enabled last in the build order (§11 step 7): until the release-bot App is
+    # configured, skip the dispatch rather than fail the release. The drift
+    # check (§8) is the backstop that catches a pin left behind in the meantime.
+    if: ${{ vars.RELEASE_BOT_APP_ID != '' }}
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: token
+        with:
+          app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_KEY }}
+          repositories: plugins
+      - name: Dispatch bump
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          # The plugins repo, overridable via a repo variable; the version tag is
+          # the only payload — never a hash (§5.2).
+          PLUGINS_REPO: ${{ vars.PLUGINS_REPO || 'varvig/plugins' }}
+        run: |
+          gh api "repos/${PLUGINS_REPO}/dispatches" \
+            -f event_type=core-release \
+            -F "client_payload[version]=${VERSION}"
