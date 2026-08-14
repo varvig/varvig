@@ -91,7 +91,7 @@ func TestStartTaskServesScopedGate(t *testing.T) {
 	}
 
 	// A read within scope over the per-task socket succeeds.
-	res := callTool(t, info.Socket, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fetch_blob","arguments":{"path":"src/auth/login.go"}}}`)
+	res := callTool(t, info.Socket, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"varvig_read_file","arguments":{"path":"src/auth/login.go"}}}`)
 	if res["isError"] == true {
 		t.Fatalf("in-scope read errored: %v", res["content"])
 	}
@@ -101,7 +101,7 @@ func TestStartTaskServesScopedGate(t *testing.T) {
 	}
 
 	// A read outside scope is refused by the gate the daemon serves.
-	bad := callTool(t, info.Socket, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"fetch_blob","arguments":{"path":"src/other.go"}}}`)
+	bad := callTool(t, info.Socket, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"varvig_read_file","arguments":{"path":"src/other.go"}}}`)
 	if bad["isError"] != true {
 		t.Fatal("out-of-scope read should be refused")
 	}
@@ -188,7 +188,7 @@ func TestControlProtocolStartAndList(t *testing.T) {
 	socket := resp.Task.Socket
 
 	// the returned socket serves the scoped gate
-	res := callTool(t, socket, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"fetch_blob","arguments":{"path":"src/auth/login.go"}}}`)
+	res := callTool(t, socket, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"varvig_read_file","arguments":{"path":"src/auth/login.go"}}}`)
 	if res["isError"] == true {
 		t.Fatalf("gate read over daemon-minted task failed: %v", res)
 	}

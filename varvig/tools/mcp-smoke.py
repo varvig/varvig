@@ -109,14 +109,33 @@ def main():
                 problems.append(f"{name}: missing annotations.readOnlyHint")
             if "destructiveHint" not in ann:
                 problems.append(f"{name}: missing annotations.destructiveHint")
+            # The write path is append-only, so nothing is destructive (§4.2).
+            if ann.get("destructiveHint") is True:
+                problems.append(f"{name}: destructiveHint must be false "
+                                "(the write path is append-only)")
+            # There is no promotion tool. Do not add one (§4, §9): assert no
+            # advertised tool is a promotion. This is a submission blocker.
+            if "promote" in name:
+                problems.append(f"{name}: a *promote* tool must not exist — "
+                                "the gate can never promote")
+
+        got = sorted(t.get("name", "?") for t in tools)
+        # The surface is exactly ten tools (§4) — no more, no fewer.
+        want = sorted([
+            "varvig_task_context", "varvig_resolve", "varvig_list_tree",
+            "varvig_read_file", "varvig_find_files", "varvig_search_text",
+            "varvig_read_change", "varvig_read_log", "varvig_list_proposals",
+            "varvig_propose",
+        ])
+        if got != want:
+            problems.append(f"tool set is {got}, want the ten {want}")
 
         if problems:
-            fail("tool annotation requirements not met:\n  " +
+            fail("tool surface requirements not met:\n  " +
                  "\n  ".join(problems))
 
-        names = ", ".join(sorted(t.get("name", "?") for t in tools))
-        print(f"mcp-smoke: OK — {len(tools)} tools, all carry title + hints "
-              f"({names})")
+        print(f"mcp-smoke: OK — {len(tools)} tools, all carry title + hints, "
+              f"no promotion tool ({', '.join(got)})")
     finally:
         try:
             proc.stdin.close()
