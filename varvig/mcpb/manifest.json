@@ -4,13 +4,14 @@
   "display_name": "Varvig",
   "version": "0.0.0",
   "description": "Varvig MCP gate — a scoped, propose-only source-control gate for agents. Reads are logged into provenance; the gate can create proposals but never promote a ref.",
-  "long_description": "The Varvig MCP gate exposes a single task's read set to an agent over stdio: fetch trees, blobs, changes and provenance evidence within a scope, and propose signed, speculative changes. Every proposal is append-only and human-gated for promotion. This bundle embeds the varvig binary for one platform; the version is stamped at release time and pinned by the varvig-tools marketplace.",
+  "long_description": "The Varvig MCP gate exposes a single task's read set to an agent over stdio: list and read files, search, resolve refs, and read changes and history within a scope, then propose signed, speculative changes. The write path is append-only, so no tool is destructive and there is no promotion tool — promotion is a separate, human-gated step. This bundle embeds the varvig binary for one platform; the version is stamped at release time and pinned by the varvig-tools marketplace.",
   "author": {
     "name": "Varvig"
   },
   "homepage": "https://github.com/varvig/varvig",
-  "documentation": "https://github.com/varvig/varvig/blob/main/varvig/AUTH.md",
+  "documentation": "https://github.com/varvig/varvig/blob/main/varvig/MCP.md",
   "license": "see repository",
+  "privacy_policies": ["https://varvig.com/privacy"],
   "server": {
     "type": "binary",
     "entry_point": "server/varvig",
@@ -20,12 +21,16 @@
     }
   },
   "tools": [
-    { "name": "fetch_tree", "description": "List a directory within the task's scope." },
-    { "name": "fetch_blob", "description": "Read a file's contents within the task's scope." },
-    { "name": "fetch_change_with_intent", "description": "Fetch a change intent-first." },
-    { "name": "fetch_evidence", "description": "Fetch a change's provenance evidence." },
-    { "name": "list_proposals", "description": "List this task's proposed, un-promoted changes." },
-    { "name": "propose", "description": "Propose a signed, speculative change; never promotes a ref." }
+    { "name": "varvig_task_context", "description": "Report the task's identity, operating mode, scope, and base state." },
+    { "name": "varvig_resolve", "description": "Resolve a ref or partial hash to a full object hash, within scope." },
+    { "name": "varvig_list_tree", "description": "List a directory within the task's scope." },
+    { "name": "varvig_read_file", "description": "Read a file's contents, with optional line ranges, within scope." },
+    { "name": "varvig_find_files", "description": "Find files by glob within scope." },
+    { "name": "varvig_search_text", "description": "Search file contents (literal or regex) within scope." },
+    { "name": "varvig_read_change", "description": "Read a change intent-first: intent, then evidence, then changed paths." },
+    { "name": "varvig_read_log", "description": "List change history for a ref or path." },
+    { "name": "varvig_list_proposals", "description": "List this task's proposed, un-promoted changes." },
+    { "name": "varvig_propose", "description": "Propose a signed, speculative change; never promotes a ref." }
   ],
   "compatibility": {
     "platforms": ["darwin", "linux", "win32"]
