@@ -65,6 +65,7 @@ var commands = map[string]func([]string) error{
 	"push":        cmdPush,
 	"note":        cmdNote,
 	"attest":      cmdAttest,
+	"principal":   cmdPrincipal,
 	"tickets":     cmdTickets,
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
@@ -175,6 +176,9 @@ usage:
   varvig attest status <ref|id>         derived status (--require strong|delegated|weak)
   varvig attest policy set <m.wasm>     set the promotion-policy wasm module (§2.5)
   varvig attest policy show|clear       show or remove the promotion policy
+  varvig principal add --name <n> --kind human|agent|bridge [--key <hex>]
+                                      register a keyholder in the org chart (§1.4)
+  varvig principal list|remove <fp>     list or remove principals
   varvig tickets new -m <spec>          mint a ticket: a ref + genesis revision (§1.2)
   varvig tickets revise <ticket> -m <spec>  append an intent revision, move the ref
   varvig tickets list                   list tickets with their derived status
