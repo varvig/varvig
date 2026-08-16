@@ -10,6 +10,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/principal"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 )
@@ -126,6 +127,15 @@ func signAndAttach(r *repo.Repo, target multihash.Multihash, decision object.Dec
 	if !id.CanSign() {
 		return errors.New("attest: active identity cannot sign (encrypted key and no ssh-agent); " +
 			"start ssh-agent and `ssh-add` your key")
+	}
+	// If the signer is a registered principal, enforce the strength/kind rule
+	// (§2.4) at authoring time — the same rule verification applies later, so a
+	// bridge cannot even mint a strong decision to begin with. An unregistered
+	// signer is allowed (registration is optional).
+	if kind, ok := principal.Open(r).KindOf(id.Fingerprint()); ok {
+		if err := attest.CheckStrengthKind(strength, kind); err != nil {
+			return err
+		}
 	}
 	obj, err := attest.Sign(id.Signer, object.Attestation{
 		Target:    target,

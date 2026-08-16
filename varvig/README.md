@@ -341,6 +341,14 @@ On top of those primitives, the governance and ticket layers are built:
   encodings are pinned into the frozen conformance suite. `varvig attest
   approve|veto|list|status` signs and inspects decisions with the active SSH
   identity.
+- **Principal registry / org chart** (`internal/principal`, §1.4) — the set of
+  keyholders and their kind, stored as a tree at `refs/varvig/principals` and
+  moved by compare-and-swap, so the chart is versioned, hash-pinned, diffable,
+  and auditable through its reflog. A `principal.Registry` implements
+  `attest.KindResolver`, so the strength rule resolves kinds **from the repo**:
+  registered as a bridge, even the `varvig attest` author path refuses to mint a
+  strong decision; re-registered as a human, the same approval succeeds.
+  `varvig principal add|list|remove` administers it, like the trust store.
 - **Promotion checkpoint** (`spec.PromoteWithPolicy`, `attest.VetoGate`, M1) —
   the promote path consults an injected `PromotionPolicy` *before* scoring picks
   a winner, so a policy refusal is never outranked by a high score: a refused
@@ -418,6 +426,7 @@ varvig/
     peercred/          kernel peer-uid attestation for local sockets (§7.4)
     reserved/          reserved ticket/governance ref + note namespaces (D6)
     attest/            signed governance decisions: sign, verify, derive status
+    principal/         versioned org chart: keyholders and their kind (§1.4)
     deps/              ticket scope + derived blocking dependencies (§3.2)
     score/             learned ticket scoring + native backtest (§3.3)
     ticket/            ticket identity as a ref + intent-revision chain (§1.2)

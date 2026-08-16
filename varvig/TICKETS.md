@@ -64,7 +64,7 @@ Build-on-top governance layers landed so far:
 | **Pluggable scheduler ordering** (M2, §3.3) — admission order is a module boundary | **implemented** | `txn.Ordering` (`InputOrder`/`PriorityOrder`/`ScoreOrder`); `txn.Scheduler.SetOrdering`/`Plan`; rank-gated conflict admission, race-tested |
 | **Ticket scope + derived dependencies** (§3.1–§3.2) — blocking from write-set overlap, no hand-declared links | **implemented** | `varvig/scope` note namespace; `internal/deps` (`Blocks`/`Graph`) over `txn.Conflict`; `varvig tickets scope/blockers/graph` |
 | **Learned scoring + native backtest** (§3.3 Stage 3) — fit weights to past decisions; replay and report disagreements | **implemented** | `internal/score` (`Fit`/`Backtest`/`ExtractFeatures`/`RankTickets`); feeds `txn.ScoreOrder`; `varvig tickets rank`. Stage 2.5 LLM scorer is out-of-binary by design |
-| **Principals / org chart** (§1.4) — content-addressed keyholder records | **partial** | `object.Principal` + `attest.PrincipalSet`; a versioned org-chart ref is future work |
+| **Principals / org chart** (§1.4) — versioned, repo-backed keyholder registry | **implemented** | `internal/principal` (tree at `refs/varvig/principals`, `Registry` implements `attest.KindResolver`); `varvig principal add/list/remove`; kind check resolves from the repo at sign and verify time |
 | **Scoring functions / bridge** (§3.3 Stage 2.5–3, §5) | **pending** | build-on-top work (§6.4); the scorer plugs into `txn.ScoreOrder` |
 
 Everything else in §1–§5 above the object model (concrete scorers, the Jira/GitHub bridge)
@@ -142,6 +142,17 @@ parameters, tool permissions, authority delegated from whom).
 Principal records are content-addressed objects. The org chart is versioned, hash-pinned,
 diffable, and auditable — including retroactively: "who was allowed to approve billing
 changes in March" is a query, not an interview.
+
+*Implemented:* `internal/principal` is the org chart — a tree at `refs/varvig/principals`
+mapping each fingerprint to its `object.Principal` record (stored as a blob, so the
+object store's GC pins it through the tree, no new type). The chart moves by
+compare-and-swap, so it is versioned and its reflog is the retroactive audit trail. A
+`principal.Registry` implements `attest.KindResolver`, so the §2.4 strength rule now
+resolves kinds *from the repo*: `attest.VerifyWithPrincipal` and the `varvig attest` sign
+path both reject a strength inconsistent with the signer's registered kind — a bridge
+cannot mint a strong decision even at authoring time. `varvig principal add/list/remove`
+administers it (a director surface, like the trust store). Agent-specific provenance
+fields on a principal are additive future tags.
 
 ---
 

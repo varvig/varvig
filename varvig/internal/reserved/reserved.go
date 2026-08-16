@@ -29,6 +29,12 @@ const (
 	// module (tickets §2.5). A policy is a content-addressed object, versioned
 	// alongside the code it guards; the ref names the module in force.
 	PolicyRef = "refs/varvig/policy"
+
+	// PrincipalsRef points to the org chart: a tree of principal records
+	// (tickets §1.4). Moved by compare-and-swap, so the chart is versioned,
+	// hash-pinned, diffable, and auditable through the reflog — "who was allowed
+	// to approve billing changes in March" is a query, not an interview.
+	PrincipalsRef = "refs/varvig/principals"
 )
 
 // Reserved note namespaces. A note namespace N lives at refs/notes/N/<target>;

@@ -139,6 +139,7 @@ var Commands = []Command{
 	{Name: "merge", NoRules: "three-way merge into HEAD; a promotion-side operation, human-driven"},
 	{Name: "note", NoRules: "attaches notes via ref updates; outside the propose-only surface"},
 	{Name: "attest", NoRules: "governance decisions (approve/veto/policy); a director signs these, and a propose-only agent neither approves nor promotes"},
+	{Name: "principal", NoRules: "org-chart administration; a director/admin registers keyholders and their kind, like the trust store"},
 	{Name: "spec", NoRules: "speculation pool is orchestrator-driven; candidates are added and scored around the agent, not by it"},
 	{Name: "tickets", NoRules: "ticket scheduling metadata (scope) and derived blocking; computed by the orchestrator/scheduler around the agent, not driven by a propose-only task"},
 	{Name: "hook", NoRules: "configures acceptance gates; a human or admin sets the gates an agent's proposals must pass"},

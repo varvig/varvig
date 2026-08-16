@@ -129,13 +129,18 @@ func VerifyWithPrincipal(obj *object.Object, r KindResolver) (string, object.Att
 	if !ok {
 		return fp, object.Attestation{}, ErrUnknownPrincipal
 	}
-	if err := checkStrengthKind(a.Strength, kind); err != nil {
+	if err := CheckStrengthKind(a.Strength, kind); err != nil {
 		return fp, object.Attestation{}, err
 	}
 	return fp, a, nil
 }
 
-func checkStrengthKind(s object.Strength, k object.Kind) error {
+// CheckStrengthKind enforces the §2.4 rule tying an attestation's strength to
+// the signing principal's kind: a bridge may produce only weak (it signs on
+// behalf of a keyless principal), and a keyholder may not produce weak. It is
+// exported so an authoring path can reject an inconsistent decision early, at
+// signing time, with the same rule verification applies later.
+func CheckStrengthKind(s object.Strength, k object.Kind) error {
 	switch k {
 	case object.KindBridge:
 		if s != object.StrengthWeak {
