@@ -63,7 +63,7 @@ Build-on-top governance layers landed so far:
 | **Policy as a wasm module** (§2.5) — content-addressed, sandboxed policy | **implemented** (context-passing form) | `attest.WasmPolicy` runs a module in the WASI sandbox against a host-computed `PolicyInput`; `refs/varvig/policy`; `varvig attest policy set/show/clear`. Live host functions (M3/M4) are the pending refinement |
 | **Pluggable scheduler ordering** (M2, §3.3) — admission order is a module boundary | **implemented** | `txn.Ordering` (`InputOrder`/`PriorityOrder`/`ScoreOrder`); `txn.Scheduler.SetOrdering`/`Plan`; rank-gated conflict admission, race-tested |
 | **Ticket scope + derived dependencies** (§3.1–§3.2) — blocking from write-set overlap, no hand-declared links | **implemented** | `varvig/scope` note namespace; `internal/deps` (`Blocks`/`Graph`) over `txn.Conflict`; `varvig tickets scope/blockers/graph` |
-| **Learned scoring + native backtest** (§3.3 Stage 3) — fit weights to past decisions; replay and report disagreements | **implemented** | `internal/score` (`Fit`/`Backtest`/`ExtractFeatures`/`RankTickets`); feeds `txn.ScoreOrder`; `varvig tickets rank`. Stage 2.5 LLM scorer is out-of-binary by design |
+| **Learned scoring + native backtest** (§3.3 Stage 3, §3.4) — fit weights to past decisions; replay and report disagreements | **implemented** | `internal/score` (`Fit`/`Backtest`/`ExtractFeatures`/`RankTickets`); `BuildCorpus`/`FitFromHistory` read the corpus from recorded approve/veto decisions; feeds `txn.ScoreOrder`; `varvig tickets rank`/`backtest`. Stage 2.5 LLM scorer is out-of-binary by design |
 | **Principals / org chart** (§1.4) — versioned, repo-backed keyholder registry | **implemented** | `internal/principal` (tree at `refs/varvig/principals`, `Registry` implements `attest.KindResolver`); `varvig principal add/list/remove`; kind check resolves from the repo at sign and verify time |
 | **Scoring functions / bridge** (§3.3 Stage 2.5–3, §5) | **pending** | build-on-top work (§6.4); the scorer plugs into `txn.ScoreOrder` |
 
@@ -323,12 +323,26 @@ disagreement). Promote the scorer only if that review passes. A scorer is code a
 governed as code. *(A linear model realizes §2.5's "scorer is a content-addressed module"
 as serialized weights; a full wasm scorer plugs into the identical boundary.)*
 
+*Wired to real history:* `score.BuildCorpus` reads the corpus from the repository's own
+recorded decisions rather than a hand-built list — a ticket the director approved should
+rank above one they vetoed, with features from the same `ExtractFeatures` the live scorer
+uses. `score.FitFromHistory` fits and backtests in one step, and `varvig tickets backtest`
+runs the whole loop (fit → report agreement → optionally save weights), which
+`varvig tickets rank --weights` then applies. Approve/veto is the base signal; promotion
+order and explicit overrides (§3.4) fold into the same corpus shape as they are recorded.
+
 ### 3.4 Overrides are signed
 
 Manual override stays available forever, as an explicit pinned constraint — but recorded
 as a signed decision with provenance. The point is not to discourage overrides. The point
 is that six months later you can ask how often the scheduler was overruled, by whom, and
 whether they were right.
+
+*Partly wired:* attestations are already signed decisions with provenance, and
+`score.BuildCorpus` turns the approve/veto record into the training corpus above, so
+recorded decisions already feed the learner. A dedicated signed *override* object (a
+recorded "do this one first" that reorders against the scorer) is the remaining piece; it
+attaches as one more comparison source.
 
 ---
 
@@ -549,10 +563,10 @@ Cases already covered are marked.
 - Deterministic replay: the same ticket set and ordering produce the same admission order.
   *(covered: `TestPlanIsDeterministic`, `TestOrderingDeterminesAdmissionOrder`)*
 - Scorer backtest harness reproduces a corpus of past decisions and reports
-  disagreements (§3.3). *(covered: `score.Backtest`; `TestFitLearnsSeparableOrdering`,
-  `TestBacktestReportsDisagreements`, `TestBacktestTieIsDisagreement`. Replaying a real
-  recorded quarter — collecting the corpus from signed overrides/vetoes — is the
-  remaining production wiring)*
+  disagreements (§3.3). *(covered: `score.Backtest` + `score.BuildCorpus`/`FitFromHistory`
+  which read the corpus from the repository's own approve/veto record;
+  `TestBuildCorpusFromDecisions`, `TestFitFromHistory`, `TestEmptyCorpus`, plus
+  `TestFitLearnsSeparableOrdering`, `TestBacktestReportsDisagreements`)*
 - A learned scorer is deterministic and reproducible from a fixed corpus.
   *(covered: `TestFitIsDeterministic`, `TestRankTicketsDeterministic`)*
 

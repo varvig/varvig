@@ -188,6 +188,8 @@ usage:
   varvig tickets blockers <ticket>      tickets blocking this one (derived, §3.2)
   varvig tickets graph                  the derived blocking graph over all scoped tickets
   varvig tickets rank [--weights f.json] rank scoped tickets by score (§3.3)
+  varvig tickets backtest [-o f.json]   learn a scorer from recorded decisions,
+              [--epochs N]              report agreement, optionally save weights
   varvig hook set <event> <module.wasm> bind a wasm hook to an event
   varvig hook list                      list configured hooks
   varvig hook run <event> [file]        run an event's hooks with input (or stdin)

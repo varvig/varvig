@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +36,7 @@ import (
 // (§3.3): a score reorders, it never gates.
 func cmdTickets(args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: varvig tickets <new|revise|list|show|scope|blockers|graph|rank> ...")
+		return errors.New("usage: varvig tickets <new|revise|list|show|scope|blockers|graph|rank|backtest> ...")
 	}
 	r, err := repo.Open(".")
 	if err != nil {
@@ -58,6 +59,8 @@ func cmdTickets(args []string) error {
 		return ticketsGraph(r)
 	case "rank":
 		return ticketsRank(r, args[1:])
+	case "backtest":
+		return ticketsBacktest(r, args[1:])
 	default:
 		return fmt.Errorf("tickets: unknown subcommand %q", args[0])
 	}
@@ -351,6 +354,61 @@ func ticketsRank(r *repo.Repo, args []string) error {
 		f := rk.Features
 		fmt.Printf("%s  score %+.3f  (blast %.0f, unblocks %.0f, age %.0fs)\n",
 			rk.ID.Hex()[4:16], rk.Score, f.BlastRadius, f.Unblocks, f.AgeSeconds)
+	}
+	return nil
+}
+
+// ticketsBacktest learns a scorer from the repository's recorded approve/veto
+// decisions and reports how well it reproduces them (tickets §3.3, §3.4). It is
+// the "promote a scorer only if the review passes" loop: fit, then read the
+// disagreements before trusting the weights. With -o it writes the weights.
+func ticketsBacktest(r *repo.Repo, args []string) error {
+	epochs := 30
+	var out string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--epochs":
+			if i+1 >= len(args) {
+				return errors.New("tickets: --epochs requires a value")
+			}
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < 1 {
+				return fmt.Errorf("tickets: bad --epochs %q", args[i+1])
+			}
+			epochs = n
+			i++
+		case "-o":
+			if i+1 >= len(args) {
+				return errors.New("tickets: -o requires a file")
+			}
+			out = args[i+1]
+			i++
+		default:
+			return fmt.Errorf("tickets: unknown argument %q", args[i])
+		}
+	}
+
+	w, rep, err := score.FitFromHistory(r, epochs, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	if rep.Total == 0 {
+		fmt.Println("(no recorded decisions to learn from — approve and veto some tickets first)")
+		return nil
+	}
+	fmt.Printf("corpus   %d comparisons from recorded decisions\n", rep.Total)
+	fmt.Printf("agree    %d\n", rep.Agree)
+	fmt.Printf("disagree %d\n", rep.Disagree)
+	fmt.Printf("weights  blast=%.3f unblocks=%.3f age=%.3g\n", w.BlastRadius, w.Unblocks, w.AgeSeconds)
+	if out != "" {
+		b, err := w.Marshal()
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(out, b, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("wrote %s\n", out)
 	}
 	return nil
 }

@@ -385,9 +385,12 @@ On top of those primitives, the governance and ticket layers are built:
   so the learned order and the admission order are one thing. Backtesting is
   native: `score.Backtest` replays past decisions and reports every one a
   candidate scorer disagrees with, so a scorer is reviewed before it is promoted
-  — governed as code. `varvig tickets rank` exposes it. (The Stage 2.5
-  model-judged scorer is out-of-binary by design and enters through the same
-  boundary.)
+  — governed as code. `score.BuildCorpus` reads the corpus from the repository's
+  own recorded decisions (approved tickets should rank above vetoed ones), so the
+  backtest replays *real* history, not a hand-built list. `varvig tickets rank`
+  and `varvig tickets backtest` expose the loop: learn from recorded approve/veto
+  decisions, report agreement, save weights, re-rank. (The Stage 2.5 model-judged
+  scorer is out-of-binary by design and enters through the same boundary.)
 
 ## Layout
 
