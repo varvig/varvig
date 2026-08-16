@@ -65,10 +65,12 @@ Build-on-top governance layers landed so far:
 | **Ticket scope + derived dependencies** (§3.1–§3.2) — blocking from write-set overlap, no hand-declared links | **implemented** | `varvig/scope` note namespace; `internal/deps` (`Blocks`/`Graph`) over `txn.Conflict`; `varvig tickets scope/blockers/graph` |
 | **Learned scoring + native backtest** (§3.3 Stage 3, §3.4) — fit weights to past decisions; replay and report disagreements | **implemented** | `internal/score` (`Fit`/`Backtest`/`ExtractFeatures`/`RankTickets`); `BuildCorpus`/`FitFromHistory` read the corpus from recorded approve/veto decisions; feeds `txn.ScoreOrder`; `varvig tickets rank`/`backtest`. Stage 2.5 LLM scorer is out-of-binary by design |
 | **Principals / org chart** (§1.4) — versioned, repo-backed keyholder registry | **implemented** | `internal/principal` (tree at `refs/varvig/principals`, `Registry` implements `attest.KindResolver`); `varvig principal add/list/remove`; kind check resolves from the repo at sign and verify time |
-| **Scoring functions / bridge** (§3.3 Stage 2.5–3, §5) | **pending** | build-on-top work (§6.4); the scorer plugs into `txn.ScoreOrder` |
+| **Core stays vendor-neutral** (§5.1) — no tracker name or SDK in the binary | **implemented** | `internal/coreguard` fails the build on any vendor token in `internal/`+`cmd/` or a vendor SDK in `go.mod` |
+| **Bridge seam** (§5, in-core half) — external link, echo suppression, inbound-as-revision, weak transitions | **implemented** | `internal/bridge` over the `varvig/external` namespace; §7.5 adversarial guarantees tested. The vendor connector itself is a separate out-of-core peer |
+| **Concrete out-of-core connector** (§5) | **out of scope for core** | a peer that talks a real tracker's API, holding a bridge key; authored outside this repo |
 
-Everything else in §1–§5 above the object model (concrete scorers, the Jira/GitHub bridge)
-is **build-on-top** work (§6.4) and is not yet present. The design
+Everything else above the object model is either implemented (see the tables) or, for the
+concrete tracker connector, deliberately outside the binary. The design
 below is the target; the tables above are the current truth.
 
 ---
@@ -403,6 +405,14 @@ dlopen plugin ABI, ever") and §3.3 ("deliberately outside the binary") draw the
   key, capped by the core's existing weak-only enforcement (§2.4) and CAS/trust gates,
   which is what lets it be untrusted (§7.5).
 
+*Implemented seam:* `internal/bridge` is the vendor-neutral half the connector builds on —
+the `varvig/external` link (opaque `system` tag + foreign id) with per-direction
+watermarks, echo suppression (`NeedsPush`/`MarkPushed`/`ApplyInbound`), inbound edits as
+ordinary ticket revisions authored by the bridge principal (§5.3), and workflow
+transitions as weak-only attestations (`RecordTransition`). It contains no vendor name —
+the guard proves it — and the connector that speaks a real tracker's API is a separate
+peer outside this repo.
+
 ### 5.2 Field mapping enforces the asymmetry
 
 | Direction | Fields |
@@ -591,15 +601,28 @@ Cases already covered are marked.
 
 ### 7.5 Bridge
 
-- Round-trip: varvig → Jira → varvig produces no new intent revision (echo suppression,
-  §5.4).
-- A derived field edited in Jira is overwritten on next sync; an editable field is not.
-- A Jira workflow transition produces exactly a `weak` attestation.
+These exercise the in-core seam (`internal/bridge`) with a generic external system; the
+"Jira" in the original wording is illustrative — the core names no tracker (§5.1).
+
+- Round-trip: varvig → tracker → varvig produces no new intent revision (echo suppression,
+  §5.4). *(covered: `TestRoundTripSuppressesEcho`)*
+- An inbound spec edit becomes a new revision authored by the bridge principal, and an
+  approval on the prior revision does not carry (§5.3, §2.2).
+  *(covered: `TestInboundEditRevisesAndDropsApproval`)*
+- A workflow transition produces exactly a `weak` attestation. *(covered:
+  `TestTransitionIsWeak`)*
+- A derived field edited in the tracker is overwritten on next sync; an editable field is
+  not. *(the field-mapping asymmetry, §5.2, is the connector's contract — enforced in the
+  out-of-core peer, not the seam)*
 - Bridge outage: edits queue and reconcile without duplicate tickets and without lost
-  attestations.
+  attestations. *(connector-level; the seam's idempotent link + watermarks are the
+  substrate)*
 - Concurrent edit on both sides resolves deterministically, with the tracker losing.
+  *(covered: `TestTrackerLoses`)*
 - Bridge compromise (adversarial): a malicious bridge cannot promote anything that
-  requires `strong`, cannot forge a principal, and cannot delete a veto.
+  requires `strong`, cannot forge a principal, and cannot delete a veto. *(covered:
+  `TestBridgeCannotMintStrong`, `TestBridgeCannotForgePrincipal`,
+  `TestBridgeCannotDeleteVeto`)*
 
 ### 7.6 Cross-version interop matrix
 

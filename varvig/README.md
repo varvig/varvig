@@ -349,6 +349,16 @@ On top of those primitives, the governance and ticket layers are built:
   registered as a bridge, even the `varvig attest` author path refuses to mint a
   strong decision; re-registered as a human, the same approval succeeds.
   `varvig principal add|list|remove` administers it, like the trust store.
+- **Bridge seam** (`internal/bridge`, §5) — the vendor-neutral half an external-
+  tracker peer builds on, carrying no tracker's name (the `coreguard` test proves
+  it). An `external` link (an opaque `system` tag the peer chooses, plus a foreign
+  id) with per-direction watermarks gives echo suppression — a varvig → tracker →
+  varvig round-trip creates no new revision. An inbound spec edit is an ordinary
+  ticket revision authored by the bridge principal (so approvals don't carry), a
+  concurrent edit resolves with the tracker losing, and a workflow transition is
+  a weak-only attestation. The connector that speaks a real tracker's API is a
+  separate out-of-core peer holding a `bridge` key — untrusted, and capped by the
+  core so it cannot mint a strong decision, forge a principal, or delete a veto.
 - **Promotion checkpoint** (`spec.PromoteWithPolicy`, `attest.VetoGate`, M1) —
   the promote path consults an injected `PromotionPolicy` *before* scoring picks
   a winner, so a policy refusal is never outranked by a high score: a refused
@@ -434,6 +444,7 @@ varvig/
     score/             learned ticket scoring + native backtest (§3.3)
     ticket/            ticket identity as a ref + intent-revision chain (§1.2)
     coreguard/         build-failing guard: no vendor names/SDKs in core (§5.1)
+    bridge/            vendor-neutral seam for external-tracker peers (§5)
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol
