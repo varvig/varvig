@@ -22,6 +22,10 @@ type Txn struct {
 	Reads  []string
 	Writes []string
 	Apply  func(ws *Workspace) error
+	// Priority is an input to the scheduler's Ordering (tickets §3.3). It is
+	// advisory: it influences admission order among conflicting transactions,
+	// never whether one may run. The default Ordering (InputOrder) ignores it.
+	Priority int
 }
 
 // Result reports the outcome of a transaction.
@@ -41,9 +45,11 @@ type Scheduler struct {
 	lm          *lockManager
 	concurrency int
 	maxAttempts int
+	ordering    Ordering
 }
 
 // NewScheduler returns a scheduler committing to ref (e.g. refs/heads/main).
+// The default Ordering is InputOrder; SetOrdering swaps it (tickets M2).
 func NewScheduler(r *repo.Repo, ref string) *Scheduler {
 	return &Scheduler{
 		repo:        r,
@@ -51,22 +57,92 @@ func NewScheduler(r *repo.Repo, ref string) *Scheduler {
 		lm:          newLockManager(),
 		concurrency: 16,
 		maxAttempts: 100,
+		ordering:    InputOrder{},
 	}
+}
+
+// SetOrdering swaps the admission ordering (tickets M2). Passing nil restores
+// the default InputOrder. Changing the ordering changes the sequence in which
+// conflicting transactions are admitted and nothing else about how they run.
+func (s *Scheduler) SetOrdering(o Ordering) {
+	if o == nil {
+		o = InputOrder{}
+	}
+	s.ordering = o
+}
+
+// Plan returns the admission order the scheduler would use for txns: a
+// permutation of indices, purely a function of the transactions and the
+// configured Ordering. It is the deterministic-replay artifact of §7.4 — the
+// same transactions and ordering always produce the same plan — and is exposed
+// so callers can inspect or replay an ordering without running anything.
+func (s *Scheduler) Plan(txns []*Txn) []int {
+	return s.ordering.Order(txns)
 }
 
 // Run executes every transaction and returns their results in input order.
 // Non-conflicting transactions compute concurrently; conflicting ones are
-// serialized by their declared sets. A transaction whose commit loses the ref
-// CAS re-derives from the new base and re-runs, so disjoint work converges
-// without human intervention (design §1.4).
+// serialized in the admission order the configured Ordering produces (tickets
+// M2). A transaction whose commit loses the ref CAS re-derives from the new
+// base and re-runs, so disjoint work converges without human intervention
+// (design §1.4).
+//
+// Admission is deterministic for conflicts: the Ordering ranks the batch, and a
+// transaction waits for every lower-ranked transaction it conflicts with to
+// finish before it starts. Disjoint transactions share no predecessor, so they
+// still run concurrently up to the concurrency limit. Swapping the Ordering
+// therefore changes only which of two conflicting transactions commits first.
 func (s *Scheduler) Run(ctx context.Context, txns []*Txn) []Result {
 	results := make([]Result, len(txns))
+	claims := make([]claim, len(txns))
+	for i, t := range txns {
+		claims[i] = claim{reads: normalize(t.Reads), writes: normalize(t.Writes)}
+	}
+
+	// Rank from the Ordering: rank[i] is i's position in the admission order.
+	order := s.ordering.Order(txns)
+	rank := make([]int, len(txns))
+	for pos, idx := range order {
+		rank[idx] = pos
+	}
+
+	// done[i] closes when txn i completes. A txn waits on every lower-ranked
+	// txn it conflicts with, so conflicting work admits in rank order while
+	// disjoint work is ungated.
+	done := make([]chan struct{}, len(txns))
+	for i := range done {
+		done[i] = make(chan struct{})
+	}
+	preds := make([][]int, len(txns))
+	for i := range txns {
+		for j := range txns {
+			if i == j {
+				continue
+			}
+			if rank[j] < rank[i] && conflicts(claims[i], claims[j]) {
+				preds[i] = append(preds[i], j)
+			}
+		}
+	}
+
 	sem := make(chan struct{}, s.concurrency)
 	var wg sync.WaitGroup
 	for i, t := range txns {
 		wg.Add(1)
 		go func(i int, t *Txn) {
 			defer wg.Done()
+			defer close(done[i])
+
+			// Wait for higher-priority conflicting transactions to finish.
+			for _, p := range preds[i] {
+				select {
+				case <-done[p]:
+				case <-ctx.Done():
+					results[i] = Result{Name: t.Name, Err: ctx.Err()}
+					return
+				}
+			}
+
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()

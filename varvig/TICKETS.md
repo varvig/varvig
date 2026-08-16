@@ -60,11 +60,12 @@ Build-on-top governance layers landed so far:
 | **Veto blocks descendants** (§2.3) — the veto half of the promotion checkpoint | **implemented** | `attest.PromotionBlocked` walks ancestors for a veto |
 | **Promotion checkpoint** (M1, §4) — policy consulted before scoring in the promote path | **implemented** | `spec.PromoteWithPolicy` + `spec.PromotionPolicy`; `attest.VetoGate` / `attest.ApprovalGate` / `attest.AllOf`; wired into `varvig spec promote` by default |
 | **Policy as a wasm module** (§2.5) — content-addressed, sandboxed policy | **implemented** (context-passing form) | `attest.WasmPolicy` runs a module in the WASI sandbox against a host-computed `PolicyInput`; `refs/varvig/policy`; `varvig attest policy set/show/clear`. Live host functions (M3/M4) are the pending refinement |
+| **Pluggable scheduler ordering** (M2, §3.3) — admission order is a module boundary | **implemented** | `txn.Ordering` (`InputOrder`/`PriorityOrder`/`ScoreOrder`); `txn.Scheduler.SetOrdering`/`Plan`; rank-gated conflict admission, race-tested |
 | **Principals / org chart** (§1.4) — content-addressed keyholder records | **partial** | `object.Principal` + `attest.PrincipalSet`; a versioned org-chart ref is future work |
-| **Scoring / bridge** (§3, §5) | **pending** | build-on-top work (§6.4) |
+| **Scoring functions / bridge** (§3.3 Stage 2.5–3, §5) | **pending** | build-on-top work (§6.4); the scorer plugs into `txn.ScoreOrder` |
 
-Everything else in §1–§5 above the object model (the wasm policy module, scoring stages,
-the Jira/GitHub bridge) is **build-on-top** work (§6.4) and is not yet present. The design
+Everything else in §1–§5 above the object model (concrete scorers, the Jira/GitHub bridge)
+is **build-on-top** work (§6.4) and is not yet present. The design
 below is the target; the tables above are the current truth.
 
 ---
@@ -380,9 +381,22 @@ carries a veto, and `attest.ApprovalGate{Required}` additionally requires an app
 given strength. `varvig spec promote` applies the veto gate by default. The wasm policy
 module (§2.5) is a future `PromotionPolicy` implementation that slots into the same hook.
 
-**M2 — Pluggable ordering in the transaction scheduler** (step 7). If ordering is
-hardcoded, replace it with a module boundary. Not frozen, but load-bearing code with
-concurrency semantics. Budget the most time here and the most testing.
+**M2 — Pluggable ordering in the transaction scheduler** (step 7). *Implemented as a
+module boundary.* `txn.Ordering` ranks a batch of transactions; the scheduler admits
+conflicting transactions in that rank order and leaves disjoint ones to run concurrently.
+Swapping the ordering changes only which of two conflicting transactions commits first —
+nothing else about how they run. `txn.Scheduler.Plan` exposes the ranking as a pure,
+deterministic function of the batch and the ordering, which is the deterministic-replay
+artifact (§7.4): the same transactions and the same ordering always produce the same
+admission order. Built-in orderings: `InputOrder` (the neutral default), `PriorityOrder`
+(Stage 1 P0–P3), and `ScoreOrder` — the boundary the Stage 2.5 model-judged and Stage 3
+learned scorers plug into. An ordering only ranks; whether a transaction may run is the
+promotion policy's job (M1), kept separate so score-vs-safety stays obvious.
+
+Concurrency mechanics: admission is gated by rank via per-transaction predecessor
+channels — a transaction waits for every lower-ranked transaction it conflicts with to
+finish, so conflicting work serializes deterministically while disjoint work is ungated
+and parallel. Exercised under `go test -race`.
 
 **M3 — Wasm host functions.** A policy module needs to: verify a signature, resolve
 principal identity, read notes on a target, query the affected-set index, and read
@@ -464,16 +478,18 @@ Cases already covered are marked.
 ### 7.4 Scheduler and promotion
 
 - Two tickets with overlapping write sets are serialized; non-overlapping ones run in
-  parallel (§1.4).
+  parallel (§1.4). *(covered: `TestConflictingTransactionsNoLostUpdate`,
+  `TestDisjointTransactionsAllCommit`)*
 - Derived blocking matches the affected-set index; no hand-declared links exist anywhere.
 - Promotion consults policy **before** scoring, and a policy refusal cannot be outranked
   by a high score (M1). *(covered: `TestPromoteWithPolicyRefusalNotOutranked`,
   `TestPromoteWithPolicyAllRefused`, `TestVetoGateAdmit`, `TestApprovalGateAdmit`)*
-- A pluggable scorer swap changes ordering and changes nothing else (M2).
-- Deterministic replay: the same ticket set, scorer hash, and policy hash produce the same
-  admission order.
+- A pluggable scorer swap changes ordering and changes nothing else (M2). *(covered:
+  `TestOrderingSwapChangesOnlyOrder`, `TestScoreOrderPluggable`)*
+- Deterministic replay: the same ticket set and ordering produce the same admission order.
+  *(covered: `TestPlanIsDeterministic`, `TestOrderingDeterminesAdmissionOrder`)*
 - Scorer backtest harness reproduces a historical quarter and reports disagreements
-  (§3.3).
+  (§3.3). *(pending: needs a concrete scorer and a recorded history to replay)*
 
 ### 7.5 Bridge
 
