@@ -355,6 +355,19 @@ On top of those primitives, the first governance layer is built:
   so the dependency graph and the scheduler share one notion of conflict.
   `deps.Graph` is a pure function of the scopes with no API to add an edge by
   hand; `varvig tickets scope|blockers|graph` declares and queries it.
+- **Learned scoring & native backtest** (`internal/score`, §3.3 Stage 3) — the
+  throughput half of scheduling, strictly separate from the safety half (the
+  promotion policy). `score.Fit` learns a linear scorer from a corpus of pairwise
+  decisions (override/veto/"do this first") with a deterministic averaged
+  perceptron; features are extracted from repository state, not hand-labelled
+  (blast radius from the write set, contention from the derived dependency graph,
+  age from the timestamp). The same weights feed the scheduler's `txn.ScoreOrder`,
+  so the learned order and the admission order are one thing. Backtesting is
+  native: `score.Backtest` replays past decisions and reports every one a
+  candidate scorer disagrees with, so a scorer is reviewed before it is promoted
+  — governed as code. `varvig tickets rank` exposes it. (The Stage 2.5
+  model-judged scorer is out-of-binary by design and enters through the same
+  boundary.)
 
 ## Layout
 
@@ -394,6 +407,7 @@ varvig/
     reserved/          reserved ticket/governance ref + note namespaces (D6)
     attest/            signed governance decisions: sign, verify, derive status
     deps/              ticket scope + derived blocking dependencies (§3.2)
+    score/             learned ticket scoring + native backtest (§3.3)
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol

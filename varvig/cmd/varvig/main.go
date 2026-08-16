@@ -179,6 +179,7 @@ usage:
               [--reads a,b] [--writes c,d]  (what makes it schedulable, §3.1)
   varvig tickets blockers <ref|id>      tickets blocking this one (derived, §3.2)
   varvig tickets graph                  the derived blocking graph over all scoped tickets
+  varvig tickets rank [--weights f.json] rank scoped tickets by score (§3.3)
   varvig hook set <event> <module.wasm> bind a wasm hook to an event
   varvig hook list                      list configured hooks
   varvig hook run <event> [file]        run an event's hooks with input (or stdin)

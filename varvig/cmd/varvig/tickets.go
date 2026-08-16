@@ -3,11 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/deps"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/score"
 )
 
 // cmdTickets inspects and declares ticket scheduling metadata (tickets §3):
@@ -16,12 +18,14 @@ import (
 //	varvig tickets scope <ref|id>                                 show the scope
 //	varvig tickets blockers <ref|id>                              tickets blocking this one
 //	varvig tickets graph                                          the derived blocking graph
+//	varvig tickets rank [--weights f.json]                        rank scoped tickets by score
 //
 // Blocking is never hand-declared: it is derived from declared read/write sets
 // (§3.2), so `blockers` and `graph` are queries over scope, not a stored graph.
+// `rank` is the throughput half (§3.3): a score reorders, it never gates.
 func cmdTickets(args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: varvig tickets <scope|blockers|graph> ...")
+		return errors.New("usage: varvig tickets <scope|blockers|graph|rank> ...")
 	}
 	r, err := repo.Open(".")
 	if err != nil {
@@ -34,6 +38,8 @@ func cmdTickets(args []string) error {
 		return ticketsBlockers(r, args[1:])
 	case "graph":
 		return ticketsGraph(r)
+	case "rank":
+		return ticketsRank(r, args[1:])
 	default:
 		return fmt.Errorf("tickets: unknown subcommand %q", args[0])
 	}
@@ -140,6 +146,49 @@ func ticketsGraph(r *repo.Repo) error {
 			bs = append(bs, b.Hex()[4:16])
 		}
 		fmt.Printf("%s  blocked-by %s\n", short, strings.Join(bs, " "))
+	}
+	return nil
+}
+
+// defaultWeights is a documented heuristic starting point when no learned
+// scorer is supplied: prefer work that frees the most conflicting tickets, then
+// older work, and mildly discount a large blast radius. Replace it with weights
+// learned from real decisions (score.Fit) once a corpus exists.
+var defaultWeights = score.Weights{Unblocks: 1.0, AgeSeconds: 1e-6, BlastRadius: -0.1}
+
+func ticketsRank(r *repo.Repo, args []string) error {
+	w := defaultWeights
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--weights":
+			if i+1 >= len(args) {
+				return errors.New("tickets: --weights requires a file")
+			}
+			b, err := os.ReadFile(args[i+1])
+			if err != nil {
+				return err
+			}
+			w, err = score.UnmarshalWeights(b)
+			if err != nil {
+				return fmt.Errorf("tickets: bad weights file: %w", err)
+			}
+			i++
+		default:
+			return fmt.Errorf("tickets: unknown argument %q", args[i])
+		}
+	}
+	all, err := deps.ScopedTickets(r)
+	if err != nil {
+		return err
+	}
+	if len(all) == 0 {
+		fmt.Println("(no scoped tickets)")
+		return nil
+	}
+	for _, rk := range score.RankTickets(r, w, all, time.Now().Unix()) {
+		f := rk.Features
+		fmt.Printf("%s  score %+.3f  (blast %.0f, unblocks %.0f, age %.0fs)\n",
+			rk.ID.Hex()[4:16], rk.Score, f.BlastRadius, f.Unblocks, f.AgeSeconds)
 	}
 	return nil
 }
