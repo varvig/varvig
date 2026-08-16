@@ -43,12 +43,14 @@ import (
 type Type uint64
 
 const (
-	TypeBlob       Type = 1
-	TypeTree       Type = 2
-	TypeChange     Type = 3
-	TypeProvenance Type = 4
-	TypeNote       Type = 5
-	TypeHookConfig Type = 6
+	TypeBlob        Type = 1
+	TypeTree        Type = 2
+	TypeChange      Type = 3
+	TypeProvenance  Type = 4
+	TypeNote        Type = 5
+	TypeHookConfig  Type = 6
+	TypeAttestation Type = 7 // signed governance decision (tickets §2.1)
+	TypePrincipal   Type = 8 // a keyholder: pubkey, name, kind (tickets §1.4)
 )
 
 // Magic frames every object. It names the frozen format family VVG1.
@@ -87,6 +89,18 @@ const (
 	tagNoteAuthor    = 6
 
 	tagHookEntries = 1
+
+	tagAttestTarget    = 1 // multihash of the intent revision this decision binds to
+	tagAttestDecision  = 2 // uvarint: approve/veto/delegate/request-change
+	tagAttestStrength  = 3 // uvarint: weak/delegated/strong (tickets §2.4)
+	tagAttestTimestamp = 4 // uvarint, unix secs
+	tagAttestRationale = 5 // UTF-8, optional
+	tagAttestPolicy    = 6 // multihash of the policy module in force, optional
+	tagAttestSignature = 7 // signature blob; excluded from SignableBytes (== tag 7)
+
+	tagPrincipalKey  = 1 // 32-byte Ed25519 public key
+	tagPrincipalName = 2 // UTF-8 display name
+	tagPrincipalKind = 3 // uvarint: human/agent/bridge
 )
 
 // ErrMalformed marks any input that violates the canonical VVG1 framing.
@@ -106,6 +120,10 @@ func (t Type) String() string {
 		return "note"
 	case TypeHookConfig:
 		return "hookconfig"
+	case TypeAttestation:
+		return "attestation"
+	case TypePrincipal:
+		return "principal"
 	default:
 		return fmt.Sprintf("type-%d", uint64(t))
 	}
@@ -257,9 +275,14 @@ func (o *Object) encodeWithout(skip uint64) []byte {
 }
 
 // SignableBytes returns the canonical bytes a signature covers: the whole
-// change except the signature field. Signing and verifying both use it, so the
+// object except the signature field. Signing and verifying both use it, so the
 // signed and verified byte strings are identical (the signer simply has not
 // attached the signature field yet).
+//
+// Signable object types put their signature at tag 7 by convention (change and
+// attestation both do), so this excludes tag 7 regardless of type. Every other
+// field — including the target and strength of an attestation — is inside the
+// signed bytes and therefore cannot be altered without breaking the signature.
 func (o *Object) SignableBytes() []byte {
 	return o.encodeWithout(tagChangeSignature)
 }

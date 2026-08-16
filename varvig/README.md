@@ -300,6 +300,45 @@ those land first:
   a note pins its target as a GC root (D4). These needed no new code; see
   §0.1 of the note for where each is exercised.
 
+On top of those primitives, the first governance layer is built:
+
+- **Attestations** (`internal/attest`, object types `attestation` and
+  `principal`, §2) — a governance decision is a *signed decision object bound to
+  a specific intent revision hash*, never a `status: approved` field. Status is
+  derived from the attestations, not authored. Because the signature covers the
+  target hash, an approval **does not survive a spec edit**: a rewrite yields a
+  new revision hash that no attestation covers, so it derives back to pending —
+  the single most important property in the design, and the one that makes the
+  audit chain mean something. Strength is typed `weak` < `delegated` < `strong`,
+  recorded at signing and never upgraded: a compromised bridge cannot mint a
+  strong approval, because `VerifyWithPrincipal` checks the asserted strength
+  against the signer's principal kind. A veto on any ancestor revision makes
+  every descendant unpromotable (`PromotionBlocked`), even descendants created
+  after the veto. Attestations attach as notes in the reserved `varvig/attest`
+  namespace, keyed by the intent hash, so they list by intent, pin the revision
+  as a GC root, and sync like any object. The `attestation` and `principal`
+  encodings are pinned into the frozen conformance suite. `varvig attest
+  approve|veto|list|status` signs and inspects decisions with the active SSH
+  identity.
+- **Promotion checkpoint** (`spec.PromoteWithPolicy`, `attest.VetoGate`, M1) —
+  the promote path consults an injected `PromotionPolicy` *before* scoring picks
+  a winner, so a policy refusal is never outranked by a high score: a refused
+  candidate is skipped in favor of a lower-scored admissible one. The
+  speculation store stays policy-agnostic (the policy is injected like the
+  Scorer); governance supplies the gate. `VetoGate` disqualifies any change
+  whose ancestry carries a veto, `ApprovalGate{Required}` also demands an
+  approval of a given strength, and `varvig spec promote` applies the veto gate
+  by default.
+- **Policy as a wasm module** (`attest.WasmPolicy`, §2.5) — who may sign what and
+  what suffices to promote is a content-addressed wasm module, versioned
+  alongside the code it guards. It runs in the same closed WASI sandbox as hooks;
+  the host computes a `PolicyInput` (the change's metadata, whether its ancestry
+  is vetoed, every signature-verified attestation) and passes it on stdin, and
+  the module exits 0 to admit. The module is named by `refs/varvig/policy`
+  (`varvig attest policy set`) and composes with the built-in constraints via
+  `AllOf`. Live host functions — a module pulling facts rather than receiving a
+  pre-computed context — are the pending M3/M4 refinement.
+
 ## Layout
 
 ```
@@ -335,6 +374,7 @@ varvig/
     daemon/            long-running local daemon: grant table + per-task sockets
     peercred/          kernel peer-uid attestation for local sockets (§7.4)
     reserved/          reserved ticket/governance ref + note namespaces (D6)
+    attest/            signed governance decisions: sign, verify, derive status
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol

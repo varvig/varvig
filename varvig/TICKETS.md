@@ -52,9 +52,20 @@ object is written under the frozen format.
 | **D5** — wasm host ABI feature-bit negotiated, never version-numbered | **pending** | wire capability bits exist (`internal/wire`); host-ABI negotiation for policy modules is future work |
 | **D6** — reserve the ref and note namespaces | **implemented** | `internal/reserved`; notes now accept the hierarchical `varvig/attest` form |
 
-Everything in §1–§5 above the object model (attestation objects, the policy checkpoint,
-scoring stages, the Jira/GitHub bridge) is **build-on-top** work (§6.4) and is not yet
-present. The design below is the target; the table above is the current truth.
+Build-on-top governance layers landed so far:
+
+| Layer | Status | Where |
+|---|---|---|
+| **Attestations** (§2.1–§2.4) — signed decisions bound to a version, strength typing, derived status | **implemented** | `object.Attestation`/`object.Principal` (types 7/8); `internal/attest` (sign/verify, `Derive`, `PromotionBlocked`); frozen vectors `attestation/approve`, `principal/human` |
+| **Veto blocks descendants** (§2.3) — the veto half of the promotion checkpoint | **implemented** | `attest.PromotionBlocked` walks ancestors for a veto |
+| **Promotion checkpoint** (M1, §4) — policy consulted before scoring in the promote path | **implemented** | `spec.PromoteWithPolicy` + `spec.PromotionPolicy`; `attest.VetoGate` / `attest.ApprovalGate` / `attest.AllOf`; wired into `varvig spec promote` by default |
+| **Policy as a wasm module** (§2.5) — content-addressed, sandboxed policy | **implemented** (context-passing form) | `attest.WasmPolicy` runs a module in the WASI sandbox against a host-computed `PolicyInput`; `refs/varvig/policy`; `varvig attest policy set/show/clear`. Live host functions (M3/M4) are the pending refinement |
+| **Principals / org chart** (§1.4) — content-addressed keyholder records | **partial** | `object.Principal` + `attest.PrincipalSet`; a versioned org-chart ref is future work |
+| **Scoring / bridge** (§3, §5) | **pending** | build-on-top work (§6.4) |
+
+Everything else in §1–§5 above the object model (the wasm policy module, scoring stages,
+the Jira/GitHub bridge) is **build-on-top** work (§6.4) and is not yet present. The design
+below is the target; the tables above are the current truth.
 
 ---
 
@@ -186,6 +197,18 @@ strong attestations, and no later process promotes weak to strong.
 Who may sign what, and what suffices to promote, is a wasm module (§3.2) that is itself a
 content-addressed object in the repo. It is versioned alongside the code it guards,
 sandboxed, and portable.
+
+*Implemented (context-passing form):* `attest.WasmPolicy` runs a content-addressed module
+in the same closed WASI sandbox as hooks — no filesystem, network, environment, or
+unbounded clock. The host computes a `PolicyInput` (the change's metadata, whether its
+ancestry is vetoed, and every signature-verified attestation with its decision, strength,
+and signer) and passes it on stdin; the module exits 0 to admit, nonzero to refuse. The
+module is stored as a blob and named by `refs/varvig/policy` (`varvig attest policy set`),
+and it plugs into the promotion checkpoint as one more `PromotionPolicy` composed with the
+built-in constraints via `AllOf`. Exposing *live host functions* to the module (verify a
+signature, query the affected-set index, read scheduler state) — so a policy can pull
+facts rather than receive a pre-computed context — is the M3/M4 refinement (D5), and
+layers on without changing this shape.
 
 The attestation records the policy hash in force at signing. Policy changes therefore do
 not rewrite history, and "was this approved under the rules that applied at the time" is
@@ -347,10 +370,15 @@ of any ticket work. D2, D3, and D4 are satisfied by the core as it already stand
 
 ### 6.3 Modify above the freeze line
 
-**M1 — Policy checkpoint in the promotion path** (step 9). Promotion currently scores and
-promotes. It must first consult the policy module and treat a veto on any ancestor
-revision as disqualifying. If the promotion path has no hook, this is a genuine
-modification — but to the scoring layer, not the store.
+**M1 — Policy checkpoint in the promotion path** (step 9). *Implemented as a module
+boundary.* `spec.Promote` now delegates to `spec.PromoteWithPolicy`, which consults an
+injected `spec.PromotionPolicy` before scoring selects a winner: a candidate the policy
+refuses is disqualified regardless of score, so a refusal can never be outranked. The
+speculation store stays policy-agnostic (the policy is injected, exactly like the Scorer);
+governance supplies the gate. `attest.VetoGate` disqualifies any change whose ancestry
+carries a veto, and `attest.ApprovalGate{Required}` additionally requires an approval of a
+given strength. `varvig spec promote` applies the veto gate by default. The wasm policy
+module (§2.5) is a future `PromotionPolicy` implementation that slots into the same hook.
 
 **M2 — Pluggable ordering in the transaction scheduler** (step 7). If ordering is
 hardcoded, replace it with a module boundary. Not frozen, but load-bearing code with
@@ -358,7 +386,9 @@ concurrency semantics. Budget the most time here and the most testing.
 
 **M3 — Wasm host functions.** A policy module needs to: verify a signature, resolve
 principal identity, read notes on a target, query the affected-set index, and read
-scheduler state. Additive, feature-bit gated per D5.
+scheduler state. Additive, feature-bit gated per D5. *Not yet: the wasm policy module
+(§2.5) currently receives a host-computed `PolicyInput` on stdin rather than calling back
+into the host. Host functions are the refinement that lets a module pull facts live.*
 
 **M4 — Signature verification surfaced as a host capability.** Signing already exists as
 structural provenance (§2.1). What is new is exposing verification *to policy modules*
@@ -397,19 +427,26 @@ Cases already covered are marked.
 
 - **Approval does not survive a spec edit.** Edit intent, assert promotion is refused.
   This is the single most important test in the suite; if it ever passes silently, the
-  audit chain is theatre.
+  audit chain is theatre. *(covered: `TestApprovalDoesNotSurviveSpecEdit`)*
 - Veto on an ancestor revision blocks promotion of every descendant, including
-  descendants created after the veto.
+  descendants created after the veto. *(covered: `TestVetoBlocksDescendants`,
+  `attest.PromotionBlocked`)*
 - Veto is non-destructive: vetoed speculation is GC-eligible, and the attestation and its
-  target survive GC (D4).
+  target survive GC (D4). *(covered: `TestGCRetainsAttestationAndTarget`; the
+  vetoed-speculation-is-GC-eligible half arrives with the speculation/promotion slice)*
 - A `weak` attestation cannot satisfy a policy requiring `strong`, and no code path
-  upgrades strength.
+  upgrades strength. *(covered: `TestWeakDoesNotSatisfyStrong`, `Strength.Satisfies`)*
 - A bridge key cannot mint a `strong` attestation, under any inbound payload.
+  *(covered: `TestBridgeCannotMintStrong`, `attest.VerifyWithPrincipal`)*
 - Delegated authority is bounded: an agent acting for a director cannot approve outside
-  the delegated scope.
+  the delegated scope. *(pending: needs delegation records; strength `delegated` is
+  represented but scope-bounding is future work)*
 - Signature over a mutated target fails verification (tamper test).
+  *(covered: `TestTamperedTargetFailsVerification`)*
 - Policy hash recorded at signing time is preserved, and evaluating "was this approved
   under the rules then in force" returns the right answer after a policy change.
+  *(partial: the policy hash is stored in the attestation and round-trips; the policy
+  module and its evaluation arrive with the policy-checkpoint slice)*
 
 ### 7.3 Replication and GC
 
@@ -430,7 +467,8 @@ Cases already covered are marked.
   parallel (§1.4).
 - Derived blocking matches the affected-set index; no hand-declared links exist anywhere.
 - Promotion consults policy **before** scoring, and a policy refusal cannot be outranked
-  by a high score (M1).
+  by a high score (M1). *(covered: `TestPromoteWithPolicyRefusalNotOutranked`,
+  `TestPromoteWithPolicyAllRefused`, `TestVetoGateAdmit`, `TestApprovalGateAdmit`)*
 - A pluggable scorer swap changes ordering and changes nothing else (M2).
 - Deterministic replay: the same ticket set, scorer hash, and policy hash produce the same
   admission order.

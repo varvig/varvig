@@ -2,6 +2,7 @@ package spec
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
@@ -152,5 +153,64 @@ func TestAllChanges(t *testing.T) {
 	all, err := p.AllChanges()
 	if err != nil || len(all) != 2 {
 		t.Fatalf("AllChanges = %d, err=%v", len(all), err)
+	}
+}
+
+// refusePolicy refuses exactly the changes in its set — a stand-in for a real
+// promotion policy (a veto gate, a wasm module) so the store can be tested
+// without depending on governance.
+type refusePolicy struct{ deny map[string]bool }
+
+func (p refusePolicy) Admit(_ *repo.Repo, change multihash.Multihash) error {
+	if p.deny[change.Hex()] {
+		return errRefused
+	}
+	return nil
+}
+
+var errRefused = fmt.Errorf("refused by test policy")
+
+// TestPromoteWithPolicyRefusalNotOutranked is the §7.4 guarantee: a policy
+// refusal cannot be outranked by a high score. The top-scored candidate is
+// refused, so the lower-scored admissible one is promoted instead.
+func TestPromoteWithPolicyRefusalNotOutranked(t *testing.T) {
+	r := newRepo(t)
+	p := Open(r.GitDir())
+	top := candidate(t, r, "top-scored-but-refused")
+	ok := candidate(t, r, "lower-scored-but-clean")
+	_ = p.Add("t", top, 0)
+	_ = p.Add("t", ok, 0)
+	_ = p.SetScore("t", top, 0.99)
+	_ = p.SetScore("t", ok, 0.10)
+
+	policy := refusePolicy{deny: map[string]bool{top.Hex(): true}}
+	promoted, err := PromoteWithPolicy(p, r, "t", "refs/heads/main", "tester", policy)
+	if err != nil {
+		t.Fatalf("PromoteWithPolicy: %v", err)
+	}
+	if !promoted.Equal(ok) {
+		t.Fatal("a refused high-scored candidate was promoted over a clean one")
+	}
+}
+
+// TestPromoteWithPolicyAllRefused: when every scored candidate is refused,
+// promotion fails rather than falling back to a disqualified candidate.
+func TestPromoteWithPolicyAllRefused(t *testing.T) {
+	r := newRepo(t)
+	p := Open(r.GitDir())
+	a := candidate(t, r, "a")
+	b := candidate(t, r, "b")
+	_ = p.Add("t", a, 0)
+	_ = p.Add("t", b, 0)
+	_ = p.SetScore("t", a, 0.5)
+	_ = p.SetScore("t", b, 0.6)
+
+	policy := refusePolicy{deny: map[string]bool{a.Hex(): true, b.Hex(): true}}
+	if _, err := PromoteWithPolicy(p, r, "t", "refs/heads/main", "tester", policy); err == nil {
+		t.Fatal("PromoteWithPolicy promoted a candidate when all were refused")
+	}
+	// The ref must not have moved.
+	if _, err := r.Refs.Resolve("refs/heads/main"); err == nil {
+		t.Fatal("ref advanced despite all candidates being refused")
 	}
 }

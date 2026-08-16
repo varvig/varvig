@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/affected"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/conformance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/gc"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/gitport"
@@ -63,6 +64,7 @@ var commands = map[string]func([]string) error{
 	"fetch":       cmdFetch,
 	"push":        cmdPush,
 	"note":        cmdNote,
+	"attest":      cmdAttest,
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
 	"merge":       cmdMerge,
@@ -165,6 +167,13 @@ usage:
   varvig push <addr> [branch]           push a local branch to a peer (CAS lease)
   varvig note add <target> [opts]       attach a note (--ns NS, -m MSG or -f FILE)
   varvig note list <target> [--ns NS]   list notes attached to an object
+  varvig attest approve <ref|id>        sign an approval bound to an intent revision
+              [--strength strong|delegated] [-m rationale]
+  varvig attest veto <ref|id> [-m msg]  sign a veto (blocks all descendants)
+  varvig attest list <ref|id>           list attestations on an intent revision
+  varvig attest status <ref|id>         derived status (--require strong|delegated|weak)
+  varvig attest policy set <m.wasm>     set the promotion-policy wasm module (§2.5)
+  varvig attest policy show|clear       show or remove the promotion policy
   varvig hook set <event> <module.wasm> bind a wasm hook to an event
   varvig hook list                      list configured hooks
   varvig hook run <event> [file]        run an event's hooks with input (or stdin)
@@ -1336,7 +1345,17 @@ func cmdSpec(args []string) error {
 				return err
 			}
 		}
-		id, err := spec.Promote(pool, r, task, ref, author())
+		// The promotion checkpoint is on by default (tickets §4, M1): the veto
+		// gate is always applied, plus the repository's policy wasm module if
+		// one is configured (refs/varvig/policy, §2.5). Constraints stack — any
+		// one refusing is decisive (§3.3).
+		policies := []attest.Policy{attest.VetoGate{}}
+		if wp, ok, perr := attest.LoadPolicy(r); perr != nil {
+			return perr
+		} else if ok {
+			policies = append(policies, wp)
+		}
+		id, err := spec.PromoteWithPolicy(pool, r, task, ref, author(), attest.AllOf(policies...))
 		if err != nil {
 			return err
 		}

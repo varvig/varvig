@@ -97,6 +97,23 @@ func generateObjects() []ObjVector {
 	})
 	changeSigned.SetSignature([]byte{0x01, 0xde, 0xad, 0xbe, 0xef})
 
+	// A signed governance attestation (tickets §2.1). The signature blob is a
+	// fixed stand-in, as with change/signed-with-provenance, so the vector is
+	// deterministic; only the encoding is being pinned here.
+	attestation := object.NewAttestation(object.Attestation{
+		Target:    fixedID("intent"),
+		Decision:  object.DecisionApprove,
+		Strength:  object.StrengthStrong,
+		Timestamp: 1723100000,
+		Rationale: "scope looks right",
+		Policy:    fixedID("policy"),
+	})
+	attestation.SetSignature([]byte{0x01, 0xca, 0xfe, 0xba, 0xbe})
+
+	// A principal record (tickets §1.4). A fixed 32-byte key keeps it
+	// deterministic.
+	principalKey := bytes.Repeat([]byte{0x07}, 32)
+
 	return []ObjVector{
 		objVector("blob/hello", object.NewBlob([]byte("hello, agents\n"))),
 		objVector("blob/empty", object.NewBlob(nil)),
@@ -125,6 +142,10 @@ func generateObjects() []ObjVector {
 		})),
 		objVector("hookconfig/one", object.NewHookConfig(object.HookConfig{
 			Entries: []object.HookEntry{{Event: "pre-commit", Module: blobA}},
+		})),
+		objVector("attestation/approve", attestation),
+		objVector("principal/human", object.NewPrincipal(object.Principal{
+			Key: principalKey, Name: "director", Kind: object.KindHuman,
 		})),
 	}
 }
