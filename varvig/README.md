@@ -309,7 +309,19 @@ those land first:
   a note pins its target as a GC root (D4). These needed no new code; see
   §0.1 of the note for where each is exercised.
 
-On top of those primitives, the first governance layer is built:
+On top of those primitives, the governance and ticket layers are built:
+
+- **Ticket identity & revision chain** (`internal/ticket`, §1.2) — a ticket is a
+  *ref* (`refs/varvig/tickets/<id>`), not a raw hash: `tickets new` mints a signed,
+  unmaterialized genesis revision and points the ref at it; `tickets revise`
+  appends an immutable intent revision and moves the ref by compare-and-swap, so
+  a bad edit is recoverable from the reflog. The id is the genesis revision's
+  hash — stable for life — while the ref value tracks the head. Because approvals
+  and scope bind to the revision hash, revising a ticket drops them to the new
+  revision (§2.2): `varvig tickets show` reads `pending`/`unschedulable` right
+  after a `revise`. `tickets new|revise|list|show|scope|blockers|graph|rank` is
+  the lifecycle surface that ties intake, governance, dependencies, and scoring
+  together.
 
 - **Attestations** (`internal/attest`, object types `attestation` and
   `principal`, §2) — a governance decision is a *signed decision object bound to
@@ -408,6 +420,7 @@ varvig/
     attest/            signed governance decisions: sign, verify, derive status
     deps/              ticket scope + derived blocking dependencies (§3.2)
     score/             learned ticket scoring + native backtest (§3.3)
+    ticket/            ticket identity as a ref + intent-revision chain (§1.2)
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol

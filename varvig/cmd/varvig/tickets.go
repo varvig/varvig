@@ -7,31 +7,49 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/deps"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/score"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/ticket"
 )
 
-// cmdTickets inspects and declares ticket scheduling metadata (tickets §3):
+// cmdTickets is the ticket lifecycle surface (tickets §1.2, §3, §4):
 //
-//	varvig tickets scope <ref|id> [--reads a,b] [--writes c,d]   declare a scope
-//	varvig tickets scope <ref|id>                                 show the scope
-//	varvig tickets blockers <ref|id>                              tickets blocking this one
-//	varvig tickets graph                                          the derived blocking graph
-//	varvig tickets rank [--weights f.json]                        rank scoped tickets by score
+//	varvig tickets new -m <spec>                                 mint a ticket (a ref + genesis revision)
+//	varvig tickets revise <ticket> -m <spec>                     append an intent revision, move the ref
+//	varvig tickets list                                          list tickets and their state
+//	varvig tickets show <ticket>                                 spec, scope, status, blockers, score
+//	varvig tickets scope <ticket> [--reads a,b] [--writes c,d]   declare/show a scope
+//	varvig tickets blockers <ticket>                             tickets blocking this one
+//	varvig tickets graph                                         the derived blocking graph
+//	varvig tickets rank [--weights f.json]                       rank scoped tickets by score
 //
-// Blocking is never hand-declared: it is derived from declared read/write sets
-// (§3.2), so `blockers` and `graph` are queries over scope, not a stored graph.
-// `rank` is the throughput half (§3.3): a score reorders, it never gates.
+// A ticket's identity is a ref (§1.2); mutation appends an immutable revision and
+// moves the ref, so undo is the reflog. Blocking is never hand-declared: it is
+// derived from declared read/write sets (§3.2). `rank` is the throughput half
+// (§3.3): a score reorders, it never gates.
 func cmdTickets(args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: varvig tickets <scope|blockers|graph|rank> ...")
+		return errors.New("usage: varvig tickets <new|revise|list|show|scope|blockers|graph|rank> ...")
 	}
 	r, err := repo.Open(".")
 	if err != nil {
 		return err
 	}
 	switch args[0] {
+	case "new":
+		return ticketsNew(r, args[1:])
+	case "revise":
+		return ticketsRevise(r, args[1:])
+	case "list":
+		return ticketsList(r)
+	case "show":
+		return ticketsShow(r, args[1:])
 	case "scope":
 		return ticketsScope(r, args[1:])
 	case "blockers":
@@ -45,11 +63,155 @@ func cmdTickets(args []string) error {
 	}
 }
 
+func dashM(args []string) string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-m" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func ticketsNew(r *repo.Repo, args []string) error {
+	spec := dashM(args)
+	if spec == "" {
+		return errors.New("usage: varvig tickets new -m <spec>")
+	}
+	priv, err := provenance.LoadOrCreateIdentity(r.GitDir())
+	if err != nil {
+		return err
+	}
+	id, err := ticket.New(r, spec, priv, author(), time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	fmt.Printf("ticket %s\n", id.Hex())
+	return nil
+}
+
+func ticketsRevise(r *repo.Repo, args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: varvig tickets revise <ticket> -m <spec>")
+	}
+	id, err := ticketID(r, args[0])
+	if err != nil {
+		return err
+	}
+	spec := dashM(args[1:])
+	if spec == "" {
+		return errors.New("usage: varvig tickets revise <ticket> -m <spec>")
+	}
+	priv, err := provenance.LoadOrCreateIdentity(r.GitDir())
+	if err != nil {
+		return err
+	}
+	rev, err := ticket.Revise(r, id, spec, priv, author(), time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	fmt.Printf("revised %s -> %s\n", id.Hex()[4:16], rev.Hex())
+	return nil
+}
+
+func ticketsList(r *repo.Repo) error {
+	list, err := ticket.List(r)
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		fmt.Println("(no tickets)")
+		return nil
+	}
+	for _, info := range list {
+		atts, _ := attest.Attestations(r, info.Head)
+		fmt.Printf("%s  %-9s  %s\n", info.ID.Hex()[4:16], attest.Derive(atts, object.StrengthStrong), info.Spec)
+	}
+	return nil
+}
+
+func ticketsShow(r *repo.Repo, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: varvig tickets show <ticket>")
+	}
+	id, err := ticketID(r, args[0])
+	if err != nil {
+		return err
+	}
+	info, err := ticket.Get(r, id)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("ticket   %s\n", info.ID.Hex())
+	fmt.Printf("head     %s\n", info.Head.Hex())
+	fmt.Printf("spec     %s\n", info.Spec)
+
+	atts, err := attest.Attestations(r, info.Head)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("status   %s (require strong)\n", attest.Derive(atts, object.StrengthStrong))
+
+	s, hasScope, err := deps.GetScope(r, info.Head)
+	if err != nil {
+		return err
+	}
+	if !hasScope {
+		fmt.Println("scope    (none — unschedulable)")
+		return nil
+	}
+	fmt.Printf("scope    reads=[%s] writes=[%s]\n", strings.Join(s.Reads, " "), strings.Join(s.Writes, " "))
+
+	all, err := deps.ScopedTickets(r)
+	if err != nil {
+		return err
+	}
+	blockers := deps.Blockers(deps.Ticket{ID: info.Head, Scope: s}, all)
+	if len(blockers) == 0 {
+		fmt.Println("blockers (none — ready)")
+	} else {
+		var bs []string
+		for _, b := range blockers {
+			bs = append(bs, b.Hex()[4:16])
+		}
+		fmt.Printf("blockers %s\n", strings.Join(bs, " "))
+	}
+	return nil
+}
+
+// ticketID resolves a ticket argument (a bare ticket id or a full ticket ref)
+// to its stable ticket id.
+func ticketID(r *repo.Repo, arg string) (multihash.Multihash, error) {
+	suffix := strings.TrimPrefix(arg, reserved.TicketsPrefix)
+	id, err := multihash.ParseHex(suffix)
+	if err != nil {
+		return nil, fmt.Errorf("tickets: %q is not a ticket id", arg)
+	}
+	if _, err := r.Refs.Resolve(reserved.TicketsPrefix + id.Hex()); err != nil {
+		return nil, fmt.Errorf("tickets: no ticket %s", id.Hex())
+	}
+	return id, nil
+}
+
+// resolveTicketHead resolves a ticket argument to the revision to act on: a
+// ticket's current head, or — when arg is not a ticket — whatever resolve()
+// makes of it (a raw revision hash or another ref).
+func resolveTicketHead(r *repo.Repo, arg string) (multihash.Multihash, error) {
+	if strings.HasPrefix(arg, reserved.TicketsPrefix) {
+		return r.Refs.Resolve(arg)
+	}
+	if id, err := multihash.ParseHex(arg); err == nil {
+		if head, err := r.Refs.Resolve(reserved.TicketsPrefix + id.Hex()); err == nil {
+			return head, nil
+		}
+	}
+	return resolve(r, arg)
+}
+
 func ticketsScope(r *repo.Repo, args []string) error {
 	if len(args) < 1 {
 		return errors.New("usage: varvig tickets scope <ref|id> [--reads a,b] [--writes c,d]")
 	}
-	ticket, err := resolve(r, args[0])
+	head, err := resolveTicketHead(r, args[0])
 	if err != nil {
 		return fmt.Errorf("tickets: cannot resolve %q: %w", args[0], err)
 	}
@@ -77,7 +239,7 @@ func ticketsScope(r *repo.Repo, args []string) error {
 	}
 
 	if !setting {
-		s, ok, err := deps.GetScope(r, ticket)
+		s, ok, err := deps.GetScope(r, head)
 		if err != nil {
 			return err
 		}
@@ -88,10 +250,10 @@ func ticketsScope(r *repo.Repo, args []string) error {
 		fmt.Printf("reads:  %s\nwrites: %s\n", strings.Join(s.Reads, " "), strings.Join(s.Writes, " "))
 		return nil
 	}
-	if _, err := deps.SetScope(r, ticket, deps.Scope{Reads: reads, Writes: writes}, author(), time.Now().Unix()); err != nil {
+	if _, err := deps.SetScope(r, head, deps.Scope{Reads: reads, Writes: writes}, author(), time.Now().Unix()); err != nil {
 		return err
 	}
-	fmt.Printf("scope set for %s\n", ticket.Hex())
+	fmt.Printf("scope set for %s\n", head.Hex())
 	return nil
 }
 
@@ -99,22 +261,22 @@ func ticketsBlockers(r *repo.Repo, args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: varvig tickets blockers <ref|id>")
 	}
-	ticket, err := resolve(r, args[0])
+	head, err := resolveTicketHead(r, args[0])
 	if err != nil {
 		return fmt.Errorf("tickets: cannot resolve %q: %w", args[0], err)
 	}
-	s, ok, err := deps.GetScope(r, ticket)
+	s, ok, err := deps.GetScope(r, head)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("tickets: %s has no declared scope (unschedulable)", ticket.Hex())
+		return fmt.Errorf("tickets: %s has no declared scope (unschedulable)", head.Hex())
 	}
 	all, err := deps.ScopedTickets(r)
 	if err != nil {
 		return err
 	}
-	blockers := deps.Blockers(deps.Ticket{ID: ticket, Scope: s}, all)
+	blockers := deps.Blockers(deps.Ticket{ID: head, Scope: s}, all)
 	if len(blockers) == 0 {
 		fmt.Println("(no blockers)")
 		return nil

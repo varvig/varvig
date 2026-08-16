@@ -56,6 +56,7 @@ Build-on-top governance layers landed so far:
 
 | Layer | Status | Where |
 |---|---|---|
+| **Ticket identity + revision chain** (§1.2) — a ticket is a ref; mutation appends a revision, undo is the reflog | **implemented** | `internal/ticket` (`New`/`Revise`/`List`/`Get`); `refs/varvig/tickets/<id>`; `varvig tickets new/revise/list/show` |
 | **Attestations** (§2.1–§2.4) — signed decisions bound to a version, strength typing, derived status | **implemented** | `object.Attestation`/`object.Principal` (types 7/8); `internal/attest` (sign/verify, `Derive`, `PromotionBlocked`); frozen vectors `attestation/approve`, `principal/human` |
 | **Veto blocks descendants** (§2.3) — the veto half of the promotion checkpoint | **implemented** | `attest.PromotionBlocked` walks ancestors for a veto |
 | **Promotion checkpoint** (M1, §4) — policy consulted before scoring in the promote path | **implemented** | `spec.PromoteWithPolicy` + `spec.PromotionPolicy`; `attest.VetoGate` / `attest.ApprovalGate` / `attest.AllOf`; wired into `varvig spec promote` by default |
@@ -102,6 +103,14 @@ Same construction as refs over commits.
 | Replication | Ordinary P2P ref sync. No new protocol |
 
 Nothing here is new machinery. It is the existing machinery pointed at a new namespace.
+
+*Implemented:* `internal/ticket` mints a ticket as a signed, unmaterialized genesis
+revision plus a ref `refs/varvig/tickets/<id>` (`ticket.New`), where the id is the genesis
+revision's hash — stable forever. `ticket.Revise` appends a new immutable revision
+(parent = the current head) and moves the ref by compare-and-swap, so the reflog makes a
+bad edit recoverable. Because attestations and scope bind to the revision hash, revising a
+ticket drops its approval and scope to the new revision (§2.2) — verified end to end:
+`varvig tickets show` reports `pending`/`unschedulable` immediately after a `revise`.
 
 ### 1.3 Reserved namespaces
 
@@ -330,6 +339,13 @@ request → scoped → approved → scheduled → speculation fan-out → promot
 
 Every state above is derived from attestations, evidence, and scheduler state. None of it
 is a stored field that anyone can set.
+
+*Implemented so far:* the whole left path is wired through the CLI. `varvig tickets new`
+creates a request; `tickets scope` makes it schedulable (scoped); `attest approve` moves it
+toward approved and `tickets show`/`list` derive the status live; `spec promote` applies
+the policy checkpoint (M1) with the veto gate and the optional wasm policy (§2.5).
+Speculation fan-out and evidence remain from the core build order (steps 8–9); this
+document's job was the governance and intake around them.
 
 ---
 
