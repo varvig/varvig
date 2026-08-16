@@ -409,9 +409,11 @@ dlopen plugin ABI, ever") and §3.3 ("deliberately outside the binary") draw the
 the `varvig/external` link (opaque `system` tag + foreign id) with per-direction
 watermarks, echo suppression (`NeedsPush`/`MarkPushed`/`ApplyInbound`), inbound edits as
 ordinary ticket revisions authored by the bridge principal (§5.3), and workflow
-transitions as weak-only attestations (`RecordTransition`). It contains no vendor name —
-the guard proves it — and the connector that speaks a real tracker's API is a separate
-peer outside this repo.
+transitions as weak-only attestations (`RecordTransition`). It is driven from outside the
+binary through the `varvig bridge` CLI (`link`, `needs-push`, `mark-pushed`,
+`apply-inbound`, `transition`) — the public surface a peer shells out to, signing with an
+identity registered as `kind: bridge`. It contains no vendor name — the guard proves it —
+and the connector that speaks a real tracker's API is a separate peer outside this repo.
 
 ### 5.2 Field mapping enforces the asymmetry
 

@@ -67,6 +67,7 @@ var commands = map[string]func([]string) error{
 	"attest":      cmdAttest,
 	"principal":   cmdPrincipal,
 	"tickets":     cmdTickets,
+	"bridge":      cmdBridge,
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
 	"merge":       cmdMerge,
@@ -190,6 +191,12 @@ usage:
   varvig tickets rank [--weights f.json] rank scoped tickets by score (§3.3)
   varvig tickets backtest [-o f.json]   learn a scorer from recorded decisions,
               [--epochs N]              report agreement, optionally save weights
+  varvig bridge link <ticket>           set/show a ticket's external-tracker link
+              [--system S --foreign-id ID]  (opaque system tag; §5, for peers)
+  varvig bridge needs-push|mark-pushed <ticket>   outbound echo-suppression state
+  varvig bridge apply-inbound <ticket> -m <spec> [--author A]  apply a tracker edit
+  varvig bridge transition <ticket> <approve|veto|request-change> [-m msg]
+                                      record a weak workflow transition (§5.3)
   varvig hook set <event> <module.wasm> bind a wasm hook to an event
   varvig hook list                      list configured hooks
   varvig hook run <event> [file]        run an event's hooks with input (or stdin)
