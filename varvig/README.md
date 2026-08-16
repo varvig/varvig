@@ -347,6 +347,14 @@ On top of those primitives, the first governance layer is built:
   (`varvig attest policy set`) and composes with the built-in constraints via
   `AllOf`. Live host functions — a module pulling facts rather than receiving a
   pre-computed context — are the pending M3/M4 refinement.
+- **Ticket scope & derived dependencies** (`internal/deps`, §3.1–§3.2) — a
+  ticket declares the read/write set that makes it schedulable, stored as a note
+  in the reserved `varvig/scope` namespace. Blocking between tickets is then
+  *derived*, never hand-declared: two tickets block when their scopes conflict,
+  computed with `txn.Conflict` — the exact predicate the scheduler serializes on,
+  so the dependency graph and the scheduler share one notion of conflict.
+  `deps.Graph` is a pure function of the scopes with no API to add an edge by
+  hand; `varvig tickets scope|blockers|graph` declares and queries it.
 
 ## Layout
 
@@ -385,6 +393,7 @@ varvig/
     peercred/          kernel peer-uid attestation for local sockets (§7.4)
     reserved/          reserved ticket/governance ref + note namespaces (D6)
     attest/            signed governance decisions: sign, verify, derive status
+    deps/              ticket scope + derived blocking dependencies (§3.2)
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol

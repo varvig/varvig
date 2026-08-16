@@ -45,10 +45,14 @@ const (
 	// NoteScore holds computed and cached scoring output. Status and score are
 	// always derived and cached here, never authored (tickets §2.1, §3.3).
 	NoteScore = "varvig/score"
+	// NoteScope carries a ticket's declared read set and write set (tickets
+	// §3.1) — what makes it schedulable, and the input from which blocking
+	// dependencies are derived rather than hand-declared (§3.2).
+	NoteScope = "varvig/scope"
 )
 
 // reservedNoteNamespaces is the fixed set of governance note namespaces.
-var reservedNoteNamespaces = []string{NoteAttest, NoteExternal, NoteScore}
+var reservedNoteNamespaces = []string{NoteAttest, NoteExternal, NoteScore, NoteScope}
 
 // IsTicketRef reports whether name is (or is nested under) the reserved ticket
 // ref namespace.

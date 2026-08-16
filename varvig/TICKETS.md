@@ -61,6 +61,7 @@ Build-on-top governance layers landed so far:
 | **Promotion checkpoint** (M1, §4) — policy consulted before scoring in the promote path | **implemented** | `spec.PromoteWithPolicy` + `spec.PromotionPolicy`; `attest.VetoGate` / `attest.ApprovalGate` / `attest.AllOf`; wired into `varvig spec promote` by default |
 | **Policy as a wasm module** (§2.5) — content-addressed, sandboxed policy | **implemented** (context-passing form) | `attest.WasmPolicy` runs a module in the WASI sandbox against a host-computed `PolicyInput`; `refs/varvig/policy`; `varvig attest policy set/show/clear`. Live host functions (M3/M4) are the pending refinement |
 | **Pluggable scheduler ordering** (M2, §3.3) — admission order is a module boundary | **implemented** | `txn.Ordering` (`InputOrder`/`PriorityOrder`/`ScoreOrder`); `txn.Scheduler.SetOrdering`/`Plan`; rank-gated conflict admission, race-tested |
+| **Ticket scope + derived dependencies** (§3.1–§3.2) — blocking from write-set overlap, no hand-declared links | **implemented** | `varvig/scope` note namespace; `internal/deps` (`Blocks`/`Graph`) over `txn.Conflict`; `varvig tickets scope/blockers/graph` |
 | **Principals / org chart** (§1.4) — content-addressed keyholder records | **partial** | `object.Principal` + `attest.PrincipalSet`; a versioned org-chart ref is future work |
 | **Scoring functions / bridge** (§3.3 Stage 2.5–3, §5) | **pending** | build-on-top work (§6.4); the scorer plugs into `txn.ScoreOrder` |
 
@@ -229,10 +230,25 @@ adoption, because it is legible to the human before anything runs.
 The declared read set doubles as checkout scope and capability boundary, exactly as in
 §1.4. A ticket's scope *is* its sandbox.
 
+*Implemented:* a ticket's declared read/write set is stored as a note in the reserved
+`varvig/scope` namespace (`deps.SetScope`/`GetScope`), keyed by the ticket's intent hash,
+so it accretes onto the immutable ticket without touching its identity and syncs like any
+note. A ticket with no scope note is unschedulable by construction. `varvig tickets scope`
+declares or shows it. (The scope lives in a note rather than the frozen change object, so
+the core is untouched, §6.1; folding it into the signed intent — so an approval commits to
+the blast radius — is a possible later refinement.)
+
 ### 3.2 Dependencies are derived, not linked
 
 Two tickets block each other if their write sets overlap. That is computed from the
-affected-set index, not declared by a human dragging arrows in a UI.
+declared scopes, not declared by a human dragging arrows in a UI.
+
+*Implemented:* `deps.Blocks` derives blocking from scope overlap using `txn.Conflict` —
+the *exact* predicate the scheduler serializes on (write/write, write/read, read/write;
+read/read never blocks), exported so the dependency graph and the scheduler can never
+drift to two different notions of conflict. `deps.Graph` builds the whole blocking graph
+as a pure function of the tickets' scopes; there is deliberately no API to add an edge by
+hand. `varvig tickets blockers` and `varvig tickets graph` are queries over scope.
 
 Epics are parent intents whose materialization is a set of child intents. The hierarchy
 is the DAG; there is no separate hierarchy feature.
@@ -480,7 +496,9 @@ Cases already covered are marked.
 - Two tickets with overlapping write sets are serialized; non-overlapping ones run in
   parallel (§1.4). *(covered: `TestConflictingTransactionsNoLostUpdate`,
   `TestDisjointTransactionsAllCommit`)*
-- Derived blocking matches the affected-set index; no hand-declared links exist anywhere.
+- Derived blocking matches the declared scopes; no hand-declared links exist anywhere.
+  *(covered: `TestDerivedBlockingGraph`, `TestBlocksMirrorsConflict`, `TestBlockersExcludesSelf`;
+  `deps.Graph` derives every edge from scope overlap via `txn.Conflict`)*
 - Promotion consults policy **before** scoring, and a policy refusal cannot be outranked
   by a high score (M1). *(covered: `TestPromoteWithPolicyRefusalNotOutranked`,
   `TestPromoteWithPolicyAllRefused`, `TestVetoGateAdmit`, `TestApprovalGateAdmit`)*

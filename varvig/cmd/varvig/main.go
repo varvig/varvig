@@ -65,6 +65,7 @@ var commands = map[string]func([]string) error{
 	"push":        cmdPush,
 	"note":        cmdNote,
 	"attest":      cmdAttest,
+	"tickets":     cmdTickets,
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
 	"merge":       cmdMerge,
@@ -174,6 +175,10 @@ usage:
   varvig attest status <ref|id>         derived status (--require strong|delegated|weak)
   varvig attest policy set <m.wasm>     set the promotion-policy wasm module (§2.5)
   varvig attest policy show|clear       show or remove the promotion policy
+  varvig tickets scope <ref|id>         declare/show a ticket's read+write set
+              [--reads a,b] [--writes c,d]  (what makes it schedulable, §3.1)
+  varvig tickets blockers <ref|id>      tickets blocking this one (derived, §3.2)
+  varvig tickets graph                  the derived blocking graph over all scoped tickets
   varvig hook set <event> <module.wasm> bind a wasm hook to an event
   varvig hook list                      list configured hooks
   varvig hook run <event> [file]        run an event's hooks with input (or stdin)
