@@ -62,6 +62,7 @@ Build-on-top governance layers landed so far:
 | **Policy as a wasm module** (§2.5) — content-addressed, sandboxed policy | **implemented** (context-passing form) | `attest.WasmPolicy` runs a module in the WASI sandbox against a host-computed `PolicyInput`; `refs/varvig/policy`; `varvig attest policy set/show/clear`. Live host functions (M3/M4) are the pending refinement |
 | **Pluggable scheduler ordering** (M2, §3.3) — admission order is a module boundary | **implemented** | `txn.Ordering` (`InputOrder`/`PriorityOrder`/`ScoreOrder`); `txn.Scheduler.SetOrdering`/`Plan`; rank-gated conflict admission, race-tested |
 | **Ticket scope + derived dependencies** (§3.1–§3.2) — blocking from write-set overlap, no hand-declared links | **implemented** | `varvig/scope` note namespace; `internal/deps` (`Blocks`/`Graph`) over `txn.Conflict`; `varvig tickets scope/blockers/graph` |
+| **Learned scoring + native backtest** (§3.3 Stage 3) — fit weights to past decisions; replay and report disagreements | **implemented** | `internal/score` (`Fit`/`Backtest`/`ExtractFeatures`/`RankTickets`); feeds `txn.ScoreOrder`; `varvig tickets rank`. Stage 2.5 LLM scorer is out-of-binary by design |
 | **Principals / org chart** (§1.4) — content-addressed keyholder records | **partial** | `object.Principal` + `attest.PrincipalSet`; a versioned org-chart ref is future work |
 | **Scoring functions / bridge** (§3.3 Stage 2.5–3, §5) | **pending** | build-on-top work (§6.4); the scorer plugs into `txn.ScoreOrder` |
 
@@ -276,17 +277,31 @@ separate modules so this stays obvious.
 **Stage 2.5 — model-judged score (optional).** An LLM scores each ticket and emits a
 one-line rationale. Model version pinned in provenance like any other agent output. At
 ticket volumes the cost is negligible, and the rationale is the affordance that lets a
-human notice the scorer is wrong.
+human notice the scorer is wrong. *Not implemented here by design: model inference lives
+outside the binary (design §3.3), so a Stage 2.5 scorer enters through the same
+`ScoreOrder`/scorer boundary as any other — it produces a score per ticket, and the
+scheduler orders on it exactly as it does the learned scorer below.*
 
 **Stage 3 — learn the ordering from decisions already made.** Every override, veto, and
 "do this one first" is a labelled pairwise comparison. Features are already computed:
-estimated cost, blast radius from the affected-set index, count of tickets unblocked,
-age, component, requester. Fit weights to the comparisons.
+estimated cost, blast radius, count of tickets unblocked, age, component, requester. Fit
+weights to the comparisons.
 
-Because the scorer is a content-addressed wasm module and the full DAG is retained,
-**backtesting is native**: replay last quarter, rank with the candidate scorer, and show
-the director every case where it disagreed with them. Promote the scorer only if that
-review passes. A scorer is code and is governed as code.
+*Implemented:* `internal/score` fits a linear scorer (`score.Weights`) to a corpus of
+pairwise `Comparison`s with a deterministic averaged perceptron (`score.Fit`). Features
+are extracted from repository state, not hand-labelled (`score.ExtractFeatures`): blast
+radius from the declared write set, contention from the derived dependency graph (§3.2),
+age from the ticket's timestamp. `score.RankTickets` turns a scorer into a deterministic
+ranking, and the same weights feed the scheduler's `txn.ScoreOrder` (M2), so the learned
+order and the admission order are one thing. `varvig tickets rank` exposes it, with a
+documented heuristic default until a corpus exists.
+
+Because a scorer is a small, serializable weight vector (`Weights.Marshal`) and the full
+history is retained, **backtesting is native**: `score.Backtest` replays a corpus, ranks
+with a candidate scorer, and reports every comparison it disagrees with (a tie counts as a
+disagreement). Promote the scorer only if that review passes. A scorer is code and is
+governed as code. *(A linear model realizes §2.5's "scorer is a content-addressed module"
+as serialized weights; a full wasm scorer plugs into the identical boundary.)*
 
 ### 3.4 Overrides are signed
 
@@ -506,8 +521,13 @@ Cases already covered are marked.
   `TestOrderingSwapChangesOnlyOrder`, `TestScoreOrderPluggable`)*
 - Deterministic replay: the same ticket set and ordering produce the same admission order.
   *(covered: `TestPlanIsDeterministic`, `TestOrderingDeterminesAdmissionOrder`)*
-- Scorer backtest harness reproduces a historical quarter and reports disagreements
-  (§3.3). *(pending: needs a concrete scorer and a recorded history to replay)*
+- Scorer backtest harness reproduces a corpus of past decisions and reports
+  disagreements (§3.3). *(covered: `score.Backtest`; `TestFitLearnsSeparableOrdering`,
+  `TestBacktestReportsDisagreements`, `TestBacktestTieIsDisagreement`. Replaying a real
+  recorded quarter — collecting the corpus from signed overrides/vetoes — is the
+  remaining production wiring)*
+- A learned scorer is deterministic and reproducible from a fixed corpus.
+  *(covered: `TestFitIsDeterministic`, `TestRankTicketsDeterministic`)*
 
 ### 7.5 Bridge
 
