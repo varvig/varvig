@@ -146,6 +146,15 @@ not a human command:
   compare-and-swap re-derives from the new base and re-runs its logic, so
   disjoint work converges with no human in the loop. All correctness rests on
   the same ref CAS primitive (§2).
+- **Pluggable admission ordering** (`txn.Ordering`, tickets M2) — which of two
+  *conflicting* transactions commits first is a module boundary, not a goroutine
+  race. The scheduler ranks the batch (`InputOrder`, `PriorityOrder`, or a
+  `ScoreOrder` the Stage 2.5/3 scorers plug into) and admits conflicting work in
+  rank order via per-transaction predecessor gating, while disjoint work stays
+  parallel. `Scheduler.Plan` exposes the ranking as a pure function — the
+  deterministic-replay artifact: same transactions + same ordering ⇒ same
+  admission order. Swapping the ordering changes only the sequence, never what
+  runs (that is the promotion policy's job, kept separate).
 
 ### Step 8 — the regeneration-based merge driver
 
@@ -359,7 +368,8 @@ varvig/
     notes/             attach metadata to an object without changing its hash
     hook/              sandboxed wasm (WASI) hook/trigger runtime + manifest
     affected/          tree diff + dependency graph -> affected-set index
-    txn/               read/write-set scheduler: serialize conflicts, retry on CAS
+    txn/               read/write-set scheduler: serialize conflicts, retry on CAS,
+                       pluggable admission ordering (M2)
     merge/             three-way merge + merge-by-regeneration driver
     spec/              speculation pool: score, promote, retention
     gc/                mark-and-sweep GC rooted at refs + reflog + pool

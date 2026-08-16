@@ -138,6 +138,7 @@ var Commands = []Command{
 	{Name: "reflog", NoRules: "audit and recovery; a human inspects ref history"},
 	{Name: "merge", NoRules: "three-way merge into HEAD; a promotion-side operation, human-driven"},
 	{Name: "note", NoRules: "attaches notes via ref updates; outside the propose-only surface"},
+	{Name: "attest", NoRules: "governance decisions (approve/veto/policy); a director signs these, and a propose-only agent neither approves nor promotes"},
 	{Name: "spec", NoRules: "speculation pool is orchestrator-driven; candidates are added and scored around the agent, not by it"},
 	{Name: "hook", NoRules: "configures acceptance gates; a human or admin sets the gates an agent's proposals must pass"},
 	{Name: "git-export", NoRules: "git interop; human or CI"},
