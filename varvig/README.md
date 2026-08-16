@@ -433,6 +433,7 @@ varvig/
     deps/              ticket scope + derived blocking dependencies (§3.2)
     score/             learned ticket scoring + native backtest (§3.3)
     ticket/            ticket identity as a ref + intent-revision chain (§1.2)
+    coreguard/         build-failing guard: no vendor names/SDKs in core (§5.1)
   FORMAT.md            the frozen object-format specification
   WIRE.md              the wire-protocol specification
   CONFORMANCE.md       the conformance suite + cross-version matrix protocol

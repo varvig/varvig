@@ -110,7 +110,7 @@ func TestRepoBackedKindCheck(t *testing.T) {
 	reg := Open(r)
 	bridge := newSigner(t)
 	human := newSigner(t)
-	_ = reg.Add(object.Principal{Key: bridge.pub, Name: "jira", Kind: object.KindBridge}, "admin", 1)
+	_ = reg.Add(object.Principal{Key: bridge.pub, Name: "ext-tracker", Kind: object.KindBridge}, "admin", 1)
 	_ = reg.Add(object.Principal{Key: human.pub, Name: "dir", Kind: object.KindHuman}, "admin", 2)
 
 	target := []byte("intent-revision")

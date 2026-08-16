@@ -136,8 +136,8 @@ type ProvenanceView struct {
 
 // ChangeView is the view for /change/{hash}. It leads with intent, then
 // evidence, then the diff — deliberately, not cosmetically (auth design §7.3):
-// a diff-first view quietly rebuilds GitHub and the premise of the system leaks
-// away.
+// a diff-first view quietly rebuilds the diff-centric forge it replaces and the
+// premise of the system leaks away.
 type ChangeView struct {
 	Hash       string          `json:"hash"`
 	Intent     string          `json:"intent"` // the change message: what this change is for

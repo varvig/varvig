@@ -503,7 +503,7 @@ func toolReadChange(g *Gate, raw json.RawMessage) (map[string]any, error) {
 
 	// Intent first, then an evidence summary, then the changed paths — and the
 	// changed-paths section is what truncates first when the cap binds (§6). A
-	// diff-first response quietly rebuilds GitHub and loses the premise.
+	// diff-first response quietly rebuilds the diff-centric forge it replaces and loses the premise.
 	changed := make([]map[string]any, 0, len(view.ChangedAdd)+len(view.ChangedMod)+len(view.ChangedDel))
 	for _, p := range view.ChangedAdd {
 		changed = append(changed, map[string]any{"op": "add", "path": p})
