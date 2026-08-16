@@ -384,6 +384,25 @@ objects without touching any hash — precisely the primitive §2 kept notes for
 
 The bridge is a peer like any other (§3.1, multicall). There is no "integration server."
 
+**No vendor name enters the core — enforced, not promised.** Nothing mentioning a specific
+tracker (Jira, GitHub, GitLab, …) belongs in the portable binary; DESIGN.md §3.1 ("no
+dlopen plugin ABI, ever") and §3.3 ("deliberately outside the binary") draw the line, and
+`internal/coreguard` makes it mechanical:
+
+- The core speaks only a **vendor-neutral vocabulary** it cannot branch on: a `system` tag
+  on the `varvig/external` note is an opaque string the peer chooses (the core never
+  enumerates or special-cases a value), a bridge is just `kind: bridge` in the principal
+  registry, and a bridge principal's name/id (`jira-prod`, `jira:alice`) is user data the
+  core never parses.
+- A **guard test** scans `internal/` and `cmd/` and fails the build on any unambiguous
+  tracker noun, after stripping the two legitimate cases (Go module hosts like
+  `github.com/…` and the `.github/` file convention). A companion test forbids vendor
+  SDKs in `go.mod`. A new vendor reference trips CI, so the boundary needs no reviewer
+  vigilance.
+- The **connector lives outside** the core module entirely — a peer holding a `bridge`
+  key, capped by the core's existing weak-only enforcement (§2.4) and CAS/trust gates,
+  which is what lets it be untrusted (§7.5).
+
 ### 5.2 Field mapping enforces the asymmetry
 
 | Direction | Fields |
