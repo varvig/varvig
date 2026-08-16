@@ -175,9 +175,13 @@ usage:
   varvig attest status <ref|id>         derived status (--require strong|delegated|weak)
   varvig attest policy set <m.wasm>     set the promotion-policy wasm module (§2.5)
   varvig attest policy show|clear       show or remove the promotion policy
-  varvig tickets scope <ref|id>         declare/show a ticket's read+write set
+  varvig tickets new -m <spec>          mint a ticket: a ref + genesis revision (§1.2)
+  varvig tickets revise <ticket> -m <spec>  append an intent revision, move the ref
+  varvig tickets list                   list tickets with their derived status
+  varvig tickets show <ticket>          spec, scope, status, blockers for one ticket
+  varvig tickets scope <ticket>         declare/show a ticket's read+write set
               [--reads a,b] [--writes c,d]  (what makes it schedulable, §3.1)
-  varvig tickets blockers <ref|id>      tickets blocking this one (derived, §3.2)
+  varvig tickets blockers <ticket>      tickets blocking this one (derived, §3.2)
   varvig tickets graph                  the derived blocking graph over all scoped tickets
   varvig tickets rank [--weights f.json] rank scoped tickets by score (§3.3)
   varvig hook set <event> <module.wasm> bind a wasm hook to an event
