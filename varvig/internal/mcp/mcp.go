@@ -64,9 +64,17 @@ func SetServerVersion(v string) {
 // per task and serves that task's connection for the credential's lifetime.
 type Gate struct {
 	repo  *repo.Repo
-	q     *readapi.Query
+	q     *readapi.Query // raw query, for scope/reachability bookkeeping
+	rl    *readLog       // logging query wrapper the tools read through (§5)
 	grant *task.Grant
 	base  multihash.Multihash // the pinned state the task reads and proposes from
+
+	reach map[string]bool // memoized in-scope reachable object set (§9.4); nil until first use
+
+	// mode and principal describe how this session was resolved (§2.1): "task"
+	// or "session", and who the principal is. Reported by varvig_task_context.
+	mode      string
+	principal string
 
 	// now returns the current time, for grant-expiry checks; nil defaults to
 	// time.Now, so tests can pin the clock.
@@ -76,11 +84,46 @@ type Gate struct {
 // NewGate builds a gate over repo r, bound to grant g, reading and proposing
 // against base (the change the task started from; may be nil for an empty repo).
 func NewGate(r *repo.Repo, g *task.Grant, base multihash.Multihash) *Gate {
-	return &Gate{repo: r, q: readapi.New(r), grant: g, base: base}
+	q := readapi.New(r)
+	return &Gate{repo: r, q: q, rl: newReadLog(q, g.Reads), grant: g, base: base}
+}
+
+// SetIdentity records the resolved operating mode and principal (§2.1) so
+// varvig_task_context can report them. Called once at startup; if never called,
+// the gate reports "task" with the grant's fingerprint as principal.
+func (g *Gate) SetIdentity(mode, principal string) {
+	g.mode, g.principal = mode, principal
+}
+
+// resolvedMode returns the operating mode, defaulting to "task" — a gate always
+// runs as a scoped task credential even when a mode was not explicitly set.
+func (g *Gate) resolvedMode() string {
+	if g.mode == "" {
+		return "task"
+	}
+	return g.mode
+}
+
+// resolvedPrincipal returns the principal, defaulting to the task key
+// fingerprint (the credential every operation actually runs as, §3).
+func (g *Gate) resolvedPrincipal() string {
+	if g.principal == "" {
+		return g.grant.Fingerprint()
+	}
+	return g.principal
 }
 
 // SetClock overrides the gate's clock (tests pin expiry).
 func (g *Gate) SetClock(now func() time.Time) { g.now = now }
+
+// baseHex is the base change hash this task resolves reads against, or "" for a
+// fresh repo. Every tool response names it (§4.1).
+func (g *Gate) baseHex() string {
+	if g.base == nil {
+		return ""
+	}
+	return g.base.Hex()
+}
 
 func (g *Gate) clock() time.Time {
 	if g.now != nil {
@@ -179,16 +222,24 @@ func (g *Gate) scopePath() string {
 
 // resolvePath maps a possibly-empty request path to a concrete repo-relative
 // path and enforces that it lies within the grant's scope. An empty path means
-// the scope root.
-func (g *Gate) resolvePath(path string) (string, error) {
-	path = strings.Trim(path, "/")
-	if path == "" {
-		path = g.scopePath()
+// the scope root. A ".." segment is rejected outright — path-string traversal is
+// the first thing the scope-escape suite tries (§9) — and the coded out_of_scope
+// error names the scope so an agent that cannot see why it was blocked does not
+// retry the same way (§8).
+func (g *Gate) resolvePath(p string) (string, error) {
+	p = strings.Trim(p, "/")
+	if p == "" {
+		p = g.scopePath()
 	}
-	if !g.grant.Covers(path) {
-		return "", fmt.Errorf("path %q is outside the task scope %q", path, g.grant.Scope)
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return "", gerr(codeOutOfScope, "path %q escapes the task scope %q", p, g.grant.Scope)
+		}
 	}
-	return path, nil
+	if !g.grant.Covers(p) {
+		return "", gerr(codeOutOfScope, "path %q is outside the task scope %q", p, g.grant.Scope)
+	}
+	return p, nil
 }
 
 // record folds resolved hashes into the task's read set (§8.2).

@@ -47,6 +47,13 @@ jobs:
           go build -o varvig ./cmd/varvig
           ./varvig conform
 
+      - name: MCP annotation + scope smoke test
+        # Drive the real binary's MCP handshake and assert the directory
+        # submission blockers (MCP spec §9): every tool carries a title and the
+        # applicable hints, the surface is exactly the ten varvig_* tools, and no
+        # *promote* tool exists. The gate has no destructive agent-facing tool.
+        run: python3 tools/mcp-smoke.py ./varvig mcp --standalone
+
   cross-compile:
     name: cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest

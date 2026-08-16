@@ -2,106 +2,120 @@ package mcp
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
 )
 
-// Tools are shaped coarsely and domain-first (auth design §8.1): fewer,
-// domain-shaped operations rather than one wrapper per read-API endpoint,
-// because the agent's context window is the scarce resource. Every tool returns
-// hashes so the agent's reads are pinned and reproducible, and every resolved
-// hash is folded into the task's read set for provenance (§8.2).
+// The tool surface is exactly ten tools (MCP spec §4): coarse and domain-shaped,
+// not one wrapper per endpoint, because the agent's context window is the scarce
+// resource (§8.1). Every tool declares a title and the applicable annotations —
+// a directory-submission requirement the release smoke test asserts (§9) — and
+// every response names the base hash it was resolved against (§4.1). There is no
+// promotion tool, and because the write path is append-only, no destructive
+// agent-facing tool at all.
 
-// toolList is advertised by tools/list. inputSchema is minimal JSON Schema.
-//
-// Every tool carries a human-readable title and the MCP behavioral hints
-// (readOnlyHint / destructiveHint), which the directory submission requires and
-// the release smoke test asserts (varvig-release-automation §7, referencing the
-// distribution §6.1 tool-annotation blocker). The hints are set from what the
-// tool actually does against core objects:
-//
-//   - The fetch_* / list_proposals tools only read: readOnly, non-destructive,
-//     idempotent.
-//   - propose writes — it creates objects and a speculative change — so it is
-//     not readOnly. It is still non-destructive: it is append-only and can never
-//     move a ref (§8.1), so no existing state is overwritten or lost. It is not
-//     idempotent: each call mints a distinct signed change.
-//
-// openWorldHint is false throughout: a task gate only ever touches its own
-// repository, never an open-ended external system.
 var toolList = []map[string]any{
 	{
-		"name":        "fetch_tree",
-		"title":       "Fetch directory listing",
-		"description": "List a directory within the task's scope. Returns the tree hash and each entry's hash. Omit path for the scope root.",
-		"annotations": readOnlyAnnotations("Fetch directory listing"),
-		"inputSchema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"path": map[string]any{"type": "string", "description": "repo-relative directory path; defaults to the scope root"},
-			},
-		},
+		"name":        "varvig_task_context",
+		"title":       "Task context",
+		"description": "Report who this task is, its operating mode, its scope, and the base state its reads resolve against. Reads nothing.",
+		"annotations": readOnlyAnnotations("Task context"),
+		"inputSchema": objectSchema(nil, nil),
 	},
 	{
-		"name":        "fetch_blob",
-		"title":       "Fetch file contents",
-		"description": "Read a file's contents by path, within the task's scope. Returns the blob hash and the content.",
-		"annotations": readOnlyAnnotations("Fetch file contents"),
-		"inputSchema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"path": map[string]any{"type": "string", "description": "repo-relative file path"},
-			},
-			"required": []string{"path"},
-		},
+		"name":        "varvig_resolve",
+		"title":       "Resolve a ref or hash",
+		"description": "Resolve a ref or partial hash to a full object hash. A resolved file/subtree object outside the task's scope is rejected.",
+		"annotations": readOnlyAnnotations("Resolve a ref or hash"),
+		"inputSchema": objectSchema(map[string]any{
+			"ref": strProp("a ref, full hash, or unambiguous hash prefix"),
+		}, []string{"ref"}),
 	},
 	{
-		"name":        "fetch_change_with_intent",
-		"title":       "Fetch change (intent first)",
-		"description": "Fetch a change intent-first: its intent (message), then provenance evidence, then the diff. Defaults to the task's base change.",
-		"annotations": readOnlyAnnotations("Fetch change (intent first)"),
-		"inputSchema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"change": map[string]any{"type": "string", "description": "change hash or ref; defaults to the task base"},
-			},
-		},
+		"name":        "varvig_list_tree",
+		"title":       "List a directory",
+		"description": "List a directory at the task's base within scope. Returns the tree hash and each entry's hash. Paginates with an opaque cursor.",
+		"annotations": readOnlyAnnotations("List a directory"),
+		"inputSchema": objectSchema(map[string]any{
+			"path":   strProp("repo-relative directory; defaults to the scope root"),
+			"cursor": strProp("opaque continuation from a previous truncated listing"),
+		}, nil),
 	},
 	{
-		"name":        "fetch_evidence",
-		"title":       "Fetch provenance evidence",
-		"description": "Fetch just the provenance evidence attached to a change (authority, model, tooling, intent). Defaults to the task's base change.",
-		"annotations": readOnlyAnnotations("Fetch provenance evidence"),
-		"inputSchema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"change": map[string]any{"type": "string", "description": "change hash or ref; defaults to the task base"},
-			},
-		},
+		"name":        "varvig_read_file",
+		"title":       "Read a file",
+		"description": "Read a file's contents by path, within scope. Accepts a 1-based line range; without one, returns the whole file when it fits the cap, else the head plus a cursor.",
+		"annotations": readOnlyAnnotations("Read a file"),
+		"inputSchema": objectSchema(map[string]any{
+			"path":   strProp("repo-relative file path"),
+			"start":  intProp("first 1-based line to return"),
+			"end":    intProp("last 1-based line to return (inclusive)"),
+			"cursor": strProp("opaque continuation from a previous truncated read"),
+		}, []string{"path"}),
 	},
 	{
-		"name":        "list_proposals",
+		"name":        "varvig_find_files",
+		"title":       "Find files by glob",
+		"description": "Find files within scope whose path matches a glob (bare pattern matches the basename; a pattern with '/' matches the whole repo-relative path). Paginates with an opaque cursor.",
+		"annotations": readOnlyAnnotations("Find files by glob"),
+		"inputSchema": objectSchema(map[string]any{
+			"glob":   strProp("glob pattern, e.g. *.go (single-level * only)"),
+			"cursor": strProp("opaque continuation from a previous truncated result"),
+		}, []string{"glob"}),
+	},
+	{
+		"name":        "varvig_search_text",
+		"title":       "Search file contents",
+		"description": "Search file contents within scope for a literal string or regex. Returns matches with surrounding lines, capped per file so one file cannot consume the budget. Paginates with an opaque cursor.",
+		"annotations": readOnlyAnnotations("Search file contents"),
+		"inputSchema": objectSchema(map[string]any{
+			"query":  strProp("literal text, or a regular expression when regex is true"),
+			"regex":  boolProp("treat query as a regular expression"),
+			"path":   strProp("restrict the search to this repo-relative subtree within scope"),
+			"cursor": strProp("opaque continuation from a previous truncated search"),
+		}, []string{"query"}),
+	},
+	{
+		"name":        "varvig_read_change",
+		"title":       "Read a change (intent first)",
+		"description": "Read a change intent-first: its intent, then a provenance evidence summary, then the changed paths. Defaults to the task's base change. The changed-paths section is truncated first when the cap binds.",
+		"annotations": readOnlyAnnotations("Read a change (intent first)"),
+		"inputSchema": objectSchema(map[string]any{
+			"change": strProp("change hash or ref; defaults to the task base"),
+			"cursor": strProp("opaque continuation over the changed-paths section"),
+		}, nil),
+	},
+	{
+		"name":        "varvig_read_log",
+		"title":       "Read change history",
+		"description": "List the change history for a ref (default: the task base), optionally limited to changes that touch a path within scope. Paginates with an opaque cursor.",
+		"annotations": readOnlyAnnotations("Read change history"),
+		"inputSchema": objectSchema(map[string]any{
+			"ref":    strProp("ref or change hash to start from; defaults to the task base"),
+			"path":   strProp("only include changes touching this repo-relative path within scope"),
+			"cursor": strProp("opaque continuation from a previous truncated log"),
+		}, nil),
+	},
+	{
+		"name":        "varvig_list_proposals",
 		"title":       "List proposals",
-		"description": "List the speculative changes this task has proposed but not promoted.",
+		"description": "List the speculative, unpromoted changes this task has proposed.",
 		"annotations": readOnlyAnnotations("List proposals"),
-		"inputSchema": map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
-		},
+		"inputSchema": objectSchema(nil, nil),
 	},
 	{
-		"name":        "propose",
+		"name":        "varvig_propose",
 		"title":       "Propose a change",
-		"description": "Propose a change: overlay file contents onto the base tree and record a signed, speculative change. Every path must be within the task's scope. This never moves a ref — promotion is a separate, human-gated step.",
+		"description": "Propose a change: overlay file contents onto the base tree and record a signed, speculative change. Every path must be within scope. This never moves a ref — promotion is a separate, human-gated step.",
 		// A write, but append-only: it never overwrites or moves a ref, so it is
-		// not destructive. Each call mints a distinct change, so not idempotent.
+		// not destructive (§4.2 — accurate even for a delete). Each call mints a
+		// distinct signed change, so not idempotent.
 		"annotations": map[string]any{
 			"title":           "Propose a change",
 			"readOnlyHint":    false,
@@ -109,26 +123,46 @@ var toolList = []map[string]any{
 			"idempotentHint":  false,
 			"openWorldHint":   false,
 		},
-		"inputSchema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"message": map[string]any{"type": "string", "description": "the change's intent"},
-				"files": map[string]any{
-					"type": "array",
-					"items": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"path":       map[string]any{"type": "string"},
-							"content":    map[string]any{"type": "string"},
-							"executable": map[string]any{"type": "boolean"},
-						},
-						"required": []string{"path", "content"},
+		"inputSchema": objectSchema(map[string]any{
+			"message": strProp("the change's intent"),
+			"files": map[string]any{
+				"type":        "array",
+				"description": "files to create or overwrite in the proposed state",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path":       strProp("repo-relative path, within scope"),
+						"content":    strProp("full file content"),
+						"executable": boolProp("mark the file executable"),
 					},
+					"required": []string{"path", "content"},
 				},
 			},
-			"required": []string{"message", "files"},
-		},
+		}, []string{"message", "files"}),
 	},
+}
+
+// --- schema helpers ---
+
+func objectSchema(props map[string]any, required []string) map[string]any {
+	if props == nil {
+		props = map[string]any{}
+	}
+	s := map[string]any{"type": "object", "properties": props}
+	if len(required) > 0 {
+		s["required"] = required
+	}
+	return s
+}
+
+func strProp(desc string) map[string]any {
+	return map[string]any{"type": "string", "description": desc}
+}
+func intProp(desc string) map[string]any {
+	return map[string]any{"type": "integer", "description": desc}
+}
+func boolProp(desc string) map[string]any {
+	return map[string]any{"type": "boolean", "description": desc}
 }
 
 // readOnlyAnnotations is the MCP annotation block for a pure read: it observes
@@ -143,22 +177,26 @@ func readOnlyAnnotations(title string) map[string]any {
 	}
 }
 
-// toolHandler runs one tool with its raw arguments and returns a JSON-able
-// result. A returned error becomes an in-band tool error (isError), not a
+// toolHandler runs one tool with its raw arguments and returns a JSON-able map.
+// A returned error becomes an in-band, coded tool error (isError), not a
 // JSON-RPC protocol error.
-type toolHandler func(g *Gate, args json.RawMessage) (any, error)
+type toolHandler func(g *Gate, args json.RawMessage) (map[string]any, error)
 
 var toolHandlers = map[string]toolHandler{
-	"fetch_tree":               toolFetchTree,
-	"fetch_blob":               toolFetchBlob,
-	"fetch_change_with_intent": toolFetchChange,
-	"fetch_evidence":           toolFetchEvidence,
-	"list_proposals":           toolListProposals,
-	"propose":                  toolPropose,
+	"varvig_task_context":   toolTaskContext,
+	"varvig_resolve":        toolResolve,
+	"varvig_list_tree":      toolListTree,
+	"varvig_read_file":      toolReadFile,
+	"varvig_find_files":     toolFindFiles,
+	"varvig_search_text":    toolSearchText,
+	"varvig_read_change":    toolReadChange,
+	"varvig_read_log":       toolReadLog,
+	"varvig_list_proposals": toolListProposals,
+	"varvig_propose":        toolPropose,
 }
 
 // handleToolsCall validates the credential, dispatches the named tool, and wraps
-// the outcome in an MCP tool result.
+// the outcome in an MCP tool result whose payload always names the base hash.
 func (g *Gate) handleToolsCall(c *conn, req *request) error {
 	var params struct {
 		Name      string          `json:"name"`
@@ -167,139 +205,383 @@ func (g *Gate) handleToolsCall(c *conn, req *request) error {
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return c.replyError(req.ID, codeInvalidParams, err.Error())
 	}
-	// Expiry is checked on every call: an expired grant can do nothing, and no
-	// revocation infrastructure is needed for the common case (§6.2).
+	// Expiry is checked on every call: an expired grant can do nothing, and the
+	// distinct credential_expired code lets an orchestrator renew rather than
+	// treat it as failure (§3, §8).
 	if !g.grant.Valid(g.clock()) {
-		return c.replyResult(req.ID, toolError("task credential expired"))
+		return c.replyResult(req.ID, g.toolErr(gerr(codeCredentialExpired,
+			"task credential expired; renew the task and retry (scope %q)", g.grant.Scope)))
 	}
 	h, ok := toolHandlers[params.Name]
 	if !ok {
-		return c.replyResult(req.ID, toolError("unknown tool: "+params.Name))
+		return c.replyResult(req.ID, g.toolErr(gerr(codeNotFound, "unknown tool %q", params.Name)))
 	}
 	result, err := h(g, params.Arguments)
 	if err != nil {
-		return c.replyResult(req.ID, toolError(err.Error()))
+		return c.replyResult(req.ID, g.toolErr(err))
 	}
-	return c.replyResult(req.ID, toolOK(result))
+	return c.replyResult(req.ID, g.toolOK(result))
 }
 
-// specTask names the speculation bucket this task proposes into. It is the
-// grant's short id (a valid, slash-free task name), so proposals from one task
-// group together and list_proposals can show only this task's work.
+// specTask names the speculation bucket this task proposes into — the grant's
+// short id, so proposals from one task group together.
 func (g *Gate) specTask() string { return g.grant.ID }
 
 // --- read tools ---
 
-func toolFetchTree(g *Gate, raw json.RawMessage) (any, error) {
-	var a struct {
-		Path string `json:"path"`
-	}
-	_ = json.Unmarshal(raw, &a)
-	if g.base == nil {
-		return nil, errors.New("task has no base state to read")
-	}
-	path, err := g.resolvePath(a.Path)
-	if err != nil {
-		return nil, err
-	}
-	listing, err := g.q.Tree(g.base, path)
-	if err != nil {
-		return nil, err
-	}
-	g.record(g.base.Hex(), listing.Root, listing.Hash)
-	for _, e := range listing.Entries {
-		g.record(e.Hash)
-	}
-	return map[string]any{"base": g.base.Hex(), "listing": listing}, nil
-}
-
-func toolFetchBlob(g *Gate, raw json.RawMessage) (any, error) {
-	var a struct {
-		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(a.Path) == "" {
-		return nil, errors.New("path is required")
-	}
-	if g.base == nil {
-		return nil, errors.New("task has no base state to read")
-	}
-	path, err := g.resolvePath(a.Path)
-	if err != nil {
-		return nil, err
-	}
-	dir, file := splitDirFile(path)
-	listing, err := g.q.Tree(g.base, dir)
-	if err != nil {
-		return nil, err
-	}
-	var blobHash multihash.Multihash
-	for _, e := range listing.Entries {
-		if e.Name == file && e.Kind == object.TypeBlob.String() {
-			id, err := multihash.ParseHex(e.Hash)
-			if err != nil {
-				return nil, err
-			}
-			blobHash = id
-			break
-		}
-	}
-	if blobHash == nil {
-		return nil, fmt.Errorf("no file %q within scope", path)
-	}
-	content, err := g.q.Blob(blobHash)
-	if err != nil {
-		return nil, err
-	}
-	g.record(g.base.Hex(), listing.Hash, blobHash.Hex())
-	return map[string]any{"path": path, "hash": blobHash.Hex(), "content": string(content)}, nil
-}
-
-func toolFetchChange(g *Gate, raw json.RawMessage) (any, error) {
-	var a struct {
-		Change string `json:"change"`
-	}
-	_ = json.Unmarshal(raw, &a)
-	id, err := g.resolveChange(a.Change)
-	if err != nil {
-		return nil, err
-	}
-	view, err := g.q.Change(id)
-	if err != nil {
-		return nil, err
-	}
-	g.record(view.Hash, view.Tree)
-	return view, nil
-}
-
-func toolFetchEvidence(g *Gate, raw json.RawMessage) (any, error) {
-	var a struct {
-		Change string `json:"change"`
-	}
-	_ = json.Unmarshal(raw, &a)
-	id, err := g.resolveChange(a.Change)
-	if err != nil {
-		return nil, err
-	}
-	view, err := g.q.Change(id)
-	if err != nil {
-		return nil, err
-	}
-	g.record(view.Hash)
+func toolTaskContext(g *Gate, _ json.RawMessage) (map[string]any, error) {
 	return map[string]any{
-		"change":   view.Hash,
-		"author":   view.Author,
-		"signed":   view.Signed,
-		"evidence": view.Evidence, // nil if the change carries no provenance
+		"mode":         g.resolvedMode(),
+		"principal":    g.resolvedPrincipal(),
+		"scope":        string(g.grant.Scope),
+		"base":         g.baseHex(),
+		"propose_only": true,
+		"expires_unix": g.grant.NotAfter,
 	}, nil
 }
 
-func toolListProposals(g *Gate, _ json.RawMessage) (any, error) {
-	props, err := g.q.Proposals(g.specTask())
+func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Ref string `json:"ref"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	if strings.TrimSpace(a.Ref) == "" {
+		return nil, gerr(codeInvalidArgs, "ref is required")
+	}
+	id, err := g.rl.Resolve(a.Ref)
+	if err != nil {
+		return nil, gerr(codeNotFound, "cannot resolve %q (scope %q)", a.Ref, g.grant.Scope)
+	}
+	o, err := g.repo.Objects.Get(id)
+	if err != nil {
+		return nil, gerr(codeNotFound, "resolved %q to %s but it is not stored", a.Ref, id.Hex())
+	}
+	// Enforce scope on object reachability, not only path strings (§9.4): a
+	// blob/tree resolved directly must lie within the task's scope subtree.
+	if t := o.Type(); t == object.TypeBlob || t == object.TypeTree {
+		in, err := g.inScopeObject(id)
+		if err != nil {
+			return nil, err
+		}
+		if !in {
+			return nil, gerr(codeOutOfScope,
+				"%s %s is outside the task scope %q", t.String(), id.Hex(), g.grant.Scope)
+		}
+	}
+	return map[string]any{"ref": a.Ref, "hash": id.Hex(), "type": o.Type().String()}, nil
+}
+
+func toolListTree(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Path   string `json:"path"`
+		Cursor string `json:"cursor"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	if g.base == nil {
+		return nil, gerr(codeNotFound, "task has no base state to read")
+	}
+	cur, err := decodeCursor(a.Cursor)
 	if err != nil {
 		return nil, err
+	}
+	path, err := g.resolvePath(a.Path)
+	if err != nil {
+		return nil, err
+	}
+	listing, err := g.rl.Tree(g.base, path)
+	if err != nil {
+		return nil, gerr(codeNotFound, "no directory %q within scope %q", path, g.grant.Scope)
+	}
+	page, next, truncated := paginate(listing.Entries, cur.Offset, treePageSize)
+	out := map[string]any{
+		"path":    listing.Path,
+		"tree":    listing.Hash,
+		"entries": page,
+	}
+	addPage(out, next, truncated, "entries")
+	return out, nil
+}
+
+func toolReadFile(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Path   string `json:"path"`
+		Start  int    `json:"start"`
+		End    int    `json:"end"`
+		Cursor string `json:"cursor"`
+	}
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, gerr(codeInvalidArgs, "bad arguments: %v", err)
+	}
+	if strings.TrimSpace(a.Path) == "" {
+		return nil, gerr(codeInvalidArgs, "path is required")
+	}
+	if g.base == nil {
+		return nil, gerr(codeNotFound, "task has no base state to read")
+	}
+	cur, err := decodeCursor(a.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	path, err := g.resolvePath(a.Path)
+	if err != nil {
+		return nil, err
+	}
+	blobHash, err := g.blobAt(path)
+	if err != nil {
+		return nil, err
+	}
+	content, err := g.rl.Blob(blobHash)
+	if err != nil {
+		return nil, gerr(codeNotFound, "cannot read %q", path)
+	}
+	lines := strings.Split(string(content), "\n")
+	total := len(lines)
+
+	// Explicit range wins. A cursor resumes at its line. Otherwise: whole file
+	// under the cap, else the head plus a cursor (§6).
+	start := a.Start
+	end := a.End
+	if cur.Line > 0 {
+		start = cur.Line
+	}
+	if start <= 0 {
+		start = 1
+	}
+	truncated := false
+	var next string
+	if a.Start == 0 && a.End == 0 && cur.Line == 0 && len(content) <= responseCap {
+		end = total
+	} else if end <= 0 {
+		// Head-plus-cursor: cap the slice length.
+		end = start + readFileHead - 1
+	}
+	if end > total {
+		end = total
+	}
+	if end < start {
+		end = start
+	}
+	if end < total {
+		truncated = true
+		next = encodeCursor(cursor{Line: end + 1})
+	}
+	body := strings.Join(lines[start-1:end], "\n")
+	out := map[string]any{
+		"path":        path,
+		"hash":        blobHash.Hex(),
+		"content":     body,
+		"start_line":  start,
+		"end_line":    end,
+		"total_lines": total,
+	}
+	addPage(out, next, truncated, "content")
+	return out, nil
+}
+
+func toolFindFiles(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Glob   string `json:"glob"`
+		Cursor string `json:"cursor"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	if strings.TrimSpace(a.Glob) == "" {
+		return nil, gerr(codeInvalidArgs, "glob is required")
+	}
+	cur, err := decodeCursor(a.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	files, err := g.scopeFiles()
+	if err != nil {
+		return nil, err
+	}
+	matched := make([]map[string]any, 0)
+	for _, f := range files {
+		if matchGlob(a.Glob, f.Path) {
+			g.record(f.Blob.Hex())
+			matched = append(matched, map[string]any{"path": f.Path, "hash": f.Blob.Hex()})
+		}
+	}
+	page, next, truncated := paginate(matched, cur.Offset, findPageSize)
+	out := map[string]any{"glob": a.Glob, "files": page}
+	addPage(out, next, truncated, "files")
+	return out, nil
+}
+
+func toolSearchText(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Query  string `json:"query"`
+		Regex  bool   `json:"regex"`
+		Path   string `json:"path"`
+		Cursor string `json:"cursor"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	if a.Query == "" {
+		return nil, gerr(codeInvalidArgs, "query is required")
+	}
+	cur, err := decodeCursor(a.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	matcher, err := buildMatcher(a.Query, a.Regex)
+	if err != nil {
+		return nil, err
+	}
+	files, err := g.scopeFiles()
+	if err != nil {
+		return nil, err
+	}
+	// Optional path restriction, enforced within scope.
+	if p := strings.Trim(a.Path, "/"); p != "" {
+		rp, err := g.resolvePath(p)
+		if err != nil {
+			return nil, err
+		}
+		filtered := make([]fileRef, 0, len(files))
+		for _, f := range files {
+			if f.Path == rp || strings.HasPrefix(f.Path, rp+"/") {
+				filtered = append(filtered, f)
+			}
+		}
+		files = filtered
+	}
+
+	results := make([]map[string]any, 0)
+	next := ""
+	truncated := false
+	i := cur.Offset
+	for ; i < len(files); i++ {
+		f := files[i]
+		content, err := g.rl.Blob(f.Blob)
+		if err != nil {
+			continue
+		}
+		hits, capped := searchBlob(content, matcher)
+		if len(hits) == 0 {
+			continue
+		}
+		results = append(results, map[string]any{
+			"path":    f.Path,
+			"hash":    f.Blob.Hex(),
+			"matches": hits,
+			"capped":  capped,
+		})
+		// Byte cap: stop once the accumulated payload exceeds the budget, handing
+		// back a cursor at the next file (§6). Never silent.
+		if b, _ := json.Marshal(results); len(b) > responseCap {
+			i++
+			break
+		}
+	}
+	if i < len(files) {
+		truncated = true
+		next = encodeCursor(cursor{Offset: i})
+	}
+	out := map[string]any{"query": a.Query, "results": results}
+	addPage(out, next, truncated, "results")
+	return out, nil
+}
+
+func toolReadChange(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Change string `json:"change"`
+		Cursor string `json:"cursor"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	cur, err := decodeCursor(a.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	id, err := g.resolveChange(a.Change)
+	if err != nil {
+		return nil, err
+	}
+	view, err := g.rl.Change(id)
+	if err != nil {
+		return nil, gerr(codeNotFound, "no change %q", a.Change)
+	}
+
+	// Intent first, then an evidence summary, then the changed paths — and the
+	// changed-paths section is what truncates first when the cap binds (§6). A
+	// diff-first response quietly rebuilds GitHub and loses the premise.
+	changed := make([]map[string]any, 0, len(view.ChangedAdd)+len(view.ChangedMod)+len(view.ChangedDel))
+	for _, p := range view.ChangedAdd {
+		changed = append(changed, map[string]any{"op": "add", "path": p})
+	}
+	for _, p := range view.ChangedMod {
+		changed = append(changed, map[string]any{"op": "modify", "path": p})
+	}
+	for _, p := range view.ChangedDel {
+		changed = append(changed, map[string]any{"op": "delete", "path": p})
+	}
+	page, next, truncated := paginate(changed, cur.Offset, treePageSize)
+
+	out := map[string]any{
+		"change":    view.Hash,
+		"intent":    view.Intent,
+		"evidence":  evidenceSummary(view.Evidence),
+		"author":    view.Author,
+		"signed":    view.Signed,
+		"timestamp": view.Timestamp,
+		"parents":   view.Parents,
+		"changed":   page,
+	}
+	addPage(out, next, truncated, "changed")
+	return out, nil
+}
+
+func toolReadLog(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Ref    string `json:"ref"`
+		Path   string `json:"path"`
+		Cursor string `json:"cursor"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	cur, err := decodeCursor(a.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	start, err := g.resolveChange(a.Ref)
+	if err != nil {
+		return nil, err
+	}
+	const maxLogScan = 1000
+	entries, err := g.rl.Log(start, maxLogScan)
+	if err != nil {
+		return nil, gerr(codeNotFound, "cannot read log from %q", a.Ref)
+	}
+	// Optional path filter within scope: keep changes that touch the path.
+	if p := strings.Trim(a.Path, "/"); p != "" {
+		rp, err := g.resolvePath(p)
+		if err != nil {
+			return nil, err
+		}
+		kept := make([]readapi.LogEntryView, 0, len(entries))
+		for _, e := range entries {
+			id, perr := multihash.ParseHex(e.Hash)
+			if perr != nil {
+				continue
+			}
+			cv, cerr := g.rl.Change(id)
+			if cerr != nil {
+				continue
+			}
+			if changeTouches(cv, rp) {
+				kept = append(kept, e)
+			}
+		}
+		entries = kept
+	}
+	page, next, truncated := paginate(entries, cur.Offset, logPageSize)
+	out := map[string]any{"start": start.Hex(), "entries": page}
+	addPage(out, next, truncated, "entries")
+	return out, nil
+}
+
+func toolListProposals(g *Gate, _ json.RawMessage) (map[string]any, error) {
+	props, err := g.q.Proposals(g.specTask())
+	if err != nil {
+		return nil, gerr(codeUnavailable, "cannot list proposals: %v", err)
 	}
 	for _, p := range props {
 		g.record(p.Change)
@@ -307,9 +589,9 @@ func toolListProposals(g *Gate, _ json.RawMessage) (any, error) {
 	return map[string]any{"task": g.specTask(), "proposals": props}, nil
 }
 
-// --- propose (write path: proposals, never promotions — §8.1) ---
+// --- propose (write path: proposals, never promotions — §4.2) ---
 
-func toolPropose(g *Gate, raw json.RawMessage) (any, error) {
+func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	var a struct {
 		Message string `json:"message"`
 		Files   []struct {
@@ -319,41 +601,39 @@ func toolPropose(g *Gate, raw json.RawMessage) (any, error) {
 		} `json:"files"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
-		return nil, err
+		return nil, gerr(codeInvalidArgs, "bad arguments: %v", err)
 	}
 	if strings.TrimSpace(a.Message) == "" {
-		return nil, errors.New("message (the change's intent) is required")
+		return nil, gerr(codeInvalidArgs, "message (the change's intent) is required")
 	}
 	if len(a.Files) == 0 {
-		return nil, errors.New("propose requires at least one file")
+		return nil, gerr(codeInvalidArgs, "propose requires at least one file")
 	}
 
-	// Start from the base tree and overlay the proposed files, enforcing scope
-	// on every path — the capability is the read set (§8.1).
 	var baseTree multihash.Multihash
 	if g.base != nil {
 		bt, err := treeOfChange(g.repo, g.base)
 		if err != nil {
-			return nil, err
+			return nil, gerr(codeNotFound, "cannot read base tree: %v", err)
 		}
 		baseTree = bt
 	}
 	files, err := flattenTree(g.repo.Objects, baseTree)
 	if err != nil {
-		return nil, err
+		return nil, gerr(codeInternal, "cannot flatten base tree: %v", err)
 	}
 	touched := make([]string, 0, len(a.Files))
 	for _, f := range a.Files {
 		path, err := g.resolvePath(f.Path)
 		if err != nil {
-			return nil, err
+			return nil, err // out_of_scope, naming the scope (§4.2)
 		}
 		if path == "" || strings.HasSuffix(path, "/") {
-			return nil, fmt.Errorf("invalid file path %q", f.Path)
+			return nil, gerr(codeInvalidArgs, "invalid file path %q", f.Path)
 		}
 		blobID, err := g.repo.Objects.Put(object.NewBlob([]byte(f.Content)))
 		if err != nil {
-			return nil, err
+			return nil, gerr(codeInternal, "cannot store blob: %v", err)
 		}
 		mode := uint32(modeFile)
 		if f.Executable {
@@ -365,12 +645,9 @@ func toolPropose(g *Gate, raw json.RawMessage) (any, error) {
 	}
 	newTree, err := buildTree(g.repo.Objects, files)
 	if err != nil {
-		return nil, err
+		return nil, gerr(codeInternal, "cannot build tree: %v", err)
 	}
 
-	// Provenance folds the task's read set into the change record, so what the
-	// agent read and what it proposed are one auditable object (§8.2). Authority
-	// is the task key's fingerprint; the change is signed by the ephemeral key.
 	prov := object.NewProvenance(object.Provenance{
 		Authority:   g.grant.Fingerprint(),
 		TaskSpec:    a.Message,
@@ -378,7 +655,7 @@ func toolPropose(g *Gate, raw json.RawMessage) (any, error) {
 	})
 	provID, err := g.repo.Objects.Put(prov)
 	if err != nil {
-		return nil, err
+		return nil, gerr(codeInternal, "cannot store provenance: %v", err)
 	}
 
 	var parents []multihash.Multihash
@@ -394,19 +671,16 @@ func toolPropose(g *Gate, raw json.RawMessage) (any, error) {
 		Provenance: provID,
 	})
 	if err := provenance.Sign(change, g.grant.PrivateKey()); err != nil {
-		return nil, err
+		return nil, gerr(codeInternal, "cannot sign change: %v", err)
 	}
 	changeID, err := g.repo.Objects.Put(change)
 	if err != nil {
-		return nil, err
+		return nil, gerr(codeInternal, "cannot store change: %v", err)
 	}
 
-	// Propose-only: record the change in the speculation pool under this task.
-	// This is append-only and never moves a ref — promotion is separate and
-	// human-gated (§8.1). Parallel tasks cannot damage one another (§10.6).
 	pool := spec.Open(g.repo.GitDir())
 	if err := pool.Add(g.specTask(), changeID, g.clock().Unix()); err != nil {
-		return nil, err
+		return nil, gerr(codeInternal, "cannot record proposal: %v", err)
 	}
 
 	return map[string]any{
@@ -415,6 +689,7 @@ func toolPropose(g *Gate, raw json.RawMessage) (any, error) {
 		"tree":       newTree.Hex(),
 		"provenance": provID.Hex(),
 		"parents":    hexes(parents),
+		"paths":      touched,
 		"read_set":   g.grant.Reads.Hashes(),
 		"promoted":   false, // always: the gate can never promote
 	}, nil
@@ -422,17 +697,80 @@ func toolPropose(g *Gate, raw json.RawMessage) (any, error) {
 
 // --- helpers ---
 
+// addPage attaches pagination metadata to a tool response: an opaque cursor and
+// an explicit truncation marker naming which field was cut (§6, "never
+// silently").
+func addPage(out map[string]any, next string, truncated bool, field string) {
+	out["truncated"] = truncated
+	if truncated {
+		out["cursor"] = next
+		out["truncated_field"] = field
+		// Surface the §8 `truncated` code on the (successful) response so an
+		// orchestrator can key on "continue with the cursor" uniformly, without
+		// treating a capped page as an error.
+		out["code"] = codeTruncated
+	}
+}
+
+// evidenceSummary renders a provenance view compactly; nil when the change
+// carries no provenance.
+func evidenceSummary(p *readapi.ProvenanceView) map[string]any {
+	if p == nil {
+		return nil
+	}
+	return map[string]any{
+		"authority":     p.Authority,
+		"model":         p.Model,
+		"model_version": p.ModelVersion,
+		"tool_perms":    p.ToolPerms,
+		"intent":        p.TaskSpec,
+	}
+}
+
+// blobAt resolves a repo-relative file path to its blob hash at the base,
+// returning not_found when there is no such file within scope.
+func (g *Gate) blobAt(path string) (multihash.Multihash, error) {
+	dir, file := splitDirFile(path)
+	listing, err := g.rl.Tree(g.base, dir)
+	if err != nil {
+		return nil, gerr(codeNotFound, "no directory %q within scope", dir)
+	}
+	for _, e := range listing.Entries {
+		if e.Name == file && e.Kind == object.TypeBlob.String() {
+			return multihash.ParseHex(e.Hash)
+		}
+	}
+	return nil, gerr(codeNotFound, "no file %q within scope %q", path, g.grant.Scope)
+}
+
+// changeTouches reports whether a change view added, modified, or removed a path
+// at or under prefix.
+func changeTouches(cv readapi.ChangeView, prefix string) bool {
+	for _, group := range [][]string{cv.ChangedAdd, cv.ChangedMod, cv.ChangedDel} {
+		for _, p := range group {
+			if p == prefix || strings.HasPrefix(p, prefix+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // resolveChange maps a change argument (hash or ref) to an identity, defaulting
 // to the task's base. Change metadata (intent, evidence) is not file content, so
-// this is not path-scoped; file reads (fetch_tree/fetch_blob) are.
+// this is not path-scoped; file reads (list_tree/read_file) are.
 func (g *Gate) resolveChange(arg string) (multihash.Multihash, error) {
 	if strings.TrimSpace(arg) == "" {
 		if g.base == nil {
-			return nil, errors.New("task has no base change; pass an explicit change")
+			return nil, gerr(codeNotFound, "task has no base change; pass an explicit change")
 		}
 		return g.base, nil
 	}
-	return g.q.Resolve(arg)
+	id, err := g.rl.Resolve(arg)
+	if err != nil {
+		return nil, gerr(codeNotFound, "cannot resolve change %q", arg)
+	}
+	return id, nil
 }
 
 func treeOfChange(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, error) {
@@ -470,12 +808,16 @@ func hexes(ids []multihash.Multihash) []string {
 
 // --- MCP tool-result envelopes ---
 
-// toolOK wraps a successful result as MCP tool content. The JSON payload is
-// provided both as text (universally supported) and as structuredContent.
-func toolOK(v any) map[string]any {
+// toolOK wraps a successful result as MCP tool content, always naming the base
+// hash the reads were resolved against (§4.1). The JSON payload is provided both
+// as text (universally supported) and as structuredContent.
+func (g *Gate) toolOK(v map[string]any) map[string]any {
+	if _, ok := v["base"]; !ok {
+		v["base"] = g.baseHex()
+	}
 	b, err := json.Marshal(v)
 	if err != nil {
-		return toolError("internal: " + err.Error())
+		return g.toolErr(gerr(codeInternal, "cannot marshal result: %v", err))
 	}
 	return map[string]any{
 		"content":           []map[string]any{{"type": "text", "text": string(b)}},
@@ -484,11 +826,19 @@ func toolOK(v any) map[string]any {
 	}
 }
 
-// toolError reports a tool-execution failure in-band (isError), which is how MCP
-// surfaces tool errors to the model rather than as a protocol fault.
-func toolError(msg string) map[string]any {
+// toolErr reports a tool-execution failure in-band (isError) with a distinct,
+// machine-readable code and the current scope, so an orchestrator can tell
+// "renew the credential" from "asked for something out of scope" (§8).
+func (g *Gate) toolErr(err error) map[string]any {
+	sc := map[string]any{
+		"code":    codeOf(err),
+		"message": err.Error(),
+		"scope":   string(g.grant.Scope),
+		"base":    g.baseHex(),
+	}
 	return map[string]any{
-		"content": []map[string]any{{"type": "text", "text": msg}},
-		"isError": true,
+		"content":           []map[string]any{{"type": "text", "text": err.Error()}},
+		"structuredContent": sc,
+		"isError":           true,
 	}
 }

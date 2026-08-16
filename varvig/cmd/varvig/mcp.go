@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -157,8 +159,14 @@ func cmdMcp(args []string) error {
 	base := ""
 	connect := ""
 	standalone := false
+	minVersion := os.Getenv("VARVIG_MIN_VERSION")
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--min-version":
+			if i+1 >= len(args) {
+				return errors.New("mcp: --min-version requires a value")
+			}
+			minVersion, i = args[i+1], i+1
 		case "--connect":
 			if i+1 >= len(args) {
 				return errors.New("mcp: --connect requires a socket path")
@@ -191,6 +199,23 @@ func cmdMcp(args []string) error {
 			return fmt.Errorf("mcp: unknown argument %q", args[i])
 		}
 	}
+
+	// Minimum version check (§7.2): the plugin declares a floor; verify this
+	// binary meets it and exit with a clear message rather than failing
+	// obscurely at the first tool call. Unparseable (dev) builds are not blocked.
+	if minVersion != "" {
+		if ok, comparable := meetsMinVersion(versionString(), minVersion); comparable && !ok {
+			return fmt.Errorf("mcp: this varvig is %s but the plugin requires at least %s — upgrade varvig",
+				versionString(), minVersion)
+		}
+	}
+
+	// Resolve the operating mode once at startup, never negotiated at runtime
+	// (§2.1), and log it — silent scope confusion is the most likely support
+	// burden. Promotion is exposed in neither mode.
+	mode, principal := resolveMCPMode()
+	fmt.Fprintf(os.Stderr, "varvig mcp: mode=%s principal=%s scope=%s (propose-only; cannot promote)\n",
+		mode, principal, scope)
 
 	// Explicit bridge to a specific per-task socket.
 	if connect != "" {
@@ -239,7 +264,64 @@ func cmdMcp(args []string) error {
 	fmt.Fprintf(os.Stderr, "varvig mcp: base %s; propose-only, cannot promote\n", hexOrNone(baseID))
 
 	gate := mcp.NewGate(r, grant, baseID)
+	gate.SetIdentity(mode, principal)
 	return gate.Serve(stdio{})
+}
+
+// resolveMCPMode resolves the gate's operating mode (§2.1). Task mode is
+// triggered by a VARVIG_TASK env var or a .varvig/task marker in cwd; otherwise
+// it is an interactive session, whose principal is the local uid. The mode is
+// determined at startup and never negotiated at runtime.
+func resolveMCPMode() (mode, principal string) {
+	if v := os.Getenv("VARVIG_TASK"); v != "" {
+		return "task", "task:" + v
+	}
+	if _, err := os.Stat(filepath.Join(".varvig", "task")); err == nil {
+		return "task", "task-marker"
+	}
+	return "session", fmt.Sprintf("uid:%d", os.Getuid())
+}
+
+// meetsMinVersion reports whether current satisfies the floor. comparable is
+// false when either version is not a clean vMAJOR.MINOR.PATCH (e.g. a dev
+// build), in which case the caller does not block.
+func meetsMinVersion(current, floor string) (ok, comparable bool) {
+	cu, okc := parseSemver(current)
+	fl, okf := parseSemver(floor)
+	if !okc || !okf {
+		return true, false
+	}
+	for i := 0; i < 3; i++ {
+		if cu[i] != fl[i] {
+			return cu[i] > fl[i], true
+		}
+	}
+	return true, true
+}
+
+// parseSemver parses a leading vMAJOR.MINOR.PATCH, ignoring any pre-release or
+// build suffix. It reports false for anything without a numeric major.
+func parseSemver(s string) ([3]int, bool) {
+	s = strings.TrimPrefix(s, "v")
+	for i, r := range s {
+		if (r < '0' || r > '9') && r != '.' {
+			s = s[:i]
+			break
+		}
+	}
+	parts := strings.Split(s, ".")
+	if parts[0] == "" {
+		return [3]int{}, false
+	}
+	var out [3]int
+	for i := 0; i < 3 && i < len(parts); i++ {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return [3]int{}, false
+		}
+		out[i] = n
+	}
+	return out, true
 }
 
 // cmdTask manages task credentials (auth design §6): `start`, `list`, `stop`.
