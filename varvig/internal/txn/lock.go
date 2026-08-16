@@ -55,6 +55,18 @@ func conflicts(x, y claim) bool {
 		setsOverlap(x.reads, y.writes)
 }
 
+// Conflict reports whether two declared read/write sets cannot run concurrently
+// — write/write, write/read, or read/write overlap; read/read never conflicts.
+// It is the exact predicate the scheduler serializes on, exported so the ticket
+// dependency analysis (§3.2) derives blocking from the identical notion of
+// conflict rather than a parallel reimplementation that could drift.
+func Conflict(reads1, writes1, reads2, writes2 []string) bool {
+	return conflicts(
+		claim{reads: normalize(reads1), writes: normalize(writes1)},
+		claim{reads: normalize(reads2), writes: normalize(writes2)},
+	)
+}
+
 // lockManager admits claims that do not conflict with any currently-held claim,
 // blocking a conflicting claim until the conflict clears. It is the concurrency
 // gate that serializes conflicting transactions and parallelizes the rest.
