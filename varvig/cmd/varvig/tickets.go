@@ -51,6 +51,8 @@ func cmdTickets(args []string) error {
 		return ticketsList(r)
 	case "show":
 		return ticketsShow(r, args[1:])
+	case "spec":
+		return ticketsSpec(r, args[1:])
 	case "scope":
 		return ticketsScope(r, args[1:])
 	case "blockers":
@@ -178,6 +180,25 @@ func ticketsShow(r *repo.Repo, args []string) error {
 		}
 		fmt.Printf("blockers %s\n", strings.Join(bs, " "))
 	}
+	return nil
+}
+
+// ticketsSpec prints a ticket's current spec verbatim (no label), so a tool —
+// a bridge peer projecting the spec to a tracker — reads it losslessly,
+// including a multi-line title+body, which the human-oriented `show` cannot.
+func ticketsSpec(r *repo.Repo, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: varvig tickets spec <ticket>")
+	}
+	id, err := ticketID(r, args[0])
+	if err != nil {
+		return err
+	}
+	info, err := ticket.Get(r, id)
+	if err != nil {
+		return err
+	}
+	fmt.Print(info.Spec)
 	return nil
 }
 
