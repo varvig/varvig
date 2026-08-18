@@ -10,7 +10,6 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/ticket"
 )
 
 // cmdBridge is the vendor-neutral surface an external-tracker peer drives
@@ -191,18 +190,21 @@ func bridgeTransition(r *repo.Repo, args []string) error {
 		return err
 	}
 	rationale := dashM(args[2:])
-	head, err := ticket.Head(r, id)
-	if err != nil {
-		return err
-	}
 	priv, err := bridgeKey(r)
 	if err != nil {
 		return err
 	}
-	if _, err := bridge.RecordTransition(r, priv, head, decision, rationale, time.Now().Unix()); err != nil {
+	// Idempotent: a tracker reports the same transition on every poll, so this
+	// records a weak attestation only when the transition is new for the head.
+	recorded, err := bridge.RecordTransitionOnce(r, priv, id, decision, rationale, time.Now().Unix())
+	if err != nil {
 		return err
 	}
-	fmt.Printf("recorded weak %s on %s\n", decision, head.Hex()[4:16])
+	if !recorded {
+		fmt.Printf("no change (%s already recorded)\n", decision)
+		return nil
+	}
+	fmt.Printf("recorded weak %s\n", decision)
 	return nil
 }
 

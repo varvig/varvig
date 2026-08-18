@@ -185,6 +185,7 @@ usage:
   varvig tickets list                   list tickets with their derived status
   varvig tickets show <ticket>          spec, scope, status, blockers for one ticket
   varvig tickets spec <ticket>          print the raw spec verbatim (for tools)
+  varvig tickets status <ticket>        print the derived status word (for tools)
   varvig tickets scope <ticket>         declare/show a ticket's read+write set
               [--reads a,b] [--writes c,d]  (what makes it schedulable, §3.1)
   varvig tickets blockers <ticket>      tickets blocking this one (derived, §3.2)
