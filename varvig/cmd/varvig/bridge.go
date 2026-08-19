@@ -20,6 +20,7 @@ import (
 // tracker's API lives outside this repo and shells out to these verbs.
 //
 //	varvig bridge link <ticket> [--system S --foreign-id ID]   set/show the external link
+//	varvig bridge list [--system S]                            list linked tickets (id, system, foreign-id)
 //	varvig bridge needs-push <ticket>                          is there local work to push?
 //	varvig bridge mark-pushed <ticket>                         record the head as pushed
 //	varvig bridge apply-inbound <ticket> -m <spec> [--author A] apply a tracker edit
@@ -31,7 +32,7 @@ import (
 // registers as `kind: bridge` via `varvig principal add`.
 func cmdBridge(args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: varvig bridge <link|needs-push|mark-pushed|apply-inbound|transition|nudge|assignee> ...")
+		return errors.New("usage: varvig bridge <link|list|needs-push|mark-pushed|apply-inbound|transition|nudge|assignee> ...")
 	}
 	r, err := repo.Open(".")
 	if err != nil {
@@ -40,6 +41,8 @@ func cmdBridge(args []string) error {
 	switch args[0] {
 	case "link":
 		return bridgeLink(r, args[1:])
+	case "list":
+		return bridgeList(r, args[1:])
 	case "needs-push":
 		return bridgeNeedsPush(r, args[1:])
 	case "mark-pushed":
@@ -112,6 +115,30 @@ func bridgeLink(r *repo.Repo, args []string) error {
 		return err
 	}
 	fmt.Printf("linked %s to %s:%s\n", id.Hex()[4:16], system, foreignID)
+	return nil
+}
+
+// bridgeList prints every linked ticket, one per line, as
+// "<ticketid-hex>\t<system>\t<foreign-id>" — the machine-readable index a
+// connector reads to sync all the tickets it mirrors in one pass. --system
+// filters to a single opaque system tag.
+func bridgeList(r *repo.Repo, args []string) error {
+	var system string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--system" && i+1 < len(args) {
+			system = args[i+1]
+			i++
+		} else {
+			return fmt.Errorf("bridge: unknown argument %q", args[i])
+		}
+	}
+	links, err := bridge.ListLinks(r, system)
+	if err != nil {
+		return err
+	}
+	for _, l := range links {
+		fmt.Printf("%s\t%s\t%s\n", l.TicketID.Hex(), l.Link.System, l.Link.ForeignID)
+	}
 	return nil
 }
 

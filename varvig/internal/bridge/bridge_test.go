@@ -260,6 +260,44 @@ func chain(t *testing.T, r *repo.Repo, id multihash.Multihash) []notes.Entry {
 	return c
 }
 
+// TestListLinks covers §5: a connector enumerates the tickets it mirrors, with
+// an optional filter by system tag.
+func TestListLinks(t *testing.T) {
+	r := newRepo(t)
+	dir := newKey(t)
+	a, _ := ticket.New(r, "a", dir, "director", 1)
+	b, _ := ticket.New(r, "b", dir, "director", 1)
+	c, _ := ticket.New(r, "c", dir, "director", 1)
+	_ = SetLink(r, a, Link{System: "ext", ForeignID: "o/r#1"}, "bridge", 1)
+	_ = SetLink(r, b, Link{System: "ext", ForeignID: "o/r#2"}, "bridge", 1)
+	_ = SetLink(r, c, Link{System: "other", ForeignID: "X-9"}, "bridge", 1)
+
+	all, err := ListLinks(r, "")
+	if err != nil {
+		t.Fatalf("ListLinks: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("all links = %d, want 3", len(all))
+	}
+
+	gh, err := ListLinks(r, "ext")
+	if err != nil {
+		t.Fatalf("ListLinks(ext): %v", err)
+	}
+	if len(gh) != 2 {
+		t.Fatalf("ext links = %d, want 2", len(gh))
+	}
+	for _, l := range gh {
+		if l.Link.System != "ext" {
+			t.Fatalf("filter leaked a %q link", l.Link.System)
+		}
+	}
+	// Deterministic order by ticket id.
+	if gh[0].TicketID.Hex() >= gh[1].TicketID.Hex() {
+		t.Fatalf("links not sorted by id: %s, %s", gh[0].TicketID.Hex(), gh[1].TicketID.Hex())
+	}
+}
+
 // TestBridgeCannotMintStrong covers §7.5: with the bridge registered as
 // kind=bridge, nothing it signs can be a strong decision — even RecordTransition
 // is capped, and a direct attempt to sign strong is refused at verification.

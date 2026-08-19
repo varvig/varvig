@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -28,6 +29,8 @@ import (
 //	varvig tickets show <ticket>                                 spec, scope, status, blockers, score
 //	varvig tickets scope <ticket> [--reads a,b] [--writes c,d]   declare/show a scope
 //	varvig tickets blockers <ticket>                             tickets blocking this one
+//	varvig tickets comment <ticket> -m <body> [--origin O ...]   append a discussion comment
+//	varvig tickets comments <ticket>                             list the discussion (JSON lines)
 //	varvig tickets graph                                         the derived blocking graph
 //	varvig tickets rank [--weights f.json]                       rank scoped tickets by score
 //
@@ -60,6 +63,10 @@ func cmdTickets(args []string) error {
 		return ticketsScope(r, args[1:])
 	case "blockers":
 		return ticketsBlockers(r, args[1:])
+	case "comment":
+		return ticketsComment(r, args[1:])
+	case "comments":
+		return ticketsComments(r, args[1:])
 	case "graph":
 		return ticketsGraph(r)
 	case "rank":
@@ -262,6 +269,71 @@ func resolveTicketHead(r *repo.Repo, arg string) (multihash.Multihash, error) {
 		}
 	}
 	return resolve(r, arg)
+}
+
+// ticketsComment appends a comment to a ticket's discussion (§5.2). --origin and
+// --origin-id tag a mirrored comment so a connector can suppress echo; a comment
+// authored in varvig omits them.
+func ticketsComment(r *repo.Repo, args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: varvig tickets comment <ticket> -m <body> [--author A] [--origin O --origin-id ID]")
+	}
+	id, err := ticketID(r, args[0])
+	if err != nil {
+		return err
+	}
+	c := ticket.Comment{Author: author(), Body: dashM(args[1:])}
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--author":
+			if i+1 < len(args) {
+				c.Author = args[i+1]
+				i++
+			}
+		case "--origin":
+			if i+1 < len(args) {
+				c.Origin = args[i+1]
+				i++
+			}
+		case "--origin-id":
+			if i+1 < len(args) {
+				c.OriginID = args[i+1]
+				i++
+			}
+		}
+	}
+	if strings.TrimSpace(c.Body) == "" {
+		return errors.New("tickets: comment needs -m <body>")
+	}
+	if err := ticket.AddComment(r, id, c, time.Now().Unix()); err != nil {
+		return err
+	}
+	fmt.Printf("commented on %s\n", id.Hex()[4:16])
+	return nil
+}
+
+// ticketsComments prints a ticket's discussion as JSON lines — one compact JSON
+// object per comment, oldest first — so a tool reads authorship and origin
+// unambiguously (a connector uses origin/origin_id for echo suppression).
+func ticketsComments(r *repo.Repo, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: varvig tickets comments <ticket>")
+	}
+	id, err := ticketID(r, args[0])
+	if err != nil {
+		return err
+	}
+	cs, err := ticket.Comments(r, id)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(os.Stdout)
+	for _, c := range cs {
+		if err := enc.Encode(c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ticketsScope(r *repo.Repo, args []string) error {

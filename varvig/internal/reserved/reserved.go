@@ -55,6 +55,12 @@ const (
 	// §3.1) — what makes it schedulable, and the input from which blocking
 	// dependencies are derived rather than hand-declared (§3.2).
 	NoteScope = "varvig/scope"
+	// NoteDiscussion carries free-form ticket comments — human or agent notes,
+	// and comments mirrored in from an external tracker (tickets §5.2). It is not
+	// a governance namespace: comments are ungoverned data, never signed and
+	// never consulted by scoring or attestation, so it is deliberately absent
+	// from reservedNoteNamespaces below.
+	NoteDiscussion = "varvig/discussion"
 )
 
 // reservedNoteNamespaces is the fixed set of governance note namespaces.
