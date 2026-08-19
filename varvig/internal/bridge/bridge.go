@@ -130,6 +130,9 @@ func SetNudge(r *repo.Repo, ticketID multihash.Multihash, nudge float64, author 
 	if nudge > 1 {
 		nudge = 1
 	}
+	if link.PriorityNudge == nudge {
+		return nil // unchanged: don't accrete a note on every poll
+	}
 	link.PriorityNudge = nudge
 	return SetLink(r, ticketID, link, author, now)
 }
@@ -143,6 +146,9 @@ func SetAssignee(r *repo.Repo, ticketID multihash.Multihash, name string, author
 	}
 	if !ok {
 		return ErrNoLink
+	}
+	if link.Assignee == name {
+		return nil // unchanged: don't accrete a note on every poll
 	}
 	link.Assignee = name
 	return SetLink(r, ticketID, link, author, now)

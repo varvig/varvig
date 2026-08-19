@@ -7,9 +7,12 @@ import (
 	"testing"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/principal"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/ticket"
 )
 
@@ -231,13 +234,30 @@ func TestSetNudgeAndAssignee(t *testing.T) {
 		t.Fatalf("nudge/assignee clobbered the link: %+v", link)
 	}
 
+	// Re-setting the same values writes no new note (idempotent poll).
+	before := len(chain(t, r, id))
+	_ = SetNudge(r, id, 1, "bridge", 7)            // already 1
+	_ = SetAssignee(r, id, "octocat", "bridge", 8) // already octocat
+	if after := len(chain(t, r, id)); after != before {
+		t.Fatalf("redundant set grew the note chain: %d -> %d", before, after)
+	}
+
 	// Clearing: nudge 0 and empty assignee.
-	_ = SetNudge(r, id, 0, "bridge", 7)
-	_ = SetAssignee(r, id, "", "bridge", 8)
+	_ = SetNudge(r, id, 0, "bridge", 9)
+	_ = SetAssignee(r, id, "", "bridge", 10)
 	link, _, _ = GetLink(r, id)
 	if link.PriorityNudge != 0 || link.Assignee != "" {
 		t.Fatalf("clear failed: nudge=%v assignee=%q", link.PriorityNudge, link.Assignee)
 	}
+}
+
+func chain(t *testing.T, r *repo.Repo, id multihash.Multihash) []notes.Entry {
+	t.Helper()
+	c, err := notes.New(r).List(reserved.NoteExternal, id)
+	if err != nil {
+		t.Fatalf("note list: %v", err)
+	}
+	return c
 }
 
 // TestBridgeCannotMintStrong covers §7.5: with the bridge registered as
