@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/bridge"
@@ -23,12 +24,14 @@ import (
 //	varvig bridge mark-pushed <ticket>                         record the head as pushed
 //	varvig bridge apply-inbound <ticket> -m <spec> [--author A] apply a tracker edit
 //	varvig bridge transition <ticket> <approve|veto|request-change> [-m msg]
+//	varvig bridge nudge <ticket> <0..1>                        set a priority nudge (scoring input)
+//	varvig bridge assignee <ticket> <name>                     mirror the tracker assignee (informational)
 //
 // The signing key is the repository's active identity, which a bridge peer
 // registers as `kind: bridge` via `varvig principal add`.
 func cmdBridge(args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: varvig bridge <link|needs-push|mark-pushed|apply-inbound|transition> ...")
+		return errors.New("usage: varvig bridge <link|needs-push|mark-pushed|apply-inbound|transition|nudge|assignee> ...")
 	}
 	r, err := repo.Open(".")
 	if err != nil {
@@ -45,6 +48,10 @@ func cmdBridge(args []string) error {
 		return bridgeApplyInbound(r, args[1:])
 	case "transition":
 		return bridgeTransition(r, args[1:])
+	case "nudge":
+		return bridgeNudge(r, args[1:])
+	case "assignee":
+		return bridgeAssignee(r, args[1:])
 	default:
 		return fmt.Errorf("bridge: unknown subcommand %q", args[0])
 	}
@@ -87,8 +94,9 @@ func bridgeLink(r *repo.Repo, args []string) error {
 			fmt.Println("(no external link)")
 			return nil
 		}
-		fmt.Printf("system     %s\nforeign-id %s\nlast-pushed %s\nlast-pulled %s\n",
-			link.System, link.ForeignID, dashIfEmpty(link.LastPushed), dashIfEmpty(link.LastPulled))
+		fmt.Printf("system     %s\nforeign-id %s\nlast-pushed %s\nlast-pulled %s\nnudge      %s\nassignee   %s\n",
+			link.System, link.ForeignID, dashIfEmpty(link.LastPushed), dashIfEmpty(link.LastPulled),
+			nudgeStr(link.PriorityNudge), dashIfEmpty(link.Assignee))
 		return nil
 	}
 	if system == "" || foreignID == "" {
@@ -206,6 +214,60 @@ func bridgeTransition(r *repo.Repo, args []string) error {
 	}
 	fmt.Printf("recorded weak %s\n", decision)
 	return nil
+}
+
+// bridgeNudge sets a ticket's external priority nudge (§5.2): a value in [0,1]
+// the connector projects from the tracker. It is only ever a scoring input —
+// the scorer learns how much to trust it — never an authoritative priority.
+func bridgeNudge(r *repo.Repo, args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: varvig bridge nudge <ticket> <0..1>")
+	}
+	id, err := ticketID(r, args[0])
+	if err != nil {
+		return err
+	}
+	nudge, err := strconv.ParseFloat(args[1], 64)
+	if err != nil {
+		return fmt.Errorf("bridge: nudge must be a number in [0,1]: %w", err)
+	}
+	if nudge < 0 || nudge > 1 {
+		return fmt.Errorf("bridge: nudge %v is out of range [0,1]", nudge)
+	}
+	if err := bridge.SetNudge(r, id, nudge, author(), time.Now().Unix()); err != nil {
+		return err
+	}
+	fmt.Printf("nudge %s = %s\n", id.Hex()[4:16], nudgeStr(nudge))
+	return nil
+}
+
+// bridgeAssignee mirrors the tracker's assignee onto the ticket (§5.2),
+// informational only. An empty name clears it.
+func bridgeAssignee(r *repo.Repo, args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: varvig bridge assignee <ticket> [name]")
+	}
+	id, err := ticketID(r, args[0])
+	if err != nil {
+		return err
+	}
+	var name string
+	if len(args) > 1 {
+		name = args[1]
+	}
+	if err := bridge.SetAssignee(r, id, name, author(), time.Now().Unix()); err != nil {
+		return err
+	}
+	fmt.Printf("assignee %s = %s\n", id.Hex()[4:16], dashIfEmpty(name))
+	return nil
+}
+
+// nudgeStr renders a priority nudge, showing "-" when unset (zero).
+func nudgeStr(n float64) string {
+	if n == 0 {
+		return "-"
+	}
+	return strconv.FormatFloat(n, 'g', -1, 64)
 }
 
 // bridgeKey returns the repository's Ed25519 identity, the key a bridge peer

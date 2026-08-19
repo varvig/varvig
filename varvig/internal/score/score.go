@@ -32,23 +32,35 @@ type Features struct {
 	Unblocks float64 `json:"unblocks"`
 	// AgeSeconds is how long the ticket has waited; older work ages upward.
 	AgeSeconds float64 `json:"age_seconds"`
+	// PriorityNudge is an external priority signal in [0,1] projected from a
+	// linked tracker (tickets §5.2). Unlike the other features it is not derived
+	// from repository state — it is the one hand-influenced input — so it is only
+	// ever a *nudge*: its weight starts at zero and is learned from recorded
+	// decisions, and a governance refusal can never be outranked (§7.4). Zero
+	// when the ticket has no linked priority.
+	PriorityNudge float64 `json:"priority_nudge"`
 }
 
-func (f Features) vec() []float64 { return []float64{f.BlastRadius, f.Unblocks, f.AgeSeconds} }
+func (f Features) vec() []float64 {
+	return []float64{f.BlastRadius, f.Unblocks, f.AgeSeconds, f.PriorityNudge}
+}
 
 // Weights is a linear scorer over Features: score is their dot product. The
 // weights are the whole scorer, so a scorer serializes to a few numbers, is
 // content-addressable, and is governed as code (§3.3).
 type Weights struct {
-	BlastRadius float64 `json:"blast_radius"`
-	Unblocks    float64 `json:"unblocks"`
-	AgeSeconds  float64 `json:"age_seconds"`
+	BlastRadius   float64 `json:"blast_radius"`
+	Unblocks      float64 `json:"unblocks"`
+	AgeSeconds    float64 `json:"age_seconds"`
+	PriorityNudge float64 `json:"priority_nudge"`
 }
 
-func (w Weights) vec() []float64 { return []float64{w.BlastRadius, w.Unblocks, w.AgeSeconds} }
+func (w Weights) vec() []float64 {
+	return []float64{w.BlastRadius, w.Unblocks, w.AgeSeconds, w.PriorityNudge}
+}
 
 func weightsFromVec(v []float64) Weights {
-	return Weights{BlastRadius: v[0], Unblocks: v[1], AgeSeconds: v[2]}
+	return Weights{BlastRadius: v[0], Unblocks: v[1], AgeSeconds: v[2], PriorityNudge: v[3]}
 }
 
 // Score returns the linear score of a feature vector.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/bridge"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/deps"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
@@ -157,6 +158,17 @@ func ticketsShow(r *repo.Repo, args []string) error {
 		return err
 	}
 	fmt.Printf("status   %s (require strong)\n", attest.Derive(atts, object.StrengthStrong))
+
+	if link, ok, err := bridge.GetLink(r, id); err == nil && ok {
+		fmt.Printf("link     %s:%s", link.System, link.ForeignID)
+		if link.Assignee != "" {
+			fmt.Printf(" assignee=%s", link.Assignee)
+		}
+		if link.PriorityNudge != 0 {
+			fmt.Printf(" nudge=%s", nudgeStr(link.PriorityNudge))
+		}
+		fmt.Println()
+	}
 
 	s, hasScope, err := deps.GetScope(r, info.Head)
 	if err != nil {

@@ -189,6 +189,57 @@ func TestRecordTransitionOnce(t *testing.T) {
 	}
 }
 
+// TestSetNudgeAndAssignee covers §5.2: a peer projects a priority nudge and the
+// tracker's assignee onto the link. Both require an existing link, the nudge
+// clamps to [0,1], and both round-trip.
+func TestSetNudgeAndAssignee(t *testing.T) {
+	r := newRepo(t)
+	dir := newKey(t)
+	id, _ := ticket.New(r, "v1", dir, "director", 1)
+
+	// A nudge or assignee with no link is refused.
+	if err := SetNudge(r, id, 0.5, "bridge", 2); err != ErrNoLink {
+		t.Fatalf("SetNudge with no link = %v, want ErrNoLink", err)
+	}
+	if err := SetAssignee(r, id, "octocat", "bridge", 2); err != ErrNoLink {
+		t.Fatalf("SetAssignee with no link = %v, want ErrNoLink", err)
+	}
+
+	if err := SetLink(r, id, Link{System: "ext", ForeignID: "T-1"}, "bridge", 3); err != nil {
+		t.Fatalf("SetLink: %v", err)
+	}
+
+	// Out-of-range nudge clamps to 1; assignee stored verbatim; watermarks kept.
+	_ = MarkPushed(r, id, "bridge", 4)
+	if err := SetNudge(r, id, 2.5, "bridge", 5); err != nil {
+		t.Fatalf("SetNudge: %v", err)
+	}
+	if err := SetAssignee(r, id, "octocat", "bridge", 6); err != nil {
+		t.Fatalf("SetAssignee: %v", err)
+	}
+	link, ok, err := GetLink(r, id)
+	if err != nil || !ok {
+		t.Fatalf("GetLink ok=%v err=%v", ok, err)
+	}
+	if link.PriorityNudge != 1 {
+		t.Fatalf("nudge = %v, want 1 (clamped)", link.PriorityNudge)
+	}
+	if link.Assignee != "octocat" {
+		t.Fatalf("assignee = %q, want octocat", link.Assignee)
+	}
+	if link.LastPushed == "" || link.System != "ext" || link.ForeignID != "T-1" {
+		t.Fatalf("nudge/assignee clobbered the link: %+v", link)
+	}
+
+	// Clearing: nudge 0 and empty assignee.
+	_ = SetNudge(r, id, 0, "bridge", 7)
+	_ = SetAssignee(r, id, "", "bridge", 8)
+	link, _, _ = GetLink(r, id)
+	if link.PriorityNudge != 0 || link.Assignee != "" {
+		t.Fatalf("clear failed: nudge=%v assignee=%q", link.PriorityNudge, link.Assignee)
+	}
+}
+
 // TestBridgeCannotMintStrong covers §7.5: with the bridge registered as
 // kind=bridge, nothing it signs can be a strong decision — even RecordTransition
 // is capped, and a direct attempt to sign strong is refused at verification.
