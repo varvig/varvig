@@ -3,6 +3,7 @@ package score
 import (
 	"testing"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/bridge"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/deps"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
@@ -55,6 +56,48 @@ func TestExtractFeatures(t *testing.T) {
 	fc := ExtractFeatures(r, tickets[2], tickets, 400)
 	if fc.Unblocks != 0 {
 		t.Fatalf("c unblocks = %v, want 0 (disjoint)", fc.Unblocks)
+	}
+}
+
+// TestPriorityNudgeFeature covers §5.2: a linked tracker's priority nudge is the
+// one non-derived feature. It is picked up from the bridge link, defaults to
+// zero (so it is inert until weighted), and only shifts the ranking when the
+// scorer is given a nonzero weight for it — a nudge, never an override.
+func TestPriorityNudgeFeature(t *testing.T) {
+	r := newRepo(t)
+	a := ticket(t, r, "a", 100)
+	b := ticket(t, r, "b", 100)
+	tickets := []deps.Ticket{
+		{ID: a, Scope: deps.Scope{Writes: []string{"src/x"}}},
+		{ID: b, Scope: deps.Scope{Writes: []string{"src/y"}}},
+	}
+
+	// No link: nudge feature is zero.
+	if f := ExtractFeatures(r, tickets[0], tickets, 400); f.PriorityNudge != 0 {
+		t.Fatalf("unlinked nudge = %v, want 0", f.PriorityNudge)
+	}
+
+	// Link a with a high nudge; the feature now reflects it.
+	if err := bridge.SetLink(r, a, bridge.Link{System: "ext", ForeignID: "T-1", PriorityNudge: 0.9}, "bridge", 100); err != nil {
+		t.Fatalf("SetLink: %v", err)
+	}
+	if f := ExtractFeatures(r, tickets[0], tickets, 400); f.PriorityNudge != 0.9 {
+		t.Fatalf("linked nudge = %v, want 0.9", f.PriorityNudge)
+	}
+
+	// With a zero nudge weight the nudge cannot change the order (a and b are
+	// otherwise identical, so the tie breaks by hash, deterministically).
+	inert := Weights{PriorityNudge: 0}
+	r0 := RankTickets(r, inert, tickets, 400)
+	if r0[0].ID.Hex() >= r0[1].ID.Hex() {
+		t.Fatalf("with zero nudge weight, order should be by hash: %s then %s", r0[0].ID.Hex(), r0[1].ID.Hex())
+	}
+
+	// Give the nudge a positive weight and a now outranks b regardless of hash.
+	w := Weights{PriorityNudge: 1}
+	ranked := RankTickets(r, w, tickets, 400)
+	if !ranked[0].ID.Equal(a) {
+		t.Fatalf("weighted nudge did not lift the linked ticket: top = %s, want %s", ranked[0].ID.Hex(), a.Hex())
 	}
 }
 

@@ -3,6 +3,7 @@ package score
 import (
 	"sort"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/bridge"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/deps"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
@@ -25,6 +26,11 @@ func ExtractFeatures(r *repo.Repo, ticket deps.Ticket, all []deps.Ticket, now in
 				f.AgeSeconds = float64(age)
 			}
 		}
+	}
+	// A linked tracker may project a priority nudge onto the ticket (§5.2). It is
+	// the one non-derived feature; the scorer decides how far to trust it.
+	if link, ok, err := bridge.GetLink(r, ticket.ID); err == nil && ok {
+		f.PriorityNudge = link.PriorityNudge
 	}
 	return f
 }

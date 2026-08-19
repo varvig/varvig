@@ -70,6 +70,17 @@ type Link struct {
 	// re-applies the transition.
 	LastTransition     string `json:"last_transition,omitempty"`
 	LastTransitionHead string `json:"last_transition_head,omitempty"`
+	// PriorityNudge is an external priority signal in [0,1] the peer projects
+	// from the tracker (§5.2). It is only ever a scoring *input* — a nudge, never
+	// authoritative: the scorer decides how much to trust it (its weight starts
+	// at zero and is learned from recorded decisions), and a governance refusal
+	// can never be outranked (§7.4). Zero means unset.
+	PriorityNudge float64 `json:"priority_nudge,omitempty"`
+	// Assignee mirrors the tracker's assignee as opaque text (§5.2). It is
+	// informational only — varvig has no assignment governance and never grants a
+	// principal authority from it — surfaced so a linked ticket can show who the
+	// tracker thinks owns the row. Empty means unset.
+	Assignee string `json:"assignee,omitempty"`
 }
 
 // SetLink records (replaces) a ticket's external link as a note in the reserved
@@ -97,6 +108,50 @@ func GetLink(r *repo.Repo, ticketID multihash.Multihash) (Link, bool, error) {
 		return Link{}, false, err
 	}
 	return l, true, nil
+}
+
+// ErrNoLink reports that an operation needs an external link but none is set.
+var ErrNoLink = errors.New("bridge: ticket has no external link")
+
+// SetNudge stores an external priority nudge on the ticket's link, clamped to
+// [0,1] (0 clears it). It is a projected tracker signal, so it requires an
+// existing link — a nudge without a linked row is meaningless (§5.2).
+func SetNudge(r *repo.Repo, ticketID multihash.Multihash, nudge float64, author string, now int64) error {
+	link, ok, err := GetLink(r, ticketID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNoLink
+	}
+	if nudge < 0 {
+		nudge = 0
+	}
+	if nudge > 1 {
+		nudge = 1
+	}
+	if link.PriorityNudge == nudge {
+		return nil // unchanged: don't accrete a note on every poll
+	}
+	link.PriorityNudge = nudge
+	return SetLink(r, ticketID, link, author, now)
+}
+
+// SetAssignee mirrors the tracker's assignee onto the ticket's link as opaque
+// text (empty clears it). Informational only; it requires an existing link.
+func SetAssignee(r *repo.Repo, ticketID multihash.Multihash, name string, author string, now int64) error {
+	link, ok, err := GetLink(r, ticketID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNoLink
+	}
+	if link.Assignee == name {
+		return nil // unchanged: don't accrete a note on every poll
+	}
+	link.Assignee = name
+	return SetLink(r, ticketID, link, author, now)
 }
 
 // NeedsPush reports whether the ticket's head differs from what was last pushed

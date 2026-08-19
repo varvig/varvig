@@ -7,9 +7,12 @@ import (
 	"testing"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/principal"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/ticket"
 )
 
@@ -187,6 +190,74 @@ func TestRecordTransitionOnce(t *testing.T) {
 	if atts, _ := attest.Attestations(r, rev2); len(atts) != 1 {
 		t.Fatalf("new head attestations = %d, want 1", len(atts))
 	}
+}
+
+// TestSetNudgeAndAssignee covers §5.2: a peer projects a priority nudge and the
+// tracker's assignee onto the link. Both require an existing link, the nudge
+// clamps to [0,1], and both round-trip.
+func TestSetNudgeAndAssignee(t *testing.T) {
+	r := newRepo(t)
+	dir := newKey(t)
+	id, _ := ticket.New(r, "v1", dir, "director", 1)
+
+	// A nudge or assignee with no link is refused.
+	if err := SetNudge(r, id, 0.5, "bridge", 2); err != ErrNoLink {
+		t.Fatalf("SetNudge with no link = %v, want ErrNoLink", err)
+	}
+	if err := SetAssignee(r, id, "octocat", "bridge", 2); err != ErrNoLink {
+		t.Fatalf("SetAssignee with no link = %v, want ErrNoLink", err)
+	}
+
+	if err := SetLink(r, id, Link{System: "ext", ForeignID: "T-1"}, "bridge", 3); err != nil {
+		t.Fatalf("SetLink: %v", err)
+	}
+
+	// Out-of-range nudge clamps to 1; assignee stored verbatim; watermarks kept.
+	_ = MarkPushed(r, id, "bridge", 4)
+	if err := SetNudge(r, id, 2.5, "bridge", 5); err != nil {
+		t.Fatalf("SetNudge: %v", err)
+	}
+	if err := SetAssignee(r, id, "octocat", "bridge", 6); err != nil {
+		t.Fatalf("SetAssignee: %v", err)
+	}
+	link, ok, err := GetLink(r, id)
+	if err != nil || !ok {
+		t.Fatalf("GetLink ok=%v err=%v", ok, err)
+	}
+	if link.PriorityNudge != 1 {
+		t.Fatalf("nudge = %v, want 1 (clamped)", link.PriorityNudge)
+	}
+	if link.Assignee != "octocat" {
+		t.Fatalf("assignee = %q, want octocat", link.Assignee)
+	}
+	if link.LastPushed == "" || link.System != "ext" || link.ForeignID != "T-1" {
+		t.Fatalf("nudge/assignee clobbered the link: %+v", link)
+	}
+
+	// Re-setting the same values writes no new note (idempotent poll).
+	before := len(chain(t, r, id))
+	_ = SetNudge(r, id, 1, "bridge", 7)            // already 1
+	_ = SetAssignee(r, id, "octocat", "bridge", 8) // already octocat
+	if after := len(chain(t, r, id)); after != before {
+		t.Fatalf("redundant set grew the note chain: %d -> %d", before, after)
+	}
+
+	// Clearing: nudge 0 and empty assignee.
+	_ = SetNudge(r, id, 0, "bridge", 9)
+	_ = SetAssignee(r, id, "", "bridge", 10)
+	link, _, _ = GetLink(r, id)
+	if link.PriorityNudge != 0 || link.Assignee != "" {
+		t.Fatalf("clear failed: nudge=%v assignee=%q", link.PriorityNudge, link.Assignee)
+	}
+}
+
+func chain(t *testing.T, r *repo.Repo, id multihash.Multihash) []notes.Entry {
+	t.Helper()
+	c, err := notes.New(r).List(reserved.NoteExternal, id)
+	if err != nil {
+		t.Fatalf("note list: %v", err)
+	}
+	return c
 }
 
 // TestBridgeCannotMintStrong covers §7.5: with the bridge registered as
