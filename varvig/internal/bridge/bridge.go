@@ -62,6 +62,14 @@ type Link struct {
 	ForeignID  string `json:"foreign_id"`
 	LastPushed string `json:"last_pushed,omitempty"`
 	LastPulled string `json:"last_pulled,omitempty"`
+	// LastTransition and LastTransitionHead are the transition watermark: the
+	// decision last recorded and the head it was recorded on. A workflow
+	// transition maps to a weak attestation, and a tracker reports the same
+	// state on every poll, so without this a re-sync would append a duplicate
+	// attestation each time. Keyed on the head too, so a new revision correctly
+	// re-applies the transition.
+	LastTransition     string `json:"last_transition,omitempty"`
+	LastTransitionHead string `json:"last_transition_head,omitempty"`
 }
 
 // SetLink records (replaces) a ticket's external link as a note in the reserved
@@ -195,6 +203,34 @@ func RecordTransition(r *repo.Repo, priv ed25519.PrivateKey, target multihash.Mu
 		return nil, err
 	}
 	return attest.Attach(r, obj, attest.Fingerprint(signer.Public()), now)
+}
+
+// RecordTransitionOnce records a workflow transition as a weak attestation, but
+// only if it is new — a different decision, or the same decision on a newer head
+// revision. A tracker reports the same state every poll; this makes re-syncs
+// idempotent (tickets §5.3) instead of appending a duplicate weak attestation
+// each time. It returns whether an attestation was written.
+func RecordTransitionOnce(r *repo.Repo, priv ed25519.PrivateKey, ticketID multihash.Multihash, decision object.Decision, rationale string, now int64) (bool, error) {
+	head, err := ticket.Head(r, ticketID)
+	if err != nil {
+		return false, err
+	}
+	link, _, err := GetLink(r, ticketID)
+	if err != nil {
+		return false, err
+	}
+	if link.LastTransition == decision.String() && link.LastTransitionHead == head.Hex() {
+		return false, nil // already recorded for this head
+	}
+	if _, err := RecordTransition(r, priv, head, decision, rationale, now); err != nil {
+		return false, err
+	}
+	link.LastTransition = decision.String()
+	link.LastTransitionHead = head.Hex()
+	if err := SetLink(r, ticketID, link, attest.Fingerprint(keySigner(priv).Public()), now); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func hashSpec(spec string) string {

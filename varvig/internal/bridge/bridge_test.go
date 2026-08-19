@@ -152,6 +152,43 @@ func TestTransitionIsWeak(t *testing.T) {
 	}
 }
 
+// TestRecordTransitionOnce covers §5.3 idempotency: the same transition on the
+// same head records one weak attestation no matter how often it is re-synced,
+// but a new head re-applies it.
+func TestRecordTransitionOnce(t *testing.T) {
+	r := newRepo(t)
+	dir := newKey(t)
+	brk := newKey(t)
+	id, _ := ticket.New(r, "v1", dir, "director", 1)
+	_ = SetLink(r, id, Link{System: "ext", ForeignID: "T-1"}, "bridge", 1)
+
+	// First record writes; a re-sync of the same transition does not.
+	rec, err := RecordTransitionOnce(r, brk, id, object.DecisionApprove, "closed", 2)
+	if err != nil || !rec {
+		t.Fatalf("first RecordTransitionOnce = rec %v err %v, want true", rec, err)
+	}
+	rec, err = RecordTransitionOnce(r, brk, id, object.DecisionApprove, "closed", 3)
+	if err != nil || rec {
+		t.Fatalf("duplicate RecordTransitionOnce = rec %v err %v, want false", rec, err)
+	}
+	if atts, _ := attest.Attestations(r, id); len(atts) != 1 {
+		t.Fatalf("attestations = %d, want 1 (no duplicate)", len(atts))
+	}
+
+	// A new head revision re-applies the transition.
+	rev2, err := ticket.Revise(r, id, "v2", dir, "director", 4)
+	if err != nil {
+		t.Fatalf("Revise: %v", err)
+	}
+	rec, err = RecordTransitionOnce(r, brk, id, object.DecisionApprove, "still closed", 5)
+	if err != nil || !rec {
+		t.Fatalf("RecordTransitionOnce on new head = rec %v err %v, want true", rec, err)
+	}
+	if atts, _ := attest.Attestations(r, rev2); len(atts) != 1 {
+		t.Fatalf("new head attestations = %d, want 1", len(atts))
+	}
+}
+
 // TestBridgeCannotMintStrong covers §7.5: with the bridge registered as
 // kind=bridge, nothing it signs can be a strong decision — even RecordTransition
 // is capped, and a direct attempt to sign strong is refused at verification.
