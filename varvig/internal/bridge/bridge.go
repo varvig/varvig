@@ -26,6 +26,8 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
@@ -152,6 +154,44 @@ func SetAssignee(r *repo.Repo, ticketID multihash.Multihash, name string, author
 	}
 	link.Assignee = name
 	return SetLink(r, ticketID, link, author, now)
+}
+
+// Linked pairs a ticket id with its external link, for enumeration.
+type Linked struct {
+	TicketID multihash.Multihash
+	Link     Link
+}
+
+// ListLinks returns every ticket that has an external link, sorted by ticket id
+// for determinism. If system is non-empty, only links to that system are
+// returned. This is what lets a connector sync all the tickets it mirrors in one
+// pass rather than being handed each one (tickets §5).
+func ListLinks(r *repo.Repo, system string) ([]Linked, error) {
+	names, err := r.Refs.List()
+	if err != nil {
+		return nil, err
+	}
+	prefix := "refs/notes/" + reserved.NoteExternal + "/"
+	var out []Linked
+	for _, n := range names {
+		if !strings.HasPrefix(n, prefix) {
+			continue
+		}
+		id, err := multihash.ParseHex(strings.TrimPrefix(n, prefix))
+		if err != nil {
+			continue
+		}
+		link, ok, err := GetLink(r, id)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || (system != "" && link.System != system) {
+			continue
+		}
+		out = append(out, Linked{TicketID: id, Link: link})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TicketID.Hex() < out[j].TicketID.Hex() })
+	return out, nil
 }
 
 // NeedsPush reports whether the ticket's head differs from what was last pushed
