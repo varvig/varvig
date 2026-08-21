@@ -124,11 +124,11 @@ def main():
         want = sorted([
             "varvig_task_context", "varvig_resolve", "varvig_list_tree",
             "varvig_read_file", "varvig_find_files", "varvig_search_text",
-            "varvig_read_change", "varvig_read_log", "varvig_list_proposals",
-            "varvig_propose",
+            "varvig_read_change", "varvig_read_log", "varvig_read_ticket",
+            "varvig_list_proposals", "varvig_propose",
         ])
         if got != want:
-            problems.append(f"tool set is {got}, want the ten {want}")
+            problems.append(f"tool set is {got}, want exactly {want}")
 
         if problems:
             fail("tool surface requirements not met:\n  " +

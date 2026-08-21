@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"io"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/task"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/ticket"
 )
 
 // gateFixture is a repo with a base change whose tree has two subtrees,
@@ -160,11 +163,13 @@ func itoa(i int) string {
 	return string(rune('0' + i)) // ids 0..9 suffice for tests
 }
 
-// theTenTools is the exact surface the spec mandates (§4).
-var theTenTools = []string{
+// advertisedTools is the exact surface the gate exposes: the ten read/propose
+// tools (§4) plus read-only ticket access. Asserting the exact set catches an
+// accidental addition or removal — the submission guard of §9.
+var advertisedTools = []string{
 	"varvig_task_context", "varvig_resolve", "varvig_list_tree", "varvig_read_file",
 	"varvig_find_files", "varvig_search_text", "varvig_read_change", "varvig_read_log",
-	"varvig_list_proposals", "varvig_propose",
+	"varvig_read_ticket", "varvig_list_proposals", "varvig_propose",
 }
 
 func TestInitializeAndToolsList(t *testing.T) {
@@ -201,10 +206,10 @@ func TestInitializeAndToolsList(t *testing.T) {
 	for _, tl := range list.Tools {
 		got[tl.Name] = true
 	}
-	if len(list.Tools) != len(theTenTools) {
-		t.Fatalf("got %d tools, want %d", len(list.Tools), len(theTenTools))
+	if len(list.Tools) != len(advertisedTools) {
+		t.Fatalf("got %d tools, want %d", len(list.Tools), len(advertisedTools))
 	}
-	for _, name := range theTenTools {
+	for _, name := range advertisedTools {
 		if !got[name] {
 			t.Errorf("missing required tool %q", name)
 		}
@@ -255,8 +260,8 @@ func TestAnnotationAssertion(t *testing.T) {
 			t.Errorf("tool %q should be readOnly", name)
 		}
 	}
-	if len(toolHandlers) != len(theTenTools) {
-		t.Errorf("got %d handlers, want %d", len(toolHandlers), len(theTenTools))
+	if len(toolHandlers) != len(advertisedTools) {
+		t.Errorf("got %d handlers, want %d", len(toolHandlers), len(advertisedTools))
 	}
 }
 
@@ -731,6 +736,78 @@ func TestRoundTripProposePromote(t *testing.T) {
 	}
 	if pv.Authority != grant.Fingerprint() {
 		t.Errorf("provenance authority = %q, want task fingerprint %q", pv.Authority, grant.Fingerprint())
+	}
+}
+
+// TestReadTicket covers read-only ticket access: an agent can list tickets and
+// read a ticket's intent and discussion, even when the ticket is outside its
+// file subtree (tickets are intent, not file content), and the read is logged
+// as provenance. There is no way to attest — governance stays human-only.
+func TestReadTicket(t *testing.T) {
+	f := newGateFixture(t)
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tid, err := ticket.New(f.repo, "add rate limiting to the login path", priv, "jan", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ticket.AddComment(f.repo, tid, ticket.Comment{Author: "jan", Body: "start with the auth subtree"}, 1001); err != nil {
+		t.Fatal(err)
+	}
+
+	// A narrowly-scoped task can still read tickets — they carry no file content.
+	gate, grant := newGate(f, "src/auth", time.Hour)
+
+	// List mode: no argument returns the ticket.
+	lr := decodeTool(t, drive(t, gate, call(1, "varvig_read_ticket", `{}`))[0])
+	if lr.IsError {
+		t.Fatalf("list tickets errored: %s", lr.Content[0].Text)
+	}
+	var list struct {
+		Tickets []struct {
+			ID   string `json:"id"`
+			Spec string `json:"spec"`
+		} `json:"tickets"`
+	}
+	if err := json.Unmarshal(lr.StructuredContent, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Tickets) != 1 || list.Tickets[0].ID != tid.Hex() {
+		t.Fatalf("ticket list = %+v, want the one ticket %s", list.Tickets, tid.Hex())
+	}
+
+	// Detail mode: spec + discussion.
+	dr := decodeTool(t, drive(t, gate, call(2, "varvig_read_ticket", `{"ticket":"`+tid.Hex()+`"}`))[0])
+	if dr.IsError {
+		t.Fatalf("read ticket errored: %s", dr.Content[0].Text)
+	}
+	var detail struct {
+		Spec     string `json:"spec"`
+		Comments []struct {
+			Body string `json:"body"`
+		} `json:"comments"`
+	}
+	if err := json.Unmarshal(dr.StructuredContent, &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Spec != "add rate limiting to the login path" {
+		t.Errorf("spec = %q", detail.Spec)
+	}
+	if len(detail.Comments) != 1 || detail.Comments[0].Body != "start with the auth subtree" {
+		t.Errorf("comments = %+v, want the one discussion entry", detail.Comments)
+	}
+
+	// The ticket read is recorded as provenance (§5).
+	if !contains(grant.Reads.Hashes(), tid.Hex()) {
+		t.Error("reading a ticket must record its id in the read log")
+	}
+
+	// A malformed id is a coded not_found.
+	br := decodeTool(t, drive(t, gate, call(3, "varvig_read_ticket", `{"ticket":"nothex"}`))[0])
+	if !br.IsError || errCode(t, br) != codeNotFound {
+		t.Errorf("bad ticket id should be not_found, got %+v", br)
 	}
 }
 
