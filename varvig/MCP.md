@@ -65,11 +65,12 @@ the adapter.
 
 ## 3. Tool surface
 
-**Ten tools.** Coarse and domain-shaped, not one wrapper per read-API endpoint,
-because the agent's context window is the scarce resource (auth §8.1). Every
-tool declares a `title` and the applicable annotations — a directory-submission
-requirement asserted by the release smoke test (release §7) — and the write path
-is append-only, so no tool is destructive and **there is no promotion tool**.
+**Small and domain-shaped.** Not one wrapper per read-API endpoint, because the
+agent's context window is the scarce resource (auth §8.1). The surface is the ten
+read/propose tools plus read-only ticket access. Every tool declares a `title`
+and the applicable annotations — a directory-submission requirement asserted by
+the release smoke test (release §7) — and the write path is append-only, so no
+tool is destructive and **there is no promotion tool**.
 
 | Tool | Purpose | readOnly | destructive |
 |---|---|---|---|
@@ -81,8 +82,15 @@ is append-only, so no tool is destructive and **there is no promotion tool**.
 | `varvig_search_text` | Literal or regex search within scope | ✓ | — |
 | `varvig_read_change` | Intent, then evidence, then changed paths | ✓ | — |
 | `varvig_read_log` | Change list for a ref or path | ✓ | — |
+| `varvig_read_ticket` | Read intent records (tickets) + discussion; list or detail | ✓ | — |
 | `varvig_list_proposals` | Unpromoted speculative states | ✓ | — |
 | `varvig_propose` | Create objects, propose a state | ✗ | false |
+
+`varvig_read_ticket` is read-only intent intake (tickets §1.2): a ticket is an
+unmaterialized change — intent with no tree — so reading one carries no file
+content and is not subtree-scoped. Governance over tickets (attestations,
+approve / veto) is a **human** decision surface and is deliberately not exposed
+to the gate — the same separation that keeps promotion out (§2.1).
 
 There is no promotion tool. Do not add one. Because the write path is
 append-only, Varvig has no destructive agent-facing tool at all — a real
@@ -184,7 +192,7 @@ plugin declares (§9); an unstamped dev build is not blocked.
 
 The plugin package is text only and lives in the `varvig/plugins` repository
 (release §1). It bundles the MCP-server config and the Varvig skill, and ships
-the same ten-tool surface every other channel exposes.
+the same tool surface every other channel exposes.
 
 - **`.mcp.json`** runs `varvig mcp`, assuming `varvig` is on `PATH`. No
   download-and-bootstrap step — that reintroduces a hash pin, adds a network
@@ -208,8 +216,8 @@ repo under [`mcpb/`](./mcpb) and covered by release §6.
 
 - **Unit** — scope enforcement, cursor stability, read-log completeness.
 - **Annotation assertion** — list the tools, assert every one has a title and the
-  applicable hint, assert the surface is exactly the ten `varvig_*` tools, and
-  assert no tool named `*promote*` exists. A submission blocker; it runs both as
+  applicable hint, assert the surface is exactly the advertised `varvig_*` set,
+  and assert no tool named `*promote*` exists. A submission blocker; it runs both as
   a Go test and, against the real binary, in `tools/mcp-smoke.py` on every CI run
   (release §7).
 - **Scope-escape suite** — `..` traversal, absolute paths, symlinks pointing

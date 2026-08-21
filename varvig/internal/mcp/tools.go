@@ -9,12 +9,14 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
 )
 
-// The tool surface is exactly ten tools (MCP spec §4): coarse and domain-shaped,
-// not one wrapper per endpoint, because the agent's context window is the scarce
-// resource (§8.1). Every tool declares a title and the applicable annotations —
+// The tool surface is small and domain-shaped (MCP spec §4): the ten
+// read/propose tools plus read-only ticket access, not one wrapper per endpoint,
+// because the agent's context window is the scarce resource (§8.1). Every tool
+// declares a title and the applicable annotations —
 // a directory-submission requirement the release smoke test asserts (§9) — and
 // every response names the base hash it was resolved against (§4.1). There is no
 // promotion tool, and because the write path is append-only, no destructive
@@ -100,6 +102,16 @@ var toolList = []map[string]any{
 			"ref":    strProp("ref or change hash to start from; defaults to the task base"),
 			"path":   strProp("only include changes touching this repo-relative path within scope"),
 			"cursor": strProp("opaque continuation from a previous truncated log"),
+		}, nil),
+	},
+	{
+		"name":        "varvig_read_ticket",
+		"title":       "Read a ticket",
+		"description": "Read the repository's intent records (tickets). With no argument, list the tickets (id + spec). With a ticket id, return that ticket's spec, materialization status, and discussion — paginated with an opaque cursor. Read-only: governance decisions (approve / veto) are human-only and are not exposed here.",
+		"annotations": readOnlyAnnotations("Read a ticket"),
+		"inputSchema": objectSchema(map[string]any{
+			"ticket": strProp("ticket id (hex) or refs/varvig/tickets/<id>; omit to list all tickets"),
+			"cursor": strProp("opaque continuation from a previous truncated result"),
 		}, nil),
 	},
 	{
@@ -191,6 +203,7 @@ var toolHandlers = map[string]toolHandler{
 	"varvig_search_text":    toolSearchText,
 	"varvig_read_change":    toolReadChange,
 	"varvig_read_log":       toolReadLog,
+	"varvig_read_ticket":    toolReadTicket,
 	"varvig_list_proposals": toolListProposals,
 	"varvig_propose":        toolPropose,
 }
@@ -576,6 +589,65 @@ func toolReadLog(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	out := map[string]any{"start": start.Hex(), "entries": page}
 	addPage(out, next, truncated, "entries")
 	return out, nil
+}
+
+// toolReadTicket reads the repository's intent records. Tickets are
+// unmaterialized changes (intent, no tree), so they are not file-subtree-scoped
+// — reading one cannot leak file content outside the task's scope — and there is
+// no governance surface here: an agent can read intent, never approve or veto it.
+func toolReadTicket(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Ticket string `json:"ticket"`
+		Cursor string `json:"cursor"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	cur, err := decodeCursor(a.Cursor)
+	if err != nil {
+		return nil, err
+	}
+
+	// No id: list the tickets so an agent can discover the one it needs.
+	if strings.TrimSpace(a.Ticket) == "" {
+		tickets, err := g.rl.Tickets()
+		if err != nil {
+			return nil, gerr(codeUnavailable, "cannot list tickets: %v", err)
+		}
+		page, next, truncated := paginate(tickets, cur.Offset, treePageSize)
+		out := map[string]any{"tickets": page}
+		addPage(out, next, truncated, "tickets")
+		return out, nil
+	}
+
+	// An id: return the ticket's intent and discussion.
+	id, err := ticketID(a.Ticket)
+	if err != nil {
+		return nil, err
+	}
+	detail, err := g.rl.Ticket(id)
+	if err != nil {
+		return nil, gerr(codeNotFound, "no ticket %q", a.Ticket)
+	}
+	page, next, truncated := paginate(detail.Comments, cur.Offset, treePageSize)
+	out := map[string]any{
+		"id":           detail.ID,
+		"head":         detail.Head,
+		"spec":         detail.Spec,
+		"materialized": detail.Materialized,
+		"comments":     page,
+	}
+	addPage(out, next, truncated, "comments")
+	return out, nil
+}
+
+// ticketID parses a ticket argument — a bare id hex or a
+// refs/varvig/tickets/<id> ref — into a ticket id.
+func ticketID(arg string) (multihash.Multihash, error) {
+	s := strings.TrimPrefix(strings.TrimSpace(arg), reserved.TicketsPrefix)
+	id, err := multihash.ParseHex(s)
+	if err != nil {
+		return nil, gerr(codeNotFound, "invalid ticket id %q", arg)
+	}
+	return id, nil
 }
 
 func toolListProposals(g *Gate, _ json.RawMessage) (map[string]any, error) {

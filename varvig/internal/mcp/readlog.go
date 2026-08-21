@@ -86,3 +86,27 @@ func (rl *readLog) Resolve(refOrHash string) (multihash.Multihash, error) {
 	rl.record(id.Hex())
 	return id, nil
 }
+
+// Tickets records each listed ticket's id and head revision.
+func (rl *readLog) Tickets() ([]readapi.TicketView, error) {
+	views, err := rl.q.Tickets()
+	if err != nil {
+		return views, err
+	}
+	for _, v := range views {
+		rl.record(v.ID, v.Head)
+	}
+	return views, nil
+}
+
+// Ticket records the ticket id (even if the read then fails) and, on success,
+// its head revision.
+func (rl *readLog) Ticket(id multihash.Multihash) (readapi.TicketDetail, error) {
+	rl.record(id.Hex())
+	d, err := rl.q.Ticket(id)
+	if err != nil {
+		return d, err
+	}
+	rl.record(d.Head)
+	return d, nil
+}
