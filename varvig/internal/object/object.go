@@ -49,9 +49,10 @@ const (
 	TypeProvenance  Type = 4
 	TypeNote        Type = 5
 	TypeHookConfig  Type = 6
-	TypeAttestation Type = 7 // signed governance decision (tickets §2.1)
-	TypePrincipal   Type = 8 // a keyholder: pubkey, name, kind (tickets §1.4)
-	TypeArtifactRef Type = 9 // reachability handle for external bytes (federation §1)
+	TypeAttestation Type = 7  // signed governance decision (tickets §2.1)
+	TypePrincipal   Type = 8  // a keyholder: pubkey, name, kind (tickets §1.4)
+	TypeArtifactRef Type = 9  // reachability handle for external bytes (federation §1)
+	TypeEnvironment Type = 10 // descriptor of the environment evidence was produced in (federation §2)
 )
 
 // Magic frames every object. It names the frozen format family VVG1.
@@ -82,6 +83,7 @@ const (
 	tagProvTaskSpec     = 7
 	tagProvContextRead  = 8
 	tagProvReasoning    = 9
+	tagProvEnvironment  = 10 // id of a TypeEnvironment object (federation §2)
 
 	tagNoteTarget    = 1
 	tagNoteNamespace = 2
@@ -103,6 +105,14 @@ const (
 	tagPrincipalKey  = 1 // 32-byte Ed25519 public key
 	tagPrincipalName = 2 // UTF-8 display name
 	tagPrincipalKind = 3 // uvarint: human/agent/bridge
+
+	tagEnvPlatform     = 1 // os/arch, e.g. "linux/amd64"
+	tagEnvToolchains   = 2 // sorted map name→version
+	tagEnvFlags        = 3 // sorted map name→value (build/test flags affecting outcome)
+	tagEnvContainer    = 4 // multihash of an artifact-ref to the image, optional
+	tagEnvModelID      = 5 // inference model id, optional
+	tagEnvModelVersion = 6 // inference model version, optional
+	tagEnvModelParams  = 7 // inference sampling params, optional
 )
 
 // ErrMalformed marks any input that violates the canonical VVG1 framing.
@@ -128,6 +138,8 @@ func (t Type) String() string {
 		return "principal"
 	case TypeArtifactRef:
 		return "artifact-ref"
+	case TypeEnvironment:
+		return "environment"
 	default:
 		return fmt.Sprintf("type-%d", uint64(t))
 	}

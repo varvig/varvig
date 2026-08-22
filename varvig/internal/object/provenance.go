@@ -32,6 +32,12 @@ type Provenance struct {
 	TaskSpec    string
 	ContextRead string
 	Reasoning   string
+	// Environment is the id of a TypeEnvironment object describing where this
+	// evidence was produced (federation §2). Optional and additive: evidence
+	// without it is treated as *unknown class* — never as matching another
+	// environment. Provenance is the evidence object of the varvig model, and
+	// this is the field §2 adds to it.
+	Environment multihash.Multihash
 }
 
 // NewProvenance builds a provenance object, emitting only the fields that are
@@ -56,6 +62,9 @@ func NewProvenance(p Provenance) *Object {
 	add(tagProvTaskSpec, p.TaskSpec)
 	add(tagProvContextRead, p.ContextRead)
 	add(tagProvReasoning, p.Reasoning)
+	if p.Environment != nil {
+		fields = append(fields, field{tag: tagProvEnvironment, val: append([]byte(nil), p.Environment...)})
+	}
 	return newObject(TypeProvenance, fields)
 }
 
@@ -88,7 +97,36 @@ func (o *Object) AsProvenance() (Provenance, error) {
 	p.TaskSpec = str(tagProvTaskSpec)
 	p.ContextRead = str(tagProvContextRead)
 	p.Reasoning = str(tagProvReasoning)
+	if v, ok := o.Field(tagProvEnvironment); ok {
+		p.Environment = multihash.Multihash(append([]byte(nil), v...))
+	}
 	return p, nil
+}
+
+// EnvironmentClass reports the environment class of a piece of evidence: the
+// environment-descriptor hash it was produced against, and whether that class
+// is known at all. Evidence with no environment is unknown class.
+func (p Provenance) EnvironmentClass() (class multihash.Multihash, known bool) {
+	if p.Environment == nil {
+		return nil, false
+	}
+	return p.Environment, true
+}
+
+// SameEnvironmentClass compares two pieces of evidence by environment class
+// (federation §2.3). comparable is false when either side has no environment —
+// unknown class never matches, so a caller must not treat two environment-less
+// records as "the same environment". When both are known, same reports whether
+// they are the identical environment; a false there is the cross-class case the
+// selection policy must handle loudly rather than silently comparing unlike
+// things.
+func SameEnvironmentClass(a, b Provenance) (same, comparable bool) {
+	ca, ka := a.EnvironmentClass()
+	cb, kb := b.EnvironmentClass()
+	if !ka || !kb {
+		return false, false
+	}
+	return ca.Equal(cb), true
 }
 
 // encodeStringList serializes a []string as count + length-prefixed strings.

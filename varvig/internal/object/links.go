@@ -94,6 +94,17 @@ func (o *Object) Links() ([]multihash.Multihash, error) {
 			return []multihash.Multihash{a.ProducedBy}, nil
 		}
 		return nil, nil
+	case TypeEnvironment:
+		// The only object reference an environment carries is its container
+		// image's artifact-ref, if any.
+		e, err := o.AsEnvironment()
+		if err != nil {
+			return nil, err
+		}
+		if e.Container != nil {
+			return []multihash.Multihash{e.Container}, nil
+		}
+		return nil, nil
 	default:
 		return nil, nil
 	}
