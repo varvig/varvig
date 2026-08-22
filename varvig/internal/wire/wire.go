@@ -46,6 +46,10 @@ const (
 	MsgPush       MsgType = 7 // request a ref CAS after streaming objects
 	MsgOK         MsgType = 8 // generic acknowledgement
 	MsgError      MsgType = 9
+	MsgPin        MsgType = 10 // request a retention pin (federation §3)
+	MsgUnpin      MsgType = 11 // release a retention pin
+	MsgListPin    MsgType = 12 // list a peer's live pins
+	MsgPins       MsgType = 13 // response to MsgListPin
 )
 
 // Capability tokens for the negotiated layer. Core behavior needs none of
@@ -266,6 +270,96 @@ func ParsePush(payload []byte) (name string, old, new []byte, err error) {
 		return "", nil, nil, err
 	}
 	return name, old, new, nil
+}
+
+// --- pin protocol (federation §3) ---
+
+func (c *Conn) WritePin(peerID string, hash []byte, notAfter uint64, reason string) error {
+	pw := newPayload()
+	pw.string(peerID)
+	pw.bytes(hash)
+	pw.uvarint(notAfter)
+	pw.string(reason)
+	return c.writeFrame(MsgPin, pw.data())
+}
+
+func ParsePin(payload []byte) (peerID string, hash []byte, notAfter uint64, reason string, err error) {
+	pr := newReader(payload)
+	if peerID, err = pr.string(); err != nil {
+		return
+	}
+	if hash, err = pr.bytes(); err != nil {
+		return
+	}
+	if notAfter, err = pr.uvarint(); err != nil {
+		return
+	}
+	reason, err = pr.string()
+	return
+}
+
+func (c *Conn) WriteUnpin(peerID string, hash []byte) error {
+	pw := newPayload()
+	pw.string(peerID)
+	pw.bytes(hash)
+	return c.writeFrame(MsgUnpin, pw.data())
+}
+
+func ParseUnpin(payload []byte) (peerID string, hash []byte, err error) {
+	pr := newReader(payload)
+	if peerID, err = pr.string(); err != nil {
+		return
+	}
+	hash, err = pr.bytes()
+	return
+}
+
+func (c *Conn) WriteListPin(peerID string) error {
+	pw := newPayload()
+	pw.string(peerID)
+	return c.writeFrame(MsgListPin, pw.data())
+}
+
+func ParseListPin(payload []byte) (peerID string, err error) {
+	pr := newReader(payload)
+	return pr.string()
+}
+
+// Pin is one live retention pin: the pinned object and its expiry (unix secs).
+type Pin struct {
+	Hash     []byte
+	NotAfter uint64
+}
+
+func (c *Conn) WritePins(pins []Pin) error {
+	pw := newPayload()
+	pw.uvarint(uint64(len(pins)))
+	for _, p := range pins {
+		pw.bytes(p.Hash)
+		pw.uvarint(p.NotAfter)
+	}
+	return c.writeFrame(MsgPins, pw.data())
+}
+
+func ParsePins(payload []byte) ([]Pin, error) {
+	pr := newReader(payload)
+	n, err := pr.uvarint()
+	if err != nil {
+		return nil, err
+	}
+	pins := make([]Pin, 0, n)
+	for i := uint64(0); i < n; i++ {
+		h, err := pr.bytes()
+		if err != nil {
+			return nil, err
+		}
+		na, err := pr.uvarint()
+		if err != nil {
+			return nil, err
+		}
+		pins = append(pins, Pin{Hash: h, NotAfter: na})
+	}
+	return pins, nil
 }
 
 func (c *Conn) WriteError(msg string) error {

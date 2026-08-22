@@ -13,11 +13,17 @@
 package gc
 
 import (
+	"time"
+
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/pin"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
 )
+
+// nowFn is the clock GC uses for pin expiry; overridable in tests.
+var nowFn = time.Now
 
 // Report summarizes a collection.
 type Report struct {
@@ -51,7 +57,17 @@ func Roots(r *repo.Repo, pool *spec.Pool) ([]multihash.Multihash, error) {
 	if err != nil {
 		return nil, err
 	}
+	now := nowFn().Unix()
 	for _, n := range names {
+		// A pin is a ref, hence normally a root (federation §3) — but only while
+		// it is unexpired. An expired pin stops pinning without ceremony, so its
+		// target may be collected. LISTPIN reaps the stale ref lazily; here we
+		// simply do not treat it as a root.
+		if pin.IsPinRef(n) {
+			if _, notAfter, _, ok := pin.Parse(n); ok && notAfter <= now {
+				continue
+			}
+		}
 		if id, err := r.Refs.Resolve(n); err == nil {
 			roots = append(roots, id)
 		}
