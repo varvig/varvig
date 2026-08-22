@@ -314,3 +314,26 @@ func mustSum(t *testing.T, s string) multihash.Multihash {
 	}
 	return h
 }
+
+// TestPartialSyncFetchesScopedClosureOnly verifies federation §5: the sync
+// protocol negotiates a scoped closure, not whole-repo replication. Fetching
+// only c1 transfers c1's closure and nothing of c2 — so a peer joining an
+// attempt can pull just that attempt's closure.
+func TestPartialSyncFetchesScopedClosureOnly(t *testing.T) {
+	server, c1, c2 := seedServer(t)
+	client := dialServe(t, server)
+
+	dst, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Fetch(dst.Objects, []multihash.Multihash{c1}, nil); err != nil {
+		t.Fatalf("Fetch c1: %v", err)
+	}
+	if !hasClosure(dst.Objects, c1) {
+		t.Fatal("scoped fetch did not deliver c1's own closure")
+	}
+	if dst.Objects.Has(c2) {
+		t.Fatal("scoped fetch of c1 leaked c2 — closure is not scoped")
+	}
+}
