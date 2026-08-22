@@ -2,6 +2,7 @@ package readapi
 
 import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/ticket"
 )
 
@@ -52,6 +53,47 @@ func (q *Query) Tickets() ([]TicketView, error) {
 	out := make([]TicketView, len(infos))
 	for i, in := range infos {
 		out[i] = ticketViewOf(in)
+	}
+	return out, nil
+}
+
+// ArtifactView is one external artifact a ticket's head revision names — a
+// reachability handle for bytes that live outside the object store (a container
+// image, an SBOM, a release archive), not the bytes themselves. Hashes are hex
+// so the view is a stable, tool-friendly JSON shape.
+type ArtifactView struct {
+	ContentHash string   `json:"content_hash"`
+	MediaType   string   `json:"media_type,omitempty"`
+	Size        uint64   `json:"size,omitempty"`
+	Locators    []string `json:"locators,omitempty"`
+	ProducedBy  string   `json:"produced_by,omitempty"`
+}
+
+func artifactViewOf(a object.ArtifactRef) ArtifactView {
+	v := ArtifactView{
+		ContentHash: a.ContentHash.Hex(),
+		MediaType:   a.MediaType,
+		Size:        a.Size,
+		Locators:    a.Locators,
+	}
+	if a.ProducedBy != nil {
+		v.ProducedBy = a.ProducedBy.Hex()
+	}
+	return v
+}
+
+// TicketArtifacts returns the external artifacts a ticket's head revision names
+// (federation §1), so a tool — a bridge connector, say — can surface them
+// alongside the tracker row. Like the rest of the ticket read surface it reflects
+// the head revision only.
+func (q *Query) TicketArtifacts(id multihash.Multihash) ([]ArtifactView, error) {
+	arts, err := ticket.Artifacts(q.r, id)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	out := make([]ArtifactView, len(arts))
+	for i, a := range arts {
+		out[i] = artifactViewOf(a)
 	}
 	return out, nil
 }
