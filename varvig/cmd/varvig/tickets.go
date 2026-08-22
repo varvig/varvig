@@ -15,6 +15,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/score"
@@ -31,6 +32,7 @@ import (
 //	varvig tickets blockers <ticket>                             tickets blocking this one
 //	varvig tickets comment <ticket> -m <body> [--origin O ...]   append a discussion comment
 //	varvig tickets comments <ticket>                             list the discussion (JSON lines)
+//	varvig tickets artifacts <ticket>                            list the head revision's artifact-refs (JSON lines)
 //	varvig tickets graph                                         the derived blocking graph
 //	varvig tickets rank [--weights f.json]                       rank scoped tickets by score
 //
@@ -67,6 +69,8 @@ func cmdTickets(args []string) error {
 		return ticketsComment(r, args[1:])
 	case "comments":
 		return ticketsComments(r, args[1:])
+	case "artifacts":
+		return ticketsArtifacts(r, args[1:])
 	case "graph":
 		return ticketsGraph(r)
 	case "rank":
@@ -330,6 +334,32 @@ func ticketsComments(r *repo.Repo, args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	for _, c := range cs {
 		if err := enc.Encode(c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ticketsArtifacts prints the external artifacts a ticket's head revision names
+// (federation §1) as JSON lines — one compact object per artifact-ref — so a
+// tool reads content hash, media type, size and locators unambiguously. A bridge
+// connector uses this to surface build outputs (images, SBOMs, release archives)
+// alongside the mirrored tracker row.
+func ticketsArtifacts(r *repo.Repo, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: varvig tickets artifacts <ticket>")
+	}
+	id, err := ticketID(r, args[0])
+	if err != nil {
+		return err
+	}
+	arts, err := readapi.New(r).TicketArtifacts(id)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(os.Stdout)
+	for _, a := range arts {
+		if err := enc.Encode(a); err != nil {
 			return err
 		}
 	}
