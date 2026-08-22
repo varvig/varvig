@@ -200,7 +200,7 @@ usage:
   varvig spec score <task> <id> <n>     set a candidate's score
   varvig spec promote <task> [ref]      promote the best candidate onto a ref
   varvig spec prune <task> <keepK>      retention: keep top-K, drop the rest
-  varvig gc [--dry-run] [--prune-reflog <dur> [--keep N]]
+  varvig gc [--dry-run] [--report-external] [--prune-reflog <dur> [--keep N]]
                                       sweep unreachable objects; optionally
                                       expire reflogs older than <dur> first
   varvig conform [--emit|--id]          check this build against the frozen format
@@ -1398,12 +1398,15 @@ func cmdSpec(args []string) error {
 
 func cmdGc(args []string) error {
 	dryRun := false
+	reportExternal := false
 	pruneReflog := ""
 	keep := 1 // by default, expiry always retains each ref's most recent move
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--dry-run", "-n":
 			dryRun = true
+		case "--report-external":
+			reportExternal = true
 		case "--prune-reflog":
 			if i+1 < len(args) {
 				pruneReflog = args[i+1]
@@ -1451,6 +1454,17 @@ func cmdGc(args []string) error {
 		verb = "would delete"
 	}
 	fmt.Printf("roots:%d scanned:%d kept:%d %s:%d\n", rep.Roots, rep.Scanned, rep.Kept, verb, rep.Deleted)
+
+	// --report-external surfaces external artifacts whose last reachable
+	// referent went away this pass (federation §1.3). varvig only reports;
+	// deleting the bytes from a registry is the operator's call.
+	if reportExternal {
+		fmt.Printf("external-unreachable:%d\n", len(rep.ExternalUnreachable))
+		for _, a := range rep.ExternalUnreachable {
+			locs := strings.Join(a.Locators, " ")
+			fmt.Printf("  %s\t%s\t%s\n", a.ContentHash.Hex(), a.MediaType, locs)
+		}
+	}
 	return nil
 }
 

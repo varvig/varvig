@@ -175,3 +175,82 @@ func TestGCReclaimsAfterReflogExpiry(t *testing.T) {
 		t.Fatal("live change reclaimed")
 	}
 }
+
+// TestGCReachabilityThroughArtifactRef covers federation §1: an artifact-ref
+// named by a reachable change stays reachable (its external bytes pinned), and
+// once no reachable change names it, it is swept and reported exactly once by
+// --report-external.
+func TestGCReachabilityThroughArtifactRef(t *testing.T) {
+	r := newRepo(t)
+
+	// An external artifact and its artifact-ref handle.
+	extHash, err := multihash.Sum(multihash.Default, []byte("container image bytes"))
+	if err != nil {
+		t.Fatalf("sum: %v", err)
+	}
+	artID, err := r.Objects.Put(object.NewArtifactRef(object.ArtifactRef{
+		ContentHash: extHash,
+		MediaType:   "application/vnd.oci.image.manifest.v1+json",
+		Size:        123,
+		Locators:    []string{"oci://reg.example/img@sha256:deadbeef"},
+	}))
+	if err != nil {
+		t.Fatalf("artifact-ref: %v", err)
+	}
+
+	// A change that names the artifact-ref, kept alive by the branch.
+	blob, _ := r.Objects.Put(object.NewBlob([]byte("src")))
+	tree, _ := r.Objects.Put(object.NewTree([]object.Entry{{Name: "f", Mode: 0o100644, Kind: object.TypeBlob, ID: blob}}))
+	ch, err := r.Objects.Put(object.NewChange(object.Change{
+		Tree: tree, Message: "release", Artifacts: []multihash.Multihash{artID},
+	}))
+	if err != nil {
+		t.Fatalf("change: %v", err)
+	}
+	if err := r.Refs.Create("refs/heads/main", ch, "t", "release"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// While the change is reachable, the artifact-ref survives and nothing is
+	// reported external.
+	rep, err := Collect(r, nil, true)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if !r.Objects.Has(artID) {
+		t.Fatal("artifact-ref swept while its change is reachable")
+	}
+	if len(rep.ExternalUnreachable) != 0 {
+		t.Fatalf("reported external while reachable: %+v", rep.ExternalUnreachable)
+	}
+
+	// Drop the branch: the change (and its artifact-ref) become unreachable.
+	if err := r.Refs.Delete("refs/heads/main", ch, "t", "drop"); err != nil {
+		t.Fatalf("delete ref: %v", err)
+	}
+	if _, err := r.Refs.ExpireAll(0, 1<<62); err != nil {
+		t.Fatalf("expire: %v", err)
+	}
+	rep, err = Collect(r, nil, false)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if r.Objects.Has(artID) {
+		t.Fatal("artifact-ref not swept after its change went unreachable")
+	}
+	if len(rep.ExternalUnreachable) != 1 {
+		t.Fatalf("want exactly one external-unreachable, got %d", len(rep.ExternalUnreachable))
+	}
+	if !rep.ExternalUnreachable[0].ContentHash.Equal(extHash) {
+		t.Fatalf("reported wrong content hash: %s", rep.ExternalUnreachable[0].ContentHash.Hex())
+	}
+
+	// A second pass must not re-report it — the handle is already gone.
+	rep, err = Collect(r, nil, false)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if len(rep.ExternalUnreachable) != 0 {
+		t.Fatalf("external re-reported after removal: %+v", rep.ExternalUnreachable)
+	}
+}

@@ -14,6 +14,7 @@ package gc
 
 import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
 )
@@ -26,6 +27,19 @@ type Report struct {
 	Deleted int
 	// DeletedIDs lists reclaimed objects (populated on dry runs and real runs).
 	DeletedIDs []multihash.Multihash
+	// ExternalUnreachable lists the external artifacts whose artifact-ref became
+	// unreachable this pass (federation §1.3). varvig reports these; deleting the
+	// bytes from a registry is the operator's decision — varvig has no
+	// credentials there. Populated on both dry and real runs.
+	ExternalUnreachable []ExternalArtifact
+}
+
+// ExternalArtifact is the identity of an external artifact that GC found newly
+// unreachable — enough for an operator to locate and delete the bytes.
+type ExternalArtifact struct {
+	ContentHash multihash.Multihash
+	MediaType   string
+	Locators    []string
 }
 
 // Roots returns the garbage-collection roots: ref targets, all reflog ids, and
@@ -128,6 +142,19 @@ func Collect(r *repo.Repo, pool *spec.Pool, dryRun bool) (Report, error) {
 	}
 
 	for _, id := range doomed {
+		// Before reclaiming, classify: a doomed artifact-ref means its external
+		// bytes just lost their last reachable referent. Record the identity so
+		// `gc --report-external` can surface it; decode while the object still
+		// exists (real runs delete it below).
+		if obj, err := r.Objects.Get(id); err == nil && obj.Type() == object.TypeArtifactRef {
+			if a, err := obj.AsArtifactRef(); err == nil {
+				rep.ExternalUnreachable = append(rep.ExternalUnreachable, ExternalArtifact{
+					ContentHash: a.ContentHash,
+					MediaType:   a.MediaType,
+					Locators:    a.Locators,
+				})
+			}
+		}
 		if !dryRun {
 			if err := r.Objects.Delete(id); err != nil {
 				return rep, err

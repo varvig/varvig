@@ -51,6 +51,7 @@ const (
 	TypeHookConfig  Type = 6
 	TypeAttestation Type = 7 // signed governance decision (tickets §2.1)
 	TypePrincipal   Type = 8 // a keyholder: pubkey, name, kind (tickets §1.4)
+	TypeArtifactRef Type = 9 // reachability handle for external bytes (federation §1)
 )
 
 // Magic frames every object. It names the frozen format family VVG1.
@@ -70,6 +71,7 @@ const (
 	tagChangeAuthor     = 5
 	tagChangeProvenance = 6 // id of a TypeProvenance object (design §1.1, §2.1)
 	tagChangeSignature  = 7 // opaque signature blob over the change sans this tag
+	tagChangeArtifacts  = 8 // ids of TypeArtifactRef objects this change produced (federation §1)
 
 	tagProvAuthority    = 1
 	tagProvModel        = 2
@@ -124,6 +126,8 @@ func (t Type) String() string {
 		return "attestation"
 	case TypePrincipal:
 		return "principal"
+	case TypeArtifactRef:
+		return "artifact-ref"
 	default:
 		return fmt.Sprintf("type-%d", uint64(t))
 	}
