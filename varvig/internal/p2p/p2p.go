@@ -38,7 +38,7 @@ type ObjectStore interface {
 func localHello() wire.Hello {
 	return wire.Hello{
 		Proto:  wire.Proto,
-		Caps:   []string{wire.CapDeflate},
+		Caps:   []string{wire.CapDeflate, wire.CapArtifactRef, wire.CapPin, wire.CapNotesSync},
 		Hashes: []uint64{uint64(multihash.BLAKE3), uint64(multihash.SHA2_256)},
 	}
 }
@@ -322,14 +322,20 @@ func (c *Client) Push(objs ObjectStore, name string, old, newTip multihash.Multi
 		if err != nil {
 			return fmt.Errorf("p2p: push cannot read %s: %w", key, err)
 		}
-		if err := c.conn.WriteObject(id, encodeObjPayload(c.caps, raw)); err != nil {
-			return err
-		}
-		sent[key] = true
 		obj, err := object.Decode(raw)
 		if err != nil {
 			return err
 		}
+		// Federation §1.4 write gate: never write an artifact-ref into a repo
+		// synced with a peer that does not understand artifact-ref reachability,
+		// or that peer will GC away external state this peer considers pinned.
+		if obj.Type() == object.TypeArtifactRef && !c.caps[wire.CapArtifactRef] {
+			return fmt.Errorf("p2p: refusing to push artifact-ref %s: peer does not advertise the %q capability", key, wire.CapArtifactRef)
+		}
+		if err := c.conn.WriteObject(id, encodeObjPayload(c.caps, raw)); err != nil {
+			return err
+		}
+		sent[key] = true
 		links, err := obj.Links()
 		if err != nil {
 			return err

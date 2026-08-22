@@ -53,6 +53,16 @@ const (
 const (
 	// CapDeflate: object payloads are zlib-compressed on the wire.
 	CapDeflate = "deflate"
+	// CapArtifactRef: the peer understands artifact-ref reachability, so it is
+	// safe to write artifact-ref objects into a repo it syncs (federation §1.4,
+	// §3.4). Without it on both sides, an old peer would GC away state a new peer
+	// considers pinned.
+	CapArtifactRef = "artifact-ref"
+	// CapPin: the peer supports the PIN/UNPIN/LISTPIN verbs (federation §3).
+	CapPin = "pin"
+	// CapNotesSync: the peer replicates notes by default on fetch/push
+	// (federation §4).
+	CapNotesSync = "notes-sync"
 )
 
 // Conn is a framed message connection over an arbitrary transport.
