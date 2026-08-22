@@ -9,6 +9,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/store"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/wire"
 )
 
 // seedServer builds a repo with two changes:
@@ -250,3 +251,89 @@ func TestNegotiatedCapsIncludeDeflate(t *testing.T) {
 
 // capDeflate indirection keeps the test independent of the constant's package.
 func capDeflate() string { return "deflate" }
+
+// TestNegotiatedCapsIncludeFederationBits asserts the three federation
+// capability tokens are advertised and negotiated (federation §3.4).
+func TestNegotiatedCapsIncludeFederationBits(t *testing.T) {
+	server, _, _ := seedServer(t)
+	client := dialServe(t, server)
+	for _, cap := range []string{wire.CapArtifactRef, wire.CapPin, wire.CapNotesSync} {
+		if !client.Caps()[cap] {
+			t.Errorf("capability %q not negotiated", cap)
+		}
+	}
+}
+
+// TestPushArtifactRefGateRefusesPeerLackingBit covers the §1.4 write gate: a
+// peer must not write artifact-ref objects into a repo it syncs with a partner
+// that does not advertise the artifact-ref bit.
+func TestPushArtifactRefGateRefusesPeerLackingBit(t *testing.T) {
+	server, _, tip := seedServer(t)
+	client := dialServe(t, server)
+
+	// Build a local change that names an artifact-ref, on top of the server tip.
+	src, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Fetch(src.Objects, []multihash.Multihash{tip}, nil); err != nil {
+		t.Fatal(err)
+	}
+	art, err := src.Objects.Put(object.NewArtifactRef(object.ArtifactRef{
+		ContentHash: mustSum(t, "img"), MediaType: "application/octet-stream",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, _ := src.Objects.Put(object.NewBlob([]byte("z")))
+	tree, _ := src.Objects.Put(object.NewTree([]object.Entry{{Name: "z", Mode: 0o100644, Kind: object.TypeBlob, ID: blob}}))
+	ch, err := src.Objects.Put(object.NewChange(object.Change{
+		Tree: tree, Parents: []multihash.Multihash{tip}, Message: "with artifact",
+		Artifacts: []multihash.Multihash{art},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate an old partner: drop the artifact-ref bit from the negotiated set.
+	client.caps = map[string]bool{}
+	err = client.Push(src.Objects, "refs/heads/main", tip, ch)
+	if err == nil {
+		t.Fatal("push of an artifact-ref to a peer lacking the bit must be refused")
+	}
+	if !strings.Contains(err.Error(), "artifact-ref") {
+		t.Fatalf("refusal should name the artifact-ref capability, got: %v", err)
+	}
+}
+
+func mustSum(t *testing.T, s string) multihash.Multihash {
+	t.Helper()
+	h, err := multihash.Sum(multihash.Default, []byte(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// TestPartialSyncFetchesScopedClosureOnly verifies federation §5: the sync
+// protocol negotiates a scoped closure, not whole-repo replication. Fetching
+// only c1 transfers c1's closure and nothing of c2 — so a peer joining an
+// attempt can pull just that attempt's closure.
+func TestPartialSyncFetchesScopedClosureOnly(t *testing.T) {
+	server, c1, c2 := seedServer(t)
+	client := dialServe(t, server)
+
+	dst, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Fetch(dst.Objects, []multihash.Multihash{c1}, nil); err != nil {
+		t.Fatalf("Fetch c1: %v", err)
+	}
+	if !hasClosure(dst.Objects, c1) {
+		t.Fatal("scoped fetch did not deliver c1's own closure")
+	}
+	if dst.Objects.Has(c2) {
+		t.Fatal("scoped fetch of c1 leaked c2 — closure is not scoped")
+	}
+}

@@ -17,11 +17,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/hook"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/pin"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/wire"
 )
@@ -38,7 +40,7 @@ type ObjectStore interface {
 func localHello() wire.Hello {
 	return wire.Hello{
 		Proto:  wire.Proto,
-		Caps:   []string{wire.CapDeflate},
+		Caps:   []string{wire.CapDeflate, wire.CapArtifactRef, wire.CapPin, wire.CapNotesSync},
 		Hashes: []uint64{uint64(multihash.BLAKE3), uint64(multihash.SHA2_256)},
 	}
 }
@@ -97,6 +99,18 @@ func Serve(r *repo.Repo, rw io.ReadWriter) error {
 			}
 		case wire.MsgPush:
 			if err := servePush(r, conn, payload); err != nil {
+				return err
+			}
+		case wire.MsgPin:
+			if err := servePin(r, conn, caps, payload); err != nil {
+				return err
+			}
+		case wire.MsgUnpin:
+			if err := serveUnpin(r, conn, caps, payload); err != nil {
+				return err
+			}
+		case wire.MsgListPin:
+			if err := serveListPin(r, conn, caps, payload); err != nil {
 				return err
 			}
 		default:
@@ -223,6 +237,153 @@ func servePush(r *repo.Repo, conn *wire.Conn, payload []byte) error {
 	return conn.Flush()
 }
 
+// --- pin protocol (federation §3) ---
+//
+// A pin only ever writes under refs/pins/<peer>/ and never moves a head, so it
+// grants disk, not promotion (§7.6: pin does not permit escalation). Refusal is
+// a normal, visible response — quota or unknown_object — so a requester learns
+// it must hold the state itself rather than assuming it is safe upstream.
+
+func servePin(r *repo.Repo, conn *wire.Conn, caps map[string]bool, payload []byte) error {
+	if !caps[wire.CapPin] {
+		_ = conn.WriteError("refused: pin capability not negotiated")
+		return conn.Flush()
+	}
+	peerID, hashB, notAfter, _, err := wire.ParsePin(payload)
+	if err != nil {
+		return err
+	}
+	hash := multihash.Multihash(hashB)
+	// Cannot pin what the peer does not hold.
+	if !r.Objects.Has(hash) {
+		_ = conn.WriteError("refused: unknown_object")
+		return conn.Flush()
+	}
+	// Quota: never let one peer exhaust another's disk (§3).
+	live, err := livePins(r, peerID)
+	if err != nil {
+		return err
+	}
+	already := false
+	for _, p := range live {
+		if multihash.Multihash(p.Hash).Equal(hash) {
+			already = true
+			break
+		}
+	}
+	if !already && len(live) >= pin.MaxPerPeer {
+		_ = conn.WriteError("refused: quota")
+		return conn.Flush()
+	}
+	// Replace any existing pin for (peer, hash) so re-pinning just extends expiry.
+	if err := removePins(r, peerID, hash); err != nil {
+		return err
+	}
+	name := pin.RefName(peerID, int64(notAfter), hash)
+	if err := r.Refs.CompareAndSwap(name, nil, hash, "p2p-pin", "pin"); err != nil {
+		_ = conn.WriteError(fmt.Sprintf("refused: %v", err))
+		return conn.Flush()
+	}
+	if err := conn.WriteOK(); err != nil {
+		return err
+	}
+	return conn.Flush()
+}
+
+func serveUnpin(r *repo.Repo, conn *wire.Conn, caps map[string]bool, payload []byte) error {
+	if !caps[wire.CapPin] {
+		_ = conn.WriteError("refused: pin capability not negotiated")
+		return conn.Flush()
+	}
+	peerID, hashB, err := wire.ParseUnpin(payload)
+	if err != nil {
+		return err
+	}
+	if err := removePins(r, peerID, multihash.Multihash(hashB)); err != nil {
+		_ = conn.WriteError(fmt.Sprintf("refused: %v", err))
+		return conn.Flush()
+	}
+	if err := conn.WriteOK(); err != nil {
+		return err
+	}
+	return conn.Flush()
+}
+
+func serveListPin(r *repo.Repo, conn *wire.Conn, caps map[string]bool, payload []byte) error {
+	if !caps[wire.CapPin] {
+		_ = conn.WriteError("refused: pin capability not negotiated")
+		return conn.Flush()
+	}
+	peerID, err := wire.ParseListPin(payload)
+	if err != nil {
+		return err
+	}
+	live, err := livePins(r, peerID)
+	if err != nil {
+		return err
+	}
+	if err := conn.WritePins(live); err != nil {
+		return err
+	}
+	return conn.Flush()
+}
+
+// livePins returns a peer's unexpired pins, reaping any expired pin refs it
+// finds along the way (expiry does the revocation work — §3).
+func livePins(r *repo.Repo, peerID string) ([]wire.Pin, error) {
+	names, err := r.Refs.List()
+	if err != nil {
+		return nil, err
+	}
+	prefix := pin.PeerPrefix(peerID)
+	now := time.Now().Unix()
+	var out []wire.Pin
+	for _, n := range names {
+		if !strings.HasPrefix(n, prefix) {
+			continue
+		}
+		_, notAfter, hash, ok := pin.Parse(n)
+		if !ok {
+			continue
+		}
+		if notAfter <= now {
+			// Expired: reap the ref so it stops being a GC root and stops
+			// showing up in listings.
+			cur, _ := r.Refs.Resolve(n)
+			_ = r.Refs.Delete(n, cur, "p2p-pin", "expired")
+			continue
+		}
+		out = append(out, wire.Pin{Hash: hash, NotAfter: uint64(notAfter)})
+	}
+	return out, nil
+}
+
+// removePins deletes every pin ref a peer holds for a given hash.
+func removePins(r *repo.Repo, peerID string, hash multihash.Multihash) error {
+	names, err := r.Refs.List()
+	if err != nil {
+		return err
+	}
+	prefix := pin.PeerPrefix(peerID)
+	for _, n := range names {
+		if !strings.HasPrefix(n, prefix) {
+			continue
+		}
+		_, _, h, ok := pin.Parse(n)
+		if !ok || !h.Equal(hash) {
+			continue
+		}
+		cur, err := r.Refs.Resolve(n)
+		if err != nil {
+			continue
+		}
+		if err := r.Refs.Delete(n, cur, "p2p-pin", "unpin"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // --- client ---
 
 // Client is a dialed peer session after a successful handshake.
@@ -322,14 +483,20 @@ func (c *Client) Push(objs ObjectStore, name string, old, newTip multihash.Multi
 		if err != nil {
 			return fmt.Errorf("p2p: push cannot read %s: %w", key, err)
 		}
-		if err := c.conn.WriteObject(id, encodeObjPayload(c.caps, raw)); err != nil {
-			return err
-		}
-		sent[key] = true
 		obj, err := object.Decode(raw)
 		if err != nil {
 			return err
 		}
+		// Federation §1.4 write gate: never write an artifact-ref into a repo
+		// synced with a peer that does not understand artifact-ref reachability,
+		// or that peer will GC away external state this peer considers pinned.
+		if obj.Type() == object.TypeArtifactRef && !c.caps[wire.CapArtifactRef] {
+			return fmt.Errorf("p2p: refusing to push artifact-ref %s: peer does not advertise the %q capability", key, wire.CapArtifactRef)
+		}
+		if err := c.conn.WriteObject(id, encodeObjPayload(c.caps, raw)); err != nil {
+			return err
+		}
+		sent[key] = true
 		links, err := obj.Links()
 		if err != nil {
 			return err
@@ -353,6 +520,94 @@ func (c *Client) Push(objs ObjectStore, name string, old, newTip multihash.Multi
 		return fmt.Errorf("p2p: %s", wire.ParseError(payload))
 	default:
 		return fmt.Errorf("p2p: unexpected push reply %d", t)
+	}
+}
+
+// --- pin protocol client (federation §3) ---
+
+// ErrPinRefused is returned when a peer refuses a pin. Refusal is a normal,
+// expected response — quota exhausted or the object is unknown — not a fault;
+// callers use it to decide to hold the state themselves (§3).
+type ErrPinRefused struct{ Reason string }
+
+func (e ErrPinRefused) Error() string { return "p2p: pin refused: " + e.Reason }
+
+// Pin asks the peer to retain hash until notAfter (unix secs). A refusal comes
+// back as ErrPinRefused so the caller can distinguish "held elsewhere" from a
+// transport fault.
+func (c *Client) Pin(peerID string, hash multihash.Multihash, notAfter int64, reason string) error {
+	if !c.caps[wire.CapPin] {
+		return fmt.Errorf("p2p: peer does not advertise %q", wire.CapPin)
+	}
+	if notAfter <= 0 {
+		return fmt.Errorf("p2p: pin requires a not_after expiry (§3)")
+	}
+	if err := c.conn.WritePin(peerID, hash, uint64(notAfter), reason); err != nil {
+		return err
+	}
+	if err := c.conn.Flush(); err != nil {
+		return err
+	}
+	return c.readAck("pin")
+}
+
+// Unpin releases a pin the peer holds for hash.
+func (c *Client) Unpin(peerID string, hash multihash.Multihash) error {
+	if !c.caps[wire.CapPin] {
+		return fmt.Errorf("p2p: peer does not advertise %q", wire.CapPin)
+	}
+	if err := c.conn.WriteUnpin(peerID, hash); err != nil {
+		return err
+	}
+	if err := c.conn.Flush(); err != nil {
+		return err
+	}
+	return c.readAck("unpin")
+}
+
+// ListPin returns the peer's live (unexpired) pins for peerID.
+func (c *Client) ListPin(peerID string) ([]wire.Pin, error) {
+	if !c.caps[wire.CapPin] {
+		return nil, fmt.Errorf("p2p: peer does not advertise %q", wire.CapPin)
+	}
+	if err := c.conn.WriteListPin(peerID); err != nil {
+		return nil, err
+	}
+	if err := c.conn.Flush(); err != nil {
+		return nil, err
+	}
+	t, payload, err := c.conn.ReadFrame()
+	if err != nil {
+		return nil, err
+	}
+	switch t {
+	case wire.MsgPins:
+		return wire.ParsePins(payload)
+	case wire.MsgError:
+		return nil, fmt.Errorf("p2p: %s", wire.ParseError(payload))
+	default:
+		return nil, fmt.Errorf("p2p: unexpected listpin reply %d", t)
+	}
+}
+
+// readAck reads a single OK/Error reply, mapping a "refused:" error to
+// ErrPinRefused so refusal stays a first-class, non-fault outcome.
+func (c *Client) readAck(op string) error {
+	t, payload, err := c.conn.ReadFrame()
+	if err != nil {
+		return err
+	}
+	switch t {
+	case wire.MsgOK:
+		return nil
+	case wire.MsgError:
+		msg := wire.ParseError(payload)
+		if reason, ok := strings.CutPrefix(msg, "refused: "); ok {
+			return ErrPinRefused{Reason: reason}
+		}
+		return fmt.Errorf("p2p: %s", msg)
+	default:
+		return fmt.Errorf("p2p: unexpected %s reply %d", op, t)
 	}
 }
 

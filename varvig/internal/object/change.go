@@ -40,6 +40,11 @@ type Change struct {
 	// that git-imported and legacy changes remain representable; the commit and
 	// verify layers require it for native changes.
 	Provenance multihash.Multihash
+	// Artifacts are the ids of TypeArtifactRef objects this change produced
+	// (federation design §1). Naming them here is what makes the external bytes
+	// reachable: while the change is reachable, so is every artifact-ref it names.
+	// Optional and additive — a change with none encodes exactly as before.
+	Artifacts []multihash.Multihash
 }
 
 // Materialized reports whether the change carries a tree. A change with no
@@ -94,6 +99,12 @@ func NewChange(c Change) *Object {
 	// so changes without it (git-imported, legacy) encode exactly as before.
 	if c.Provenance != nil {
 		fields = append(fields, field{tag: tagChangeProvenance, val: append([]byte(nil), c.Provenance...)})
+	}
+	// Artifacts (federation §1) are encoded like parents — sorted, deduplicated,
+	// count + length-prefixed — and emitted only when present, so a change with
+	// none is byte-identical to a pre-federation change.
+	if arts := sortedUniqueHashes(c.Artifacts); len(arts) > 0 {
+		fields = append(fields, field{tag: tagChangeArtifacts, val: encodeHashList(arts)})
 	}
 	return newObject(TypeChange, fields)
 }
@@ -154,5 +165,71 @@ func (o *Object) AsChange() (Change, error) {
 			return Change{}, fmt.Errorf("%w: trailing bytes in change parents", ErrMalformed)
 		}
 	}
+	if v, ok := o.Field(tagChangeArtifacts); ok {
+		arts, err := decodeHashList(v)
+		if err != nil {
+			return Change{}, fmt.Errorf("%w: bad change artifacts: %v", ErrMalformed, err)
+		}
+		c.Artifacts = arts
+	}
 	return c, nil
+}
+
+// encodeHashList serializes a sorted, deduplicated multihash list as
+// count + (len-prefixed id)*, the same canonical shape the parents field uses.
+func encodeHashList(ids []multihash.Multihash) []byte {
+	var b []byte
+	b = appendUvarint(b, uint64(len(ids)))
+	for _, id := range ids {
+		b = appendUvarint(b, uint64(len(id)))
+		b = append(b, id...)
+	}
+	return b
+}
+
+// decodeHashList reverses encodeHashList, enforcing the sorted-unique invariant
+// so a non-canonical encoding is rejected rather than silently accepted.
+func decodeHashList(b []byte) ([]multihash.Multihash, error) {
+	cur := &cursor{b: b}
+	n, err := cur.uvarint()
+	if err != nil {
+		return nil, err
+	}
+	var out []multihash.Multihash
+	var prev []byte
+	for i := uint64(0); i < n; i++ {
+		idLen, err := cur.uvarint()
+		if err != nil {
+			return nil, err
+		}
+		id, err := cur.take(idLen)
+		if err != nil {
+			return nil, err
+		}
+		if i > 0 && bytes.Compare(id, prev) <= 0 {
+			return nil, errors.New("hash list not sorted/unique")
+		}
+		out = append(out, multihash.Multihash(append([]byte(nil), id...)))
+		prev = id
+	}
+	if !cur.empty() {
+		return nil, errors.New("trailing bytes in hash list")
+	}
+	return out, nil
+}
+
+// sortedUniqueHashes returns a sorted, duplicate-free copy of ids.
+func sortedUniqueHashes(ids []multihash.Multihash) []multihash.Multihash {
+	if len(ids) == 0 {
+		return nil
+	}
+	cp := append([]multihash.Multihash(nil), ids...)
+	sort.Slice(cp, func(a, b int) bool { return bytes.Compare(cp[a], cp[b]) < 0 })
+	out := cp[:1]
+	for _, id := range cp[1:] {
+		if !bytes.Equal(id, out[len(out)-1]) {
+			out = append(out, id)
+		}
+	}
+	return out
 }

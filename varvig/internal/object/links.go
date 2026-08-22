@@ -30,7 +30,7 @@ func (o *Object) Links() ([]multihash.Multihash, error) {
 		if err != nil {
 			return nil, err
 		}
-		ids := make([]multihash.Multihash, 0, len(c.Parents)+2)
+		ids := make([]multihash.Multihash, 0, len(c.Parents)+len(c.Artifacts)+2)
 		if c.Tree != nil {
 			ids = append(ids, c.Tree)
 		}
@@ -38,6 +38,9 @@ func (o *Object) Links() ([]multihash.Multihash, error) {
 		if c.Provenance != nil {
 			ids = append(ids, c.Provenance)
 		}
+		// A reachable change makes every artifact-ref it names reachable, which
+		// pins the external bytes (federation §1.3).
+		ids = append(ids, c.Artifacts...)
 		return ids, nil
 	case TypeProvenance:
 		return nil, nil
@@ -78,6 +81,29 @@ func (o *Object) Links() ([]multihash.Multihash, error) {
 		}
 		return ids, nil
 	case TypePrincipal:
+		return nil, nil
+	case TypeArtifactRef:
+		// The content bytes are external and never enter the store, so they are
+		// not a link. The producing change/attempt is a real object, so it is:
+		// while the artifact-ref is reachable its producer is retained.
+		a, err := o.AsArtifactRef()
+		if err != nil {
+			return nil, err
+		}
+		if a.ProducedBy != nil {
+			return []multihash.Multihash{a.ProducedBy}, nil
+		}
+		return nil, nil
+	case TypeEnvironment:
+		// The only object reference an environment carries is its container
+		// image's artifact-ref, if any.
+		e, err := o.AsEnvironment()
+		if err != nil {
+			return nil, err
+		}
+		if e.Container != nil {
+			return []multihash.Multihash{e.Container}, nil
+		}
 		return nil, nil
 	default:
 		return nil, nil

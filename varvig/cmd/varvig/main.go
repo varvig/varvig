@@ -209,7 +209,7 @@ usage:
   varvig spec score <task> <id> <n>     set a candidate's score
   varvig spec promote <task> [ref]      promote the best candidate onto a ref
   varvig spec prune <task> <keepK>      retention: keep top-K, drop the rest
-  varvig gc [--dry-run] [--prune-reflog <dur> [--keep N]]
+  varvig gc [--dry-run] [--report-external] [--prune-reflog <dur> [--keep N]]
                                       sweep unreachable objects; optionally
                                       expire reflogs older than <dur> first
   varvig conform [--emit|--id]          check this build against the frozen format
@@ -895,6 +895,11 @@ func cmdClone(args []string) error {
 	if err := checkoutChange(r, tip); err != nil {
 		return err
 	}
+	// Notes replicate by default (federation §4): pull the peer's notes so
+	// evidence and governance state travel with the branch, not only the code.
+	if err := syncNotes(client, r, false); err != nil {
+		return err
+	}
 	fmt.Printf("cloned %s (branch %s) into %s at %s\n", addr, branch, dir, tip.Hex())
 	return nil
 }
@@ -934,6 +939,9 @@ func cmdFetch(args []string) error {
 	}
 	cur, _ := r.Refs.Resolve(tracking)
 	if err := r.Refs.CompareAndSwap(tracking, cur, tip, "fetch", "fetch "+args[0]); err != nil {
+		return err
+	}
+	if err := syncNotes(client, r, false); err != nil {
 		return err
 	}
 	fmt.Printf("fetched %s into %s\n", tip.Hex(), tracking)
@@ -982,6 +990,10 @@ func cmdPush(args []string) error {
 	// Advance our record of the remote to what we just pushed.
 	prev, _ := r.Refs.Resolve(tracking)
 	_ = r.Refs.CompareAndSwap(tracking, prev, local, "push", "update tracking after push")
+	// Notes replicate by default (federation §4): push our notes alongside.
+	if err := syncNotes(client, r, true); err != nil {
+		return err
+	}
 	fmt.Printf("pushed %s to %s (%s)\n", local.Hex(), args[0], name)
 	return nil
 }
@@ -1407,12 +1419,15 @@ func cmdSpec(args []string) error {
 
 func cmdGc(args []string) error {
 	dryRun := false
+	reportExternal := false
 	pruneReflog := ""
 	keep := 1 // by default, expiry always retains each ref's most recent move
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--dry-run", "-n":
 			dryRun = true
+		case "--report-external":
+			reportExternal = true
 		case "--prune-reflog":
 			if i+1 < len(args) {
 				pruneReflog = args[i+1]
@@ -1460,6 +1475,17 @@ func cmdGc(args []string) error {
 		verb = "would delete"
 	}
 	fmt.Printf("roots:%d scanned:%d kept:%d %s:%d\n", rep.Roots, rep.Scanned, rep.Kept, verb, rep.Deleted)
+
+	// --report-external surfaces external artifacts whose last reachable
+	// referent went away this pass (federation §1.3). varvig only reports;
+	// deleting the bytes from a registry is the operator's call.
+	if reportExternal {
+		fmt.Printf("external-unreachable:%d\n", len(rep.ExternalUnreachable))
+		for _, a := range rep.ExternalUnreachable {
+			locs := strings.Join(a.Locators, " ")
+			fmt.Printf("  %s\t%s\t%s\n", a.ContentHash.Hex(), a.MediaType, locs)
+		}
+	}
 	return nil
 }
 

@@ -13,10 +13,17 @@
 package gc
 
 import (
+	"time"
+
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/pin"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
 )
+
+// nowFn is the clock GC uses for pin expiry; overridable in tests.
+var nowFn = time.Now
 
 // Report summarizes a collection.
 type Report struct {
@@ -26,6 +33,19 @@ type Report struct {
 	Deleted int
 	// DeletedIDs lists reclaimed objects (populated on dry runs and real runs).
 	DeletedIDs []multihash.Multihash
+	// ExternalUnreachable lists the external artifacts whose artifact-ref became
+	// unreachable this pass (federation §1.3). varvig reports these; deleting the
+	// bytes from a registry is the operator's decision — varvig has no
+	// credentials there. Populated on both dry and real runs.
+	ExternalUnreachable []ExternalArtifact
+}
+
+// ExternalArtifact is the identity of an external artifact that GC found newly
+// unreachable — enough for an operator to locate and delete the bytes.
+type ExternalArtifact struct {
+	ContentHash multihash.Multihash
+	MediaType   string
+	Locators    []string
 }
 
 // Roots returns the garbage-collection roots: ref targets, all reflog ids, and
@@ -37,7 +57,17 @@ func Roots(r *repo.Repo, pool *spec.Pool) ([]multihash.Multihash, error) {
 	if err != nil {
 		return nil, err
 	}
+	now := nowFn().Unix()
 	for _, n := range names {
+		// A pin is a ref, hence normally a root (federation §3) — but only while
+		// it is unexpired. An expired pin stops pinning without ceremony, so its
+		// target may be collected. LISTPIN reaps the stale ref lazily; here we
+		// simply do not treat it as a root.
+		if pin.IsPinRef(n) {
+			if _, notAfter, _, ok := pin.Parse(n); ok && notAfter <= now {
+				continue
+			}
+		}
 		if id, err := r.Refs.Resolve(n); err == nil {
 			roots = append(roots, id)
 		}
@@ -128,6 +158,19 @@ func Collect(r *repo.Repo, pool *spec.Pool, dryRun bool) (Report, error) {
 	}
 
 	for _, id := range doomed {
+		// Before reclaiming, classify: a doomed artifact-ref means its external
+		// bytes just lost their last reachable referent. Record the identity so
+		// `gc --report-external` can surface it; decode while the object still
+		// exists (real runs delete it below).
+		if obj, err := r.Objects.Get(id); err == nil && obj.Type() == object.TypeArtifactRef {
+			if a, err := obj.AsArtifactRef(); err == nil {
+				rep.ExternalUnreachable = append(rep.ExternalUnreachable, ExternalArtifact{
+					ContentHash: a.ContentHash,
+					MediaType:   a.MediaType,
+					Locators:    a.Locators,
+				})
+			}
+		}
 		if !dryRun {
 			if err := r.Objects.Delete(id); err != nil {
 				return rep, err
