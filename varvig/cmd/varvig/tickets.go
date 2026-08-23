@@ -32,7 +32,8 @@ import (
 //	varvig tickets blockers <ticket>                             tickets blocking this one
 //	varvig tickets comment <ticket> -m <body> [--origin O ...]   append a discussion comment
 //	varvig tickets comments <ticket>                             list the discussion (JSON lines)
-//	varvig tickets artifacts <ticket>                            list the head revision's artifact-refs (JSON lines)
+//	varvig tickets artifacts <ticket>                            list a ticket's attached artifact-refs (JSON lines)
+//	varvig tickets attach-artifact <ticket> --content-hash <mh>  attach an external artifact (ungoverned)
 //	varvig tickets graph                                         the derived blocking graph
 //	varvig tickets rank [--weights f.json]                       rank scoped tickets by score
 //
@@ -71,6 +72,8 @@ func cmdTickets(args []string) error {
 		return ticketsComments(r, args[1:])
 	case "artifacts":
 		return ticketsArtifacts(r, args[1:])
+	case "attach-artifact":
+		return ticketsAttachArtifact(r, args[1:])
 	case "graph":
 		return ticketsGraph(r)
 	case "rank":
@@ -363,6 +366,85 @@ func ticketsArtifacts(r *repo.Repo, args []string) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// ticketsAttachArtifact records an external artifact against a ticket as
+// ungoverned evidence (federation §1). It never revises the ticket, so an
+// approved ticket stays approved. The content hash is the artifact's identity (a
+// multihash of the external bytes, computed out of band); locators are optional
+// fetch hints and may be repeated.
+func ticketsAttachArtifact(r *repo.Repo, args []string) error {
+	usage := "usage: varvig tickets attach-artifact <ticket> --content-hash <mh> " +
+		"[--media-type M] [--size N] [--locator U ...] [--produced-by <mh>] [--author A]"
+	if len(args) < 1 {
+		return errors.New(usage)
+	}
+	id, err := ticketID(r, args[0])
+	if err != nil {
+		return err
+	}
+	var (
+		ref     object.ArtifactRef
+		hashHex string
+		who     = author()
+	)
+	for i := 1; i < len(args); i++ {
+		need := func() (string, error) {
+			if i+1 >= len(args) {
+				return "", fmt.Errorf("tickets: %s requires a value", args[i])
+			}
+			i++
+			return args[i], nil
+		}
+		var v string
+		switch args[i] {
+		case "--content-hash":
+			hashHex, err = need()
+		case "--media-type":
+			ref.MediaType, err = need()
+		case "--size":
+			if v, err = need(); err == nil {
+				var n uint64
+				if n, err = strconv.ParseUint(v, 10, 64); err != nil {
+					return fmt.Errorf("tickets: bad --size %q", v)
+				}
+				ref.Size = n
+			}
+		case "--locator":
+			if v, err = need(); err == nil {
+				ref.Locators = append(ref.Locators, v)
+			}
+		case "--produced-by":
+			if v, err = need(); err == nil {
+				pb, perr := multihash.ParseHex(v)
+				if perr != nil {
+					return fmt.Errorf("tickets: bad --produced-by %q: %w", v, perr)
+				}
+				ref.ProducedBy = pb
+			}
+		case "--author":
+			who, err = need()
+		default:
+			return fmt.Errorf("tickets: unknown argument %q\n%s", args[i], usage)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if hashHex == "" {
+		return errors.New("tickets: attach-artifact needs --content-hash <mh>\n" + usage)
+	}
+	ch, err := multihash.ParseHex(hashHex)
+	if err != nil {
+		return fmt.Errorf("tickets: bad --content-hash %q: %w", hashHex, err)
+	}
+	ref.ContentHash = ch
+	artID, err := ticket.AttachArtifact(r, id, ref, who, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	fmt.Printf("attached artifact %s to %s\n", artID.Hex(), id.Hex()[4:16])
 	return nil
 }
 
