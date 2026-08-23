@@ -61,6 +61,18 @@ const (
 	// never consulted by scoring or attestation, so it is deliberately absent
 	// from reservedNoteNamespaces below.
 	NoteDiscussion = "varvig/discussion"
+	// NoteArtifacts is a ticket's per-ticket index of attached external artifacts
+	// (federation §1): one note per attach, keyed by ticket id, its payload naming
+	// the artifact-ref object. Like NoteDiscussion it is ungoverned evidence —
+	// never signed, never consulted by scoring or attestation, and deliberately
+	// absent from reservedNoteNamespaces — so attaching an artifact never touches
+	// the intent chain or a ticket's approvals.
+	NoteArtifacts = "varvig/artifacts"
+	// NoteArtifactRef pins an attached artifact-ref for reachability: a note keyed
+	// by the artifact-ref object id (so GC marks it reachable-through, exactly as
+	// Change.Artifacts would), its payload naming the ticket it belongs to. Also
+	// ungoverned.
+	NoteArtifactRef = "varvig/artifact-ref"
 )
 
 // reservedNoteNamespaces is the fixed set of governance note namespaces.
