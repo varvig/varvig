@@ -45,6 +45,18 @@ type Change struct {
 	// reachable: while the change is reachable, so is every artifact-ref it names.
 	// Optional and additive — a change with none encodes exactly as before.
 	Artifacts []multihash.Multihash
+	// Fulfills is the id of the *intent revision* this change materializes — the
+	// ticket→commit link (tickets, "The Ticket → Commit Link"). It names a
+	// revision hash, never a ticket id: an approval binds to a specific revision,
+	// so a commit that names the revision it was written against can be checked
+	// for staleness when the spec has since moved on. Forward and authoritative:
+	// it lives inside the signed change, travels with it through sync and Git
+	// export, and cannot be forged or attached after the fact. The backward
+	// direction (ticket → its commits) is a derived index, not stored here.
+	// Optional and additive — fulfilling nothing is legal (whether a commit must
+	// name an intent is a policy rule, not a format constraint); a change with no
+	// Fulfills encodes exactly as before.
+	Fulfills multihash.Multihash
 }
 
 // Materialized reports whether the change carries a tree. A change with no
@@ -105,6 +117,11 @@ func NewChange(c Change) *Object {
 	// none is byte-identical to a pre-federation change.
 	if arts := sortedUniqueHashes(c.Artifacts); len(arts) > 0 {
 		fields = append(fields, field{tag: tagChangeArtifacts, val: encodeHashList(arts)})
+	}
+	// Fulfills (the intent revision this change materializes) is emitted only
+	// when set, so a change fulfilling nothing is byte-identical to before.
+	if c.Fulfills != nil {
+		fields = append(fields, field{tag: tagChangeFulfills, val: append([]byte(nil), c.Fulfills...)})
 	}
 	return newObject(TypeChange, fields)
 }
@@ -171,6 +188,9 @@ func (o *Object) AsChange() (Change, error) {
 			return Change{}, fmt.Errorf("%w: bad change artifacts: %v", ErrMalformed, err)
 		}
 		c.Artifacts = arts
+	}
+	if v, ok := o.Field(tagChangeFulfills); ok {
+		c.Fulfills = multihash.Multihash(append([]byte(nil), v...))
 	}
 	return c, nil
 }

@@ -150,6 +150,7 @@ usage:
   varvig cat-object <id>                print an object's content/summary
   varvig write-tree                     store the working tree, print tree id
   varvig commit -m <msg>                commit the working tree, advance HEAD
+              [--ticket <id> | --fulfills <rev>]  link the commit to the intent it fulfills
   varvig checkout <ref|id>              materialize a change/tree into the tree
   varvig log [ref|id]                   walk the change DAG from HEAD (or arg)
   varvig verify [ref|id]                check provenance and signatures on changes
@@ -371,19 +372,50 @@ func cmdWriteTree(args []string) error {
 }
 
 func cmdCommit(args []string) error {
-	var msg string
+	var msg, ticketArg, fulfillsHex string
 	for i := 0; i < len(args); i++ {
-		if args[i] == "-m" && i+1 < len(args) {
-			msg = args[i+1]
-			i++
+		switch args[i] {
+		case "-m":
+			if i+1 < len(args) {
+				msg = args[i+1]
+				i++
+			}
+		case "--ticket":
+			if i+1 < len(args) {
+				ticketArg = args[i+1]
+				i++
+			}
+		case "--fulfills":
+			if i+1 < len(args) {
+				fulfillsHex = args[i+1]
+				i++
+			}
 		}
 	}
 	if msg == "" {
-		return errors.New("usage: varvig commit -m <msg>")
+		return errors.New("usage: varvig commit -m <msg> [--ticket <id> | --fulfills <revision>]")
 	}
 	r, err := repo.Open(".")
 	if err != nil {
 		return err
+	}
+
+	// Fulfills links the commit to the intent revision it materializes (the
+	// ticket→commit link). --ticket resolves the ticket's current head revision
+	// (so the link records the intent as it stood at commit time, which is what
+	// staleness checks later compare); --fulfills names a revision hash directly.
+	var fulfills multihash.Multihash
+	switch {
+	case ticketArg != "" && fulfillsHex != "":
+		return errors.New("commit: --ticket and --fulfills are mutually exclusive")
+	case ticketArg != "":
+		if fulfills, err = resolveTicketHead(r, ticketArg); err != nil {
+			return fmt.Errorf("commit: --ticket: %w", err)
+		}
+	case fulfillsHex != "":
+		if fulfills, err = multihash.ParseHex(fulfillsHex); err != nil {
+			return fmt.Errorf("commit: bad --fulfills %q: %w", fulfillsHex, err)
+		}
 	}
 	treeID, err := worktree.WriteTree(r.Objects, r.Root())
 	if err != nil {
@@ -431,6 +463,7 @@ func cmdCommit(args []string) error {
 		Timestamp:  time.Now().Unix(),
 		Author:     author(),
 		Provenance: provID,
+		Fulfills:   fulfills,
 	})
 	priv, err := provenance.LoadOrCreateIdentity(r.GitDir())
 	if err != nil {
