@@ -173,6 +173,16 @@ func ticketsShow(r *repo.Repo, args []string) error {
 	}
 	fmt.Printf("status   %s (require strong)\n", attest.Derive(atts, object.StrengthStrong))
 
+	implState, implCommits, err := ticket.Implementation(r, id)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("impl     %s", implState)
+	for _, c := range implCommits {
+		fmt.Printf(" %s", c.Hex()[4:16])
+	}
+	fmt.Println()
+
 	if link, ok, err := bridge.GetLink(r, id); err == nil && ok {
 		fmt.Printf("link     %s:%s", link.System, link.ForeignID)
 		if link.Assignee != "" {

@@ -156,7 +156,7 @@ usage:
   varvig verify [ref|id]                check provenance and signatures on changes
   varvig update-ref <name> <new> [old]  atomically set a ref (CAS on old)
   varvig promote <ref> <new> [opts]     move a ref via a signed ref update
-                                        (--scope S, --ttl SECONDS)
+                                        (--scope S, --ttl SECONDS, --allow-stale)
   varvig show-ref [name]                list refs or resolve one
   varvig reflog <name>                  print a ref's append-only log
   varvig git-export <dir> [branch]      export HEAD to a plain git repository

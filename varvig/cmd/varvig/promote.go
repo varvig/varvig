@@ -8,29 +8,66 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/refupdate"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 )
+
+// checkPromotionNotStale refuses to promote a commit that implements an intent
+// revision which is not approved — the staleness guard of the ticket→commit link
+// (tickets, "The Ticket → Commit Link", §2). Because Change.Fulfills names the
+// exact revision the work was written against, this catches the common race where
+// a spec is approved, then edited, and the work is implemented against the
+// edited-but-unapproved revision: the fulfilled revision has no approval, so the
+// promotion is refused. A commit that fulfills nothing, or a non-change ref, is
+// unaffected (fulfilling nothing is legal; policy decides where it is required).
+func checkPromotionNotStale(r *repo.Repo, newID multihash.Multihash) error {
+	obj, err := r.Objects.Get(newID)
+	if err != nil {
+		return nil // not a readable object here; presence was already checked
+	}
+	c, err := obj.AsChange()
+	if err != nil || c.Fulfills == nil {
+		return nil // not a change, or fulfills nothing — nothing to guard
+	}
+	atts, err := attest.Attestations(r, c.Fulfills)
+	if err != nil {
+		return err
+	}
+	if status := attest.Derive(atts, object.StrengthStrong); status != attest.StatusApproved {
+		return fmt.Errorf("promote: %s implements intent revision %s, which is not approved (%s); "+
+			"the approved spec has moved on — re-approve the current revision, or pass --allow-stale to override",
+			newID.Hex(), c.Fulfills.Hex(), status)
+	}
+	return nil
+}
 
 // cmdPromote moves a ref by way of a signed ref update (auth design §5, §10.7).
 // The signature travels with the change: the same bytes are signed here and
 // verified by the pipeline, so a promotion is authorized by *who signed it*,
 // not by the channel it arrived over.
 //
-//	varvig promote <ref> <new> [--scope S] [--ttl SECONDS]
+//	varvig promote <ref> <new> [--scope S] [--ttl SECONDS] [--allow-stale]
+//
+// If <new> is a commit that fulfills a ticket intent revision (Change.Fulfills),
+// the promotion is refused unless that revision is approved — the staleness guard
+// of the ticket→commit link. --allow-stale overrides it deliberately.
 //
 // The lease (expected_old) is the ref's current value, so a concurrent move is
 // rejected as a conflict and the caller is told the new head to rebase onto —
 // the embryonic regeneration-merge retry of §10.6.
 func cmdPromote(args []string) error {
 	if len(args) < 2 {
-		return errors.New("usage: varvig promote <ref> <new> [--scope S] [--ttl SECONDS]")
+		return errors.New("usage: varvig promote <ref> <new> [--scope S] [--ttl SECONDS] [--allow-stale]")
 	}
 	refName, newArg := args[0], args[1]
 	scope := "/"
 	ttl := int64(3600)
+	allowStale := false
 	for i := 2; i < len(args); i++ {
 		switch args[i] {
 		case "--scope":
@@ -49,6 +86,8 @@ func cmdPromote(args []string) error {
 			}
 			ttl = n
 			i++
+		case "--allow-stale":
+			allowStale = true
 		default:
 			return fmt.Errorf("promote: unknown argument %q", args[i])
 		}
@@ -64,6 +103,11 @@ func cmdPromote(args []string) error {
 	}
 	if !r.Objects.Has(newID) {
 		return fmt.Errorf("promote: object %s is not present", newID.Hex())
+	}
+	if !allowStale {
+		if err := checkPromotionNotStale(r, newID); err != nil {
+			return err
+		}
 	}
 
 	id, err := identity.Resolve("", os.Getenv)

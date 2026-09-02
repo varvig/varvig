@@ -75,9 +75,11 @@ func AttachArtifact(r *repo.Repo, id multihash.Multihash, ref object.ArtifactRef
 // resolved to their ArtifactRef objects. It unions two sources and dedupes by
 // artifact-ref id, ordered by id for determinism:
 //
-//   - the per-ticket index notes written by AttachArtifact (the usual path), and
-//   - the head revision's Change.Artifacts, for the day a materialization producer
-//     names on the change the artifacts it built.
+//   - the per-ticket index notes written by AttachArtifact (the usual path),
+//   - the head revision's Change.Artifacts, and
+//   - the Artifacts of every branch-reachable commit that fulfills the ticket
+//     (via the ticket→commit link) — so a build's outputs surface on the ticket
+//     that asked for them, no manual attach needed.
 //
 // The refs are reachability handles — identity, media type, size and locators for
 // bytes that live outside the object store — never the bytes themselves. A named
@@ -92,6 +94,25 @@ func Artifacts(r *repo.Repo, id multihash.Multihash) ([]object.ArtifactRef, erro
 		return nil, err
 	}
 	ids = append(ids, changeArts...)
+
+	// Commit-produced artifacts: any branch-reachable commit fulfilling one of
+	// the ticket's revisions. (This walks refs/heads each call; the reverse index
+	// is a rebuildable cache and could be memoized if it ever costs too much.)
+	commits, err := fulfillingCommits(r, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, commitID := range commits {
+		obj, err := r.Objects.Get(commitID)
+		if err != nil {
+			continue
+		}
+		c, err := obj.AsChange()
+		if err != nil {
+			continue
+		}
+		ids = append(ids, c.Artifacts...)
+	}
 
 	seen := map[string]bool{}
 	uniq := make([]multihash.Multihash, 0, len(ids))
