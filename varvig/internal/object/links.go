@@ -30,7 +30,7 @@ func (o *Object) Links() ([]multihash.Multihash, error) {
 		if err != nil {
 			return nil, err
 		}
-		ids := make([]multihash.Multihash, 0, len(c.Parents)+len(c.Artifacts)+2)
+		ids := make([]multihash.Multihash, 0, len(c.Parents)+len(c.Artifacts)+3)
 		if c.Tree != nil {
 			ids = append(ids, c.Tree)
 		}
@@ -41,6 +41,12 @@ func (o *Object) Links() ([]multihash.Multihash, error) {
 		// A reachable change makes every artifact-ref it names reachable, which
 		// pins the external bytes (federation §1.3).
 		ids = append(ids, c.Artifacts...)
+		// The intent revision a change fulfills stays reachable while the change
+		// is, so the approved-intent → commit audit chain survives GC (tickets,
+		// "The Ticket → Commit Link").
+		if c.Fulfills != nil {
+			ids = append(ids, c.Fulfills)
+		}
 		return ids, nil
 	case TypeProvenance:
 		return nil, nil

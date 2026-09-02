@@ -73,6 +73,7 @@ const (
 	tagChangeProvenance = 6 // id of a TypeProvenance object (design §1.1, §2.1)
 	tagChangeSignature  = 7 // opaque signature blob over the change sans this tag
 	tagChangeArtifacts  = 8 // ids of TypeArtifactRef objects this change produced (federation §1)
+	tagChangeFulfills   = 9 // id of the intent revision this change materializes (ticket→commit link)
 
 	tagProvAuthority    = 1
 	tagProvModel        = 2

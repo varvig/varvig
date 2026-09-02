@@ -142,8 +142,48 @@ func (e *exporter) change(o *object.Object) (gitobj.OID, error) {
 		parents = append(parents, g)
 	}
 	ident := normalizeIdent(ch.Author)
-	body := gitobj.EncodeCommit(treeGit, parents, ident, ch.Timestamp, ch.Message)
+	// The ticket→commit link is carried across the Git boundary as a commit
+	// trailer, so a native change's Fulfills survives export → import (C3). An
+	// imported commit takes the verbatim-body path above and keeps whatever
+	// trailer it already had.
+	body := gitobj.EncodeCommit(treeGit, parents, ident, ch.Timestamp, withFulfillsTrailer(ch.Message, ch.Fulfills))
 	return e.gs.Write(gitobj.KindCommit, body)
+}
+
+// fulfillsTrailerKey is the Git commit trailer that carries Change.Fulfills.
+const fulfillsTrailerKey = "Varvig-Fulfills"
+
+// withFulfillsTrailer appends the ticket→commit link as a trailer, or returns the
+// message unchanged when the change fulfills nothing.
+func withFulfillsTrailer(msg string, f multihash.Multihash) string {
+	if f == nil {
+		return msg
+	}
+	return strings.TrimRight(msg, "\n") + "\n\n" + fulfillsTrailerKey + ": " + f.Hex()
+}
+
+// splitFulfillsTrailer pulls a trailing Varvig-Fulfills trailer off an imported
+// commit message, returning the cleaned message and the intent revision it named
+// (nil if there is none or it does not parse). Only the last non-blank line is
+// considered, matching how withFulfillsTrailer writes it.
+func splitFulfillsTrailer(msg string) (string, multihash.Multihash) {
+	lines := strings.Split(msg, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) == "" {
+			continue
+		}
+		prefix := fulfillsTrailerKey + ": "
+		line := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(line, prefix) {
+			break // the last non-blank line is not our trailer
+		}
+		h, err := multihash.ParseHex(strings.TrimSpace(strings.TrimPrefix(line, prefix)))
+		if err != nil {
+			return msg, nil // malformed; leave the message intact
+		}
+		return strings.TrimRight(strings.Join(lines[:i], "\n"), "\n"), h
+	}
+	return msg, nil
 }
 
 // Import reads the git commit at refs/heads/<branch> in gitDir into r, creating
@@ -244,12 +284,14 @@ func (im *importer) commit(body []byte) (multihash.Multihash, error) {
 		}
 		parents = append(parents, pid)
 	}
+	msg, fulfills := splitFulfillsTrailer(c.Message)
 	obj := object.NewChange(object.Change{
 		Tree:      treeID,
 		Parents:   parents,
-		Message:   c.Message,
+		Message:   msg,
 		Timestamp: c.AuthorTS,
 		Author:    c.Author,
+		Fulfills:  fulfills,
 	})
 	// Retain the exact git body so a re-export is byte-identical.
 	obj.SetField(GitCommitBody, c.RawBody)

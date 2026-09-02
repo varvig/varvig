@@ -99,6 +99,10 @@ func Merge(ctx context.Context, objs ObjectStore, ours, theirs multihash.Multiha
 			Tree:    mt.tree,
 			Parents: []multihash.Multihash{ours, theirs},
 			Message: "merge",
+			// Regeneration re-materializes the incoming change's intent against a
+			// new base, so it carries that change's ticket→commit link forward —
+			// dropping it here would silently orphan the audit link (C2).
+			Fulfills: changeFulfills(objs, theirs),
 		})
 		id, err := objs.Put(change)
 		if err != nil {
@@ -401,6 +405,24 @@ func changeIntent(objs ObjectStore, change multihash.Multihash) (object.Provenan
 		return object.Provenance{}, false
 	}
 	return p, true
+}
+
+// changeFulfills returns the intent revision the change fulfills, or nil if it
+// fulfills nothing or cannot be read. Used to carry the ticket→commit link
+// forward through regeneration (C2).
+func changeFulfills(objs ObjectStore, change multihash.Multihash) multihash.Multihash {
+	if change == nil {
+		return nil
+	}
+	obj, err := objs.Get(change)
+	if err != nil {
+		return nil
+	}
+	c, err := obj.AsChange()
+	if err != nil {
+		return nil
+	}
+	return c.Fulfills
 }
 
 // --- helpers ---
