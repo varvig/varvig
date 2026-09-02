@@ -29,10 +29,16 @@ type TicketComment struct {
 	Timestamp int64  `json:"ts"`
 }
 
-// TicketDetail is a ticket plus its discussion, oldest comment first.
+// TicketDetail is a ticket plus its discussion, oldest comment first, and its
+// derived implementation state.
 type TicketDetail struct {
 	TicketView
 	Comments []TicketComment `json:"comments"`
+	// Implementation is "open", "stale", or "implemented" — derived from the
+	// commits that fulfill the ticket (the ticket→commit link). Implementers are
+	// the ids of the branch-reachable commits behind that state.
+	Implementation string   `json:"implementation"`
+	Implementers   []string `json:"implementers,omitempty"`
 }
 
 func ticketViewOf(info ticket.Info) TicketView {
@@ -112,5 +118,18 @@ func (q *Query) Ticket(id multihash.Multihash) (TicketDetail, error) {
 	for i, c := range comments {
 		cs[i] = TicketComment{Author: c.Author, Body: c.Body, Origin: c.Origin, Timestamp: c.Timestamp}
 	}
-	return TicketDetail{TicketView: ticketViewOf(info), Comments: cs}, nil
+	state, commits, err := ticket.Implementation(q.r, id)
+	if err != nil {
+		return TicketDetail{}, wrap(err)
+	}
+	impl := make([]string, len(commits))
+	for i, c := range commits {
+		impl[i] = c.Hex()
+	}
+	return TicketDetail{
+		TicketView:     ticketViewOf(info),
+		Comments:       cs,
+		Implementation: state,
+		Implementers:   impl,
+	}, nil
 }
