@@ -108,5 +108,21 @@ func (rl *readLog) Ticket(id multihash.Multihash) (readapi.TicketDetail, error) 
 		return d, err
 	}
 	rl.record(d.Head)
+	rl.record(d.Implementers...) // the commits behind the derived status
 	return d, nil
+}
+
+// TicketArtifacts records each artifact's content hash and its producing change.
+func (rl *readLog) TicketArtifacts(id multihash.Multihash) ([]readapi.ArtifactView, error) {
+	arts, err := rl.q.TicketArtifacts(id)
+	if err != nil {
+		return arts, err
+	}
+	for _, a := range arts {
+		rl.record(a.ContentHash)
+		if a.ProducedBy != "" {
+			rl.record(a.ProducedBy)
+		}
+	}
+	return arts, nil
 }
