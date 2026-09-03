@@ -82,15 +82,19 @@ tool is destructive and **there is no promotion tool**.
 | `varvig_search_text` | Literal or regex search within scope | ✓ | — |
 | `varvig_read_change` | Intent, then evidence, then changed paths | ✓ | — |
 | `varvig_read_log` | Change list for a ref or path | ✓ | — |
-| `varvig_read_ticket` | Read intent records (tickets) + discussion; list or detail | ✓ | — |
+| `varvig_read_ticket` | Read intent records (tickets): spec, derived implementation status, named artifacts, discussion; list or detail | ✓ | — |
 | `varvig_list_proposals` | Unpromoted speculative states | ✓ | — |
 | `varvig_propose` | Create objects, propose a state | ✗ | false |
 
 `varvig_read_ticket` is read-only intent intake (tickets §1.2): a ticket is an
 unmaterialized change — intent with no tree — so reading one carries no file
-content and is not subtree-scoped. Governance over tickets (attestations,
-approve / veto) is a **human** decision surface and is deliberately not exposed
-to the gate — the same separation that keeps promotion out (§2.1).
+content and is not subtree-scoped. Detail includes the **derived implementation
+status** (`open` / `stale` / `implemented`) and the commits behind it via the
+ticket→commit link, plus any external artifacts the ticket names (federation §1),
+so an agent can tell whether its intent is already fulfilled and by what.
+Governance over tickets (attestations, approve / veto) is a **human** decision
+surface and is deliberately not exposed to the gate — the same separation that
+keeps promotion out (§2.1).
 
 There is no promotion tool. Do not add one. Because the write path is
 append-only, Varvig has no destructive agent-facing tool at all — a real

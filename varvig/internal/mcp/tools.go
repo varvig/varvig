@@ -107,7 +107,7 @@ var toolList = []map[string]any{
 	{
 		"name":        "varvig_read_ticket",
 		"title":       "Read a ticket",
-		"description": "Read the repository's intent records (tickets). With no argument, list the tickets (id + spec). With a ticket id, return that ticket's spec, materialization status, and discussion — paginated with an opaque cursor. Read-only: governance decisions (approve / veto) are human-only and are not exposed here.",
+		"description": "Read the repository's intent records (tickets). With no argument, list the tickets (id + spec). With a ticket id, return that ticket's spec, its derived implementation status (open / stale / implemented) and the commits behind it, any external artifacts it names, and its discussion — paginated with an opaque cursor. Read-only: governance decisions (approve / veto) are human-only and are not exposed here.",
 		"annotations": readOnlyAnnotations("Read a ticket"),
 		"inputSchema": objectSchema(map[string]any{
 			"ticket": strProp("ticket id (hex) or refs/varvig/tickets/<id>; omit to list all tickets"),
@@ -627,13 +627,23 @@ func toolReadTicket(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	if err != nil {
 		return nil, gerr(codeNotFound, "no ticket %q", a.Ticket)
 	}
+	artifacts, err := g.rl.TicketArtifacts(id)
+	if err != nil {
+		return nil, gerr(codeUnavailable, "cannot read ticket artifacts: %v", err)
+	}
 	page, next, truncated := paginate(detail.Comments, cur.Offset, treePageSize)
 	out := map[string]any{
-		"id":           detail.ID,
-		"head":         detail.Head,
-		"spec":         detail.Spec,
-		"materialized": detail.Materialized,
-		"comments":     page,
+		"id":   detail.ID,
+		"head": detail.Head,
+		"spec": detail.Spec,
+		// Derived from the ticket→commit link: "open", "stale", or "implemented",
+		// with the commits behind that state, so an agent knows whether its intent
+		// is already fulfilled and by what.
+		"implementation": detail.Implementation,
+		"implementers":   detail.Implementers,
+		"materialized":   detail.Materialized,
+		"artifacts":      artifacts, // external artifacts the ticket names (federation §1)
+		"comments":       page,
 	}
 	addPage(out, next, truncated, "comments")
 	return out, nil

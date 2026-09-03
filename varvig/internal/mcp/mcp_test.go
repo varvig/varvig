@@ -784,8 +784,9 @@ func TestReadTicket(t *testing.T) {
 		t.Fatalf("read ticket errored: %s", dr.Content[0].Text)
 	}
 	var detail struct {
-		Spec     string `json:"spec"`
-		Comments []struct {
+		Spec           string `json:"spec"`
+		Implementation string `json:"implementation"`
+		Comments       []struct {
 			Body string `json:"body"`
 		} `json:"comments"`
 	}
@@ -795,8 +796,50 @@ func TestReadTicket(t *testing.T) {
 	if detail.Spec != "add rate limiting to the login path" {
 		t.Errorf("spec = %q", detail.Spec)
 	}
+	if detail.Implementation != "open" {
+		t.Errorf("implementation = %q, want open (nothing fulfills it yet)", detail.Implementation)
+	}
 	if len(detail.Comments) != 1 || detail.Comments[0].Body != "start with the auth subtree" {
 		t.Errorf("comments = %+v, want the one discussion entry", detail.Comments)
+	}
+
+	// Land a commit that fulfills the ticket, then re-read: derived status flips
+	// to "implemented" and names the commit behind it (the ticket→commit link).
+	baseObj, err := f.repo.Objects.Get(f.base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bc, err := baseObj.AsChange()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fulfill, err := f.repo.Objects.Put(object.NewChange(object.Change{
+		Tree:      bc.Tree,
+		Parents:   []multihash.Multihash{f.base},
+		Message:   "implement rate limiting",
+		Author:    "jan",
+		Timestamp: 1002,
+		Fulfills:  tid,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.repo.Refs.CompareAndSwap("refs/heads/main", f.base, fulfill, "jan", "promote"); err != nil {
+		t.Fatal(err)
+	}
+	ir := decodeTool(t, drive(t, gate, call(4, "varvig_read_ticket", `{"ticket":"`+tid.Hex()+`"}`))[0])
+	var impl struct {
+		Implementation string   `json:"implementation"`
+		Implementers   []string `json:"implementers"`
+	}
+	if err := json.Unmarshal(ir.StructuredContent, &impl); err != nil {
+		t.Fatal(err)
+	}
+	if impl.Implementation != "implemented" {
+		t.Errorf("implementation = %q, want implemented", impl.Implementation)
+	}
+	if !contains(impl.Implementers, fulfill.Hex()) {
+		t.Errorf("implementers = %v, want to include %s", impl.Implementers, fulfill.Hex())
 	}
 
 	// The ticket read is recorded as provenance (§5).

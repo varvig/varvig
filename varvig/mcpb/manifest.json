@@ -29,7 +29,7 @@
     { "name": "varvig_search_text", "description": "Search file contents (literal or regex) within scope." },
     { "name": "varvig_read_change", "description": "Read a change intent-first: intent, then evidence, then changed paths." },
     { "name": "varvig_read_log", "description": "List change history for a ref or path." },
-    { "name": "varvig_read_ticket", "description": "Read intent records (tickets) and their discussion; list or detail. Read-only." },
+    { "name": "varvig_read_ticket", "description": "Read intent records (tickets): spec, derived implementation status, named artifacts, and discussion; list or detail. Read-only." },
     { "name": "varvig_list_proposals", "description": "List this task's proposed, un-promoted changes." },
     { "name": "varvig_propose", "description": "Propose a signed, speculative change; never promotes a ref." }
   ],
