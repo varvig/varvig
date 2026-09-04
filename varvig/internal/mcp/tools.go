@@ -8,11 +8,16 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/blocked"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+)
+
+// Git-style modes for a proposed file, in the gate's explicit-contents path.
+const (
+	modeFileGate = 0o100644
+	modeExecGate = 0o100755
 )
 
 // The tool surface is small and domain-shaped (MCP spec §4): a handful of
@@ -343,15 +348,15 @@ func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	}
 	// Enforce scope on object reachability, not only path strings (§9.4): a
 	// blob/tree resolved directly must lie within the task's scope subtree.
-	if t := o.Type(); t == object.TypeBlob || t == object.TypeTree {
+	if k := o.Type().String(); k == "blob" || k == "tree" {
 		in, err := g.inScopeObject(id)
 		if err != nil {
 			return nil, err
 		}
 		if !in {
-			g.noteBoundaryHit(id.Hex(), t.String()+" resolved outside the task scope")
+			g.noteBoundaryHit(id.Hex(), k+" resolved outside the task scope")
 			return nil, gerr(codeOutOfScope,
-				"%s %s is outside the task scope %q", t.String(), id.Hex(), g.grant.Scopes)
+				"%s %s is outside the task scope %q", k, id.Hex(), g.grant.Scopes)
 		}
 	}
 	return map[string]any{"ref": a.Ref, "hash": id.Hex(), "type": o.Type().String()}, nil
@@ -891,7 +896,7 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	} else {
 		// Explicit-contents propose: the caller sends each file's new content. This
 		// is the path a harness with no sandboxed checkout uses.
-		files, err := flattenTree(g.repo.Objects, baseTree)
+		files, err := worktree.FlattenStates(g.repo.Objects, baseTree)
 		if err != nil {
 			return nil, gerr(codeInternal, "cannot flatten base tree: %v", err)
 		}
@@ -904,19 +909,19 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 			if path == "" || strings.HasSuffix(path, "/") {
 				return nil, gerr(codeInvalidArgs, "invalid file path %q", f.Path)
 			}
-			blobID, err := g.repo.Objects.Put(object.NewBlob([]byte(f.Content)))
+			blobID, err := core.PutBlob(g.repo, []byte(f.Content))
 			if err != nil {
 				return nil, gerr(codeInternal, "cannot store blob: %v", err)
 			}
-			mode := uint32(modeFile)
+			mode := uint32(modeFileGate)
 			if f.Executable {
-				mode = 0o100755
+				mode = modeExecGate
 			}
-			files[path] = fileEnt{id: blobID, mode: mode}
+			files[path] = worktree.FileState{Hash: blobID, Mode: mode}
 			g.record(blobID.Hex())
 			touched = append(touched, path)
 		}
-		t, err := buildTree(g.repo.Objects, files)
+		t, err := worktree.BuildTree(g.repo.Objects, files)
 		if err != nil {
 			return nil, gerr(codeInternal, "cannot build tree: %v", err)
 		}
@@ -1052,7 +1057,7 @@ func (g *Gate) blobAt(path string) (multihash.Multihash, error) {
 		return nil, gerr(codeNotFound, "no directory %q within scope", dir)
 	}
 	for _, e := range listing.Entries {
-		if e.Name == file && e.Kind == object.TypeBlob.String() {
+		if e.Name == file && e.Kind == "blob" {
 			return multihash.ParseHex(e.Hash)
 		}
 	}
@@ -1094,7 +1099,7 @@ func treeOfChange(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, er
 	if err != nil {
 		return nil, err
 	}
-	if o.Type() == object.TypeChange {
+	if core.IsChange(o) {
 		c, err := o.AsChange()
 		if err != nil {
 			return nil, err

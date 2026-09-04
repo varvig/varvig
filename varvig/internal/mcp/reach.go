@@ -3,9 +3,8 @@ package mcp
 import (
 	"strings"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/store"
 )
 
 // Scope must be enforced on object reachability, not only on path strings (MCP
@@ -39,46 +38,13 @@ func (g *Gate) reachable() (map[string]bool, error) {
 			if err != nil {
 				return nil, gerr(codeInternal, "bad subtree hash for scope %q: %v", sc, err)
 			}
-			if err := collectReach(g.repo.Objects, subID, set); err != nil {
+			if err := core.CollectReach(g.repo, subID, set); err != nil {
 				return nil, gerr(codeInternal, "walking scope %q subtree: %v", sc, err)
 			}
 		}
 	}
 	g.reach = set
 	return set, nil
-}
-
-// collectReach adds treeID and every tree/blob hash beneath it to set.
-func collectReach(s *store.Store, treeID multihash.Multihash, set map[string]bool) error {
-	if treeID == nil {
-		return nil
-	}
-	key := treeID.Hex()
-	if set[key] {
-		return nil // shared subtree already walked (Merkle DAG)
-	}
-	set[key] = true
-	o, err := s.Get(treeID)
-	if err != nil {
-		return err
-	}
-	if o.Type() != object.TypeTree {
-		return nil // a blob leaf reached directly; already recorded above
-	}
-	entries, err := o.TreeEntries()
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if e.Kind == object.TypeTree {
-			if err := collectReach(s, e.ID, set); err != nil {
-				return err
-			}
-			continue
-		}
-		set[e.ID.Hex()] = true // blob
-	}
-	return nil
 }
 
 // inScopeObject reports whether a directly-addressed blob/tree hash lies within
