@@ -468,7 +468,7 @@ func cmdCommit(args []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := core.Commit(r, core.CommitParams{
+	res, err := core.Commit(r, core.CLICapabilities(), core.CommitParams{
 		Ref:         headRef,
 		ExpectedOld: parent,
 		Tree:        treeID,

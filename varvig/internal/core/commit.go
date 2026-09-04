@@ -71,7 +71,12 @@ type CommitResult struct {
 // a proposal it moves a ref, so it is the human/CLI write path — the gate never
 // calls it. The CAS makes a concurrent move a clean conflict rather than a lost
 // update.
-func Commit(r *repo.Repo, p CommitParams) (CommitResult, error) {
+func Commit(r *repo.Repo, caps CapabilitySet, p CommitParams) (CommitResult, error) {
+	// Advancing a ref is the capability the gate never holds: a propose-only task
+	// can create a change but never move a ref (design addendum, U3).
+	if err := caps.Require(CapAdvanceRef); err != nil {
+		return CommitResult{}, err
+	}
 	changeID, provID, err := attachAndSign(r, p.Provenance, object.Change{
 		Tree:      p.Tree,
 		Parents:   p.Parents,

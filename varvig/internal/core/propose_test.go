@@ -34,7 +34,7 @@ func TestProposeFinalization(t *testing.T) {
 	}))
 	base, _ := r.Objects.Put(object.NewChange(object.Change{Tree: tree, Message: "base", Timestamp: 1}))
 
-	res, err := Propose(r, ProposeParams{
+	res, err := Propose(r, CLICapabilities(), ProposeParams{
 		Base:        base,
 		Tree:        tree,
 		Message:     "add greeting",
@@ -98,7 +98,7 @@ func TestProposeUnbornBase(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	tree, _ := r.Objects.Put(object.NewTree(nil))
 
-	res, err := Propose(r, ProposeParams{
+	res, err := Propose(r, CLICapabilities(), ProposeParams{
 		Base: nil, Tree: tree, Message: "first", Authority: "a", Author: "a",
 		Signer: priv, SpecTask: "t", Now: 1,
 	})

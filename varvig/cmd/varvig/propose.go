@@ -114,7 +114,7 @@ func cmdPropose(args []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := core.Propose(r, core.ProposeParams{
+	res, err := core.Propose(r, core.CLICapabilities(), core.ProposeParams{
 		Base:      baseChange,
 		Tree:      newTree,
 		Message:   msg,
