@@ -6,11 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
 )
@@ -109,42 +108,27 @@ func cmdPropose(args []string) error {
 		return fmt.Errorf("propose: build tree: %w", err)
 	}
 
-	// Sign a speculative change and record it in the pool. It never moves a ref.
-	provID, err := r.Objects.Put(object.NewProvenance(object.Provenance{
-		Authority: author(),
-		TaskSpec:  msg,
-		Reasoning: reasoning,
-	}))
-	if err != nil {
-		return err
-	}
-	var parents []multihash.Multihash
-	if baseChange != nil {
-		parents = append(parents, baseChange)
-	}
-	change := object.NewChange(object.Change{
-		Tree:       newTree,
-		Parents:    parents,
-		Message:    msg,
-		Timestamp:  time.Now().Unix(),
-		Author:     author(),
-		Provenance: provID,
-	})
+	// Finalize through the shared core: the same provenance attach, sign, store,
+	// and pool record the gate uses. It never moves a ref.
 	priv, err := provenance.LoadOrCreateIdentity(r.GitDir())
 	if err != nil {
 		return err
 	}
-	if err := provenance.Sign(change, priv); err != nil {
-		return err
-	}
-	changeID, err := r.Objects.Put(change)
+	res, err := core.Propose(r, core.ProposeParams{
+		Base:      baseChange,
+		Tree:      newTree,
+		Message:   msg,
+		Reasoning: reasoning,
+		Authority: author(),
+		Author:    author(),
+		Signer:    priv,
+		SpecTask:  proposeTask,
+		Now:       time.Now().Unix(),
+	})
 	if err != nil {
 		return err
 	}
-	if err := spec.Open(r.GitDir()).Add(proposeTask, changeID, time.Now().Unix()); err != nil {
-		return fmt.Errorf("propose: record proposal: %w", err)
-	}
-	fmt.Printf("proposed %s (tree %s)\n", changeID.Hex(), newTree.Hex())
+	fmt.Printf("proposed %s (tree %s)\n", res.Change.Hex(), newTree.Hex())
 	return nil
 }
 

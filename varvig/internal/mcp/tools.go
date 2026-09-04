@@ -6,13 +6,12 @@ import (
 	"strings"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/blocked"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
 )
 
@@ -896,74 +895,42 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		newTree = t
 	}
 
-	prov := object.NewProvenance(object.Provenance{
+	// Finalize through the shared core: provenance attach, sign, store, pool
+	// record, and read-back are identical to the CLI's propose and must not drift.
+	// Reasoning — the plan the agent followed — is the half of the message/reasoning
+	// split that makes a varvig proposal more than a tree and a commit message
+	// (§1.1); the core persists it, read_change surfaces it, and the read-back below
+	// confirms it landed (C1).
+	res, err := core.Propose(g.repo, core.ProposeParams{
+		Base:        g.base,
+		Tree:        newTree,
+		Message:     a.Message,
+		Reasoning:   a.Reasoning,
 		Authority:   g.grant.Fingerprint(),
-		TaskSpec:    a.Message,
-		ContextRead: strings.Join(g.grant.Reads.Hashes(), " "),
-		// Reasoning — the plan the agent followed to produce the change — is the
-		// half of the message/reasoning split that makes a varvig proposal more
-		// than a tree and a commit message (§1.1). Persisted here, surfaced by
-		// read_change, and confirmed back in this response (C1).
-		Reasoning: a.Reasoning,
+		Author:      g.grant.Fingerprint(),
+		ContextRead: g.grant.Reads.Hashes(),
+		Signer:      g.grant.PrivateKey(),
+		SpecTask:    g.specTask(),
+		Now:         g.clock().Unix(),
 	})
-	provID, err := g.repo.Objects.Put(prov)
 	if err != nil {
-		return nil, gerr(codeInternal, "cannot store provenance: %v", err)
-	}
-
-	var parents []multihash.Multihash
-	if g.base != nil {
-		parents = append(parents, g.base)
-	}
-	change := object.NewChange(object.Change{
-		Tree:       newTree,
-		Parents:    parents,
-		Message:    a.Message,
-		Timestamp:  g.clock().Unix(),
-		Author:     g.grant.Fingerprint(),
-		Provenance: provID,
-	})
-	if err := provenance.Sign(change, g.grant.PrivateKey()); err != nil {
-		return nil, gerr(codeInternal, "cannot sign change: %v", err)
-	}
-	changeID, err := g.repo.Objects.Put(change)
-	if err != nil {
-		return nil, gerr(codeInternal, "cannot store change: %v", err)
-	}
-
-	pool := spec.Open(g.repo.GitDir())
-	if err := pool.Add(g.specTask(), changeID, g.clock().Unix()); err != nil {
-		return nil, gerr(codeInternal, "cannot record proposal: %v", err)
-	}
-
-	// Confirm what was stored, not what was sent (C0.4): read the provenance
-	// object back straight from the store — not through the read-logging query
-	// path, which would fold these hashes into the task's own read set — so the
-	// caller can verify reasoning (and the rest) actually landed, not an echo.
-	storedProv, err := g.repo.Objects.Get(provID)
-	if err != nil {
-		return nil, gerr(codeInternal, "cannot read back stored provenance: %v", err)
-	}
-	pv, err := storedProv.AsProvenance()
-	if err != nil {
-		return nil, gerr(codeInternal, "stored provenance unreadable: %v", err)
-	}
-	stored := map[string]any{
-		"task_spec":    pv.TaskSpec,
-		"context_read": pv.ContextRead,
-		"reasoning":    pv.Reasoning,
+		return nil, gerr(codeInternal, "%v", err)
 	}
 
 	return map[string]any{
 		"task":       g.specTask(),
-		"change":     changeID.Hex(),
+		"change":     res.Change.Hex(),
 		"tree":       newTree.Hex(),
-		"provenance": provID.Hex(),
-		"parents":    hexes(parents),
+		"provenance": res.Provenance.Hex(),
+		"parents":    hexes(res.Parents),
 		"paths":      touched,
 		"read_set":   g.grant.Reads.Hashes(),
-		"intent":     stored,
-		"promoted":   false, // always: the gate can never promote
+		"intent": map[string]any{
+			"task_spec":    res.Stored.TaskSpec,
+			"context_read": res.Stored.ContextRead,
+			"reasoning":    res.Stored.Reasoning,
+		},
+		"promoted": false, // always: the gate can never promote
 	}, nil
 }
 
