@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/blocked"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
@@ -70,6 +71,12 @@ type Gate struct {
 	base  multihash.Multihash // the pinned state the task reads and proposes from
 
 	reach map[string]bool // memoized in-scope reachable object set (§9.4); nil until first use
+
+	// boundary accumulates every scope-boundary refusal this task hit, so a
+	// blocked-on-scope report carries all of them at once rather than the task
+	// emitting one failure per hit (build spec P1.2). Its length is the
+	// boundary-hit metric reported by varvig_task_context.
+	boundary []blocked.Hit
 
 	// checkout is the task's sparse working tree, if the gate was given one. When
 	// set, varvig_propose with no files observes it (build spec P1.1). Empty means
@@ -246,10 +253,12 @@ func (g *Gate) resolvePath(p string) (string, error) {
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == ".." {
+			g.noteBoundaryHit(p, "path escapes the task scope")
 			return "", gerr(codeOutOfScope, "path %q escapes the task scope %q", p, g.grant.Scopes)
 		}
 	}
 	if !g.grant.Covers(p) {
+		g.noteBoundaryHit(p, "path is outside the task scope")
 		return "", gerr(codeOutOfScope, "path %q is outside the task scope %q", p, g.grant.Scopes)
 	}
 	return p, nil
@@ -261,3 +270,20 @@ func (g *Gate) record(hashes ...string) {
 		g.grant.Reads.Record(h)
 	}
 }
+
+// noteBoundaryHit records that the task reached a path or capability outside its
+// scope (build spec P1.2). It is a metric and an accumulator, not a refusal —
+// the caller still returns the out_of_scope error. Duplicate paths are collapsed
+// so a retried read is one boundary, and the count stays the scope-accuracy
+// measure the ticket design wanted.
+func (g *Gate) noteBoundaryHit(path, reason string) {
+	for _, h := range g.boundary {
+		if h.Path == path {
+			return
+		}
+	}
+	g.boundary = append(g.boundary, blocked.Hit{Path: path, Reason: reason})
+}
+
+// boundaryHits is the number of distinct scope boundaries this task has hit.
+func (g *Gate) boundaryHits() int { return len(g.boundary) }

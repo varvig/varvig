@@ -70,6 +70,7 @@ var commands = map[string]func([]string) error{
 	"attest":      cmdAttest,
 	"principal":   cmdPrincipal,
 	"tickets":     cmdTickets,
+	"blocked":     cmdBlocked,
 	"bridge":      cmdBridge,
 	"hook":        cmdHook,
 	"affected":    cmdAffected,

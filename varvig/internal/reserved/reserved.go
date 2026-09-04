@@ -73,6 +73,14 @@ const (
 	// Change.Artifacts would), its payload naming the ticket it belongs to. Also
 	// ungoverned.
 	NoteArtifactRef = "varvig/artifact-ref"
+	// NoteBlocked carries blocked-on-scope reports and the widening decisions that
+	// answer them (build spec P1.2), each keyed by the intent revision the task
+	// ran under. A report is signed by the task and routes to whoever holds scope
+	// authority, the same path an approval request travels; a widening is signed
+	// by that authority. It is not a governance decision consulted by scoring or
+	// status derivation — it is a routable request and its answer — so like
+	// discussion and artifacts it is deliberately absent from reservedNoteNamespaces.
+	NoteBlocked = "varvig/blocked"
 )
 
 // reservedNoteNamespaces is the fixed set of governance note namespaces.

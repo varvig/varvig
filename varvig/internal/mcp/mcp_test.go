@@ -170,6 +170,14 @@ var advertisedTools = []string{
 	"varvig_task_context", "varvig_resolve", "varvig_list_tree", "varvig_read_file",
 	"varvig_find_files", "varvig_search_text", "varvig_read_change", "varvig_read_log",
 	"varvig_read_ticket", "varvig_list_proposals", "varvig_propose",
+	"varvig_report_blocked",
+}
+
+// writerTools are the append-only write tools: not readOnly, but never
+// destructive (§4.2). Everything else on the surface is a pure read.
+var writerTools = map[string]bool{
+	"varvig_propose":        true,
+	"varvig_report_blocked": true,
 }
 
 func TestInitializeAndToolsList(t *testing.T) {
@@ -252,9 +260,9 @@ func TestAnnotationAssertion(t *testing.T) {
 		if dh {
 			t.Errorf("tool %q: destructiveHint must be false — the write path is append-only", name)
 		}
-		if name == "varvig_propose" {
+		if writerTools[name] {
 			if ro {
-				t.Errorf("varvig_propose must not be readOnly")
+				t.Errorf("write tool %q must not be readOnly", name)
 			}
 		} else if !ro {
 			t.Errorf("tool %q should be readOnly", name)

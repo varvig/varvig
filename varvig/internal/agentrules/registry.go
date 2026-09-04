@@ -158,6 +158,7 @@ var Commands = []Command{
 	{Name: "principal", NoRules: "org-chart administration; a director/admin registers keyholders and their kind, like the trust store"},
 	{Name: "spec", NoRules: "speculation pool is orchestrator-driven; candidates are added and scored around the agent, not by it"},
 	{Name: "tickets", NoRules: "ticket scheduling metadata (scope) and derived blocking; computed by the orchestrator/scheduler around the agent, not driven by a propose-only task"},
+	{Name: "blocked", NoRules: "the scope-authority side of blocked-on-scope: a human reads reports and records a widening decision. An agent reports being blocked through the gate's varvig_report_blocked and never widens its own scope"},
 	{Name: "bridge", NoRules: "external-tracker mirroring; driven by an out-of-core bridge peer holding a bridge key, not by a propose-only agent"},
 	{Name: "hook", NoRules: "configures acceptance gates; a human or admin sets the gates an agent's proposals must pass"},
 	{Name: "git-export", NoRules: "git interop; human or CI"},
