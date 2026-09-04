@@ -10,6 +10,7 @@ import (
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/check"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
@@ -140,6 +141,12 @@ func cmdPromote(args []string) error {
 	}
 	if !r.Objects.Has(newID) {
 		return fmt.Errorf("promote: object %s is not present", newID.Hex())
+	}
+	// A change's self-described authority must match the key that signed it,
+	// always — this is an integrity check, not a staleness policy, so --allow-stale
+	// does not skip it (design addendum, U4).
+	if err := core.VerifyAuthority(r, newID); err != nil {
+		return fmt.Errorf("promote: %w", err)
 	}
 	if !allowStale {
 		if err := checkPromotionNotStale(r, newID); err != nil {

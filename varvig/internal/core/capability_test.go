@@ -73,7 +73,7 @@ func TestProposeNeedsProposeCapability(t *testing.T) {
 	}
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	tree, _ := r.Objects.Put(object.NewTree(nil))
-	params := ProposeParams{Tree: tree, Message: "m", Authority: "a", Author: "a", Signer: priv, SpecTask: "t", Now: 1}
+	params := ProposeParams{Tree: tree, Message: "m", Author: "a", Signer: priv, SpecTask: "t", Now: 1}
 
 	if _, err := Propose(r, NewCapabilitySet(), params); !errors.Is(err, ErrCapability) {
 		t.Fatalf("propose with no capabilities must be a named refusal, got %v", err)

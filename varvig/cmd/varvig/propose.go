@@ -119,7 +119,6 @@ func cmdPropose(args []string) error {
 		Tree:      newTree,
 		Message:   msg,
 		Reasoning: reasoning,
-		Authority: author(),
 		Author:    author(),
 		Signer:    priv,
 		SpecTask:  proposeTask,

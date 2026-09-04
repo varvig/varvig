@@ -39,7 +39,6 @@ func TestProposeFinalization(t *testing.T) {
 		Tree:        tree,
 		Message:     "add greeting",
 		Reasoning:   "chose hello over hi for the test",
-		Authority:   "task:abc",
 		Author:      "task:abc",
 		ContextRead: []string{blob.Hex()},
 		Signer:      priv,
@@ -99,7 +98,7 @@ func TestProposeUnbornBase(t *testing.T) {
 	tree, _ := r.Objects.Put(object.NewTree(nil))
 
 	res, err := Propose(r, CLICapabilities(), ProposeParams{
-		Base: nil, Tree: tree, Message: "first", Authority: "a", Author: "a",
+		Base: nil, Tree: tree, Message: "first", Author: "a",
 		Signer: priv, SpecTask: "t", Now: 1,
 	})
 	if err != nil {
