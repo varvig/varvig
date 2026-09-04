@@ -103,6 +103,20 @@ var Commands = []Command{
 		Usage:   "varvig affected [<base> <new>]",
 	},
 	{
+		Name: "diff", AgentFacing: true,
+		Summary: "Show your working tree against the base as a unified textual diff — the local, independent view of your own change, before you propose it. This is the second feedback channel: read your change here, do not rely on a check happening to catch a mistake.",
+		Usage:   "varvig diff [--name-only|--stat] [<tree-a> <tree-b>]",
+		Flags: []Flag{
+			{Name: "--name-only", AgentFacing: true, Summary: "list only the changed paths — the set a proposal observes"},
+			{Name: "--stat", AgentFacing: true, Summary: "per-path added/removed line counts"},
+		},
+	},
+	{
+		Name: "status", AgentFacing: true,
+		Summary: "Summarize the working tree's changes against the base, grouped by add / modify / delete / rename. Run this to orient before proposing.",
+		Usage:   "varvig status",
+	},
+	{
 		Name: "task", AgentFacing: true,
 		Summary: "Mint an ephemeral, scoped, propose-only task credential and a sparse checkout of its read set.",
 		Usage:   "varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]",

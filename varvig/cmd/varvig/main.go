@@ -54,6 +54,8 @@ var commands = map[string]func([]string) error{
 	"write-tree":  cmdWriteTree,
 	"commit":      cmdCommit,
 	"checkout":    cmdCheckout,
+	"diff":        cmdDiff,
+	"status":      cmdStatus,
 	"log":         cmdLog,
 	"verify":      cmdVerify,
 	"git-export":  cmdGitExport,
@@ -152,6 +154,9 @@ usage:
   varvig commit -m <msg>                commit the working tree, advance HEAD
               [--ticket <id> | --fulfills <rev>]  link the commit to the intent it fulfills
   varvig checkout <ref|id>              materialize a change/tree into the tree
+  varvig diff [--name-only|--stat]      working tree vs base, or two trees
+              [<tree-a> <tree-b>]        (local read; the independent view of a change)
+  varvig status                         changed paths grouped by add/modify/delete
   varvig log [ref|id]                   walk the change DAG from HEAD (or arg)
   varvig verify [ref|id]                check provenance and signatures on changes
   varvig update-ref <name> <new> [old]  atomically set a ref (CAS on old)
