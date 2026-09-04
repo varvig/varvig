@@ -5,7 +5,7 @@ This file is **generated and overwritten in full** on every `varvig init`
 and on every varvig upgrade. Edits here will be lost. Put your own agent
 instructions in AGENTS.md instead.
 
-Source: varvig v0.0.0-test · intent schema v1 · surface 04f188c6
+Source: varvig v0.0.0-test · intent schema v1 · surface a2cfa923
 
 ## What varvig is
 
@@ -60,12 +60,12 @@ promote, force, rewrite, or delete. Promotion is a separate, human-gated step.
   - usage: `varvig status`
 - **`task`** — Mint an ephemeral, scoped, propose-only task credential and a sparse checkout of its read set.
   - usage: `varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]`
-  - `--scope` — path prefix you may read and propose within; the capability boundary
+  - `--scope` — path prefix you may read and propose within; the capability boundary — repeatable, and repeated scopes union
   - `--ttl` — how long the credential lives before it expires
   - `--base` — the change your task reads and proposes from (defaults to HEAD)
 - **`mcp`** — Open the MCP gate over stdio: the scoped, propose-only interface an agent harness drives. Reads are logged into provenance; you may propose, never promote.
   - usage: `varvig mcp [--scope S] [--ttl DUR] [--base REF]`
-  - `--scope` — path prefix the gate confines every read and proposed path to
+  - `--scope` — path prefix the gate confines every read and proposed path to — repeatable, and repeated scopes union
   - `--ttl` — credential lifetime; the gate refuses all calls once expired
   - `--base` — the pinned change the task reads and proposes from
 

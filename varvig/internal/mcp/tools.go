@@ -245,7 +245,7 @@ func (g *Gate) handleToolsCall(c *conn, req *request) error {
 	// treat it as failure (§3, §8).
 	if !g.grant.Valid(g.clock()) {
 		return c.replyResult(req.ID, g.toolErr(gerr(codeCredentialExpired,
-			"task credential expired; renew the task and retry (scope %q)", g.grant.Scope)))
+			"task credential expired; renew the task and retry (scope %q)", g.grant.Scopes)))
 	}
 	h, ok := toolHandlers[params.Name]
 	if !ok {
@@ -268,7 +268,7 @@ func toolTaskContext(g *Gate, _ json.RawMessage) (map[string]any, error) {
 	return map[string]any{
 		"mode":         g.resolvedMode(),
 		"principal":    g.resolvedPrincipal(),
-		"scope":        string(g.grant.Scope),
+		"scope":        g.grant.Scopes.String(),
 		"base":         g.baseHex(),
 		"propose_only": true,
 		"expires_unix": g.grant.NotAfter,
@@ -287,7 +287,7 @@ func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	}
 	id, err := g.rl.Resolve(a.Ref)
 	if err != nil {
-		return nil, gerr(codeNotFound, "cannot resolve %q (scope %q)", a.Ref, g.grant.Scope)
+		return nil, gerr(codeNotFound, "cannot resolve %q (scope %q)", a.Ref, g.grant.Scopes)
 	}
 	o, err := g.repo.Objects.Get(id)
 	if err != nil {
@@ -302,7 +302,7 @@ func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		}
 		if !in {
 			return nil, gerr(codeOutOfScope,
-				"%s %s is outside the task scope %q", t.String(), id.Hex(), g.grant.Scope)
+				"%s %s is outside the task scope %q", t.String(), id.Hex(), g.grant.Scopes)
 		}
 	}
 	return map[string]any{"ref": a.Ref, "hash": id.Hex(), "type": o.Type().String()}, nil
@@ -329,7 +329,7 @@ func toolListTree(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	}
 	listing, err := g.rl.Tree(g.base, path)
 	if err != nil {
-		return nil, gerr(codeNotFound, "no directory %q within scope %q", path, g.grant.Scope)
+		return nil, gerr(codeNotFound, "no directory %q within scope %q", path, g.grant.Scopes)
 	}
 	page, next, truncated := paginate(listing.Entries, cur.Offset, treePageSize)
 	out := map[string]any{
@@ -886,7 +886,7 @@ func (g *Gate) blobAt(path string) (multihash.Multihash, error) {
 			return multihash.ParseHex(e.Hash)
 		}
 	}
-	return nil, gerr(codeNotFound, "no file %q within scope %q", path, g.grant.Scope)
+	return nil, gerr(codeNotFound, "no file %q within scope %q", path, g.grant.Scopes)
 }
 
 // changeTouches reports whether a change view added, modified, or removed a path
@@ -979,7 +979,7 @@ func (g *Gate) toolErr(err error) map[string]any {
 	sc := map[string]any{
 		"code":    codeOf(err),
 		"message": err.Error(),
-		"scope":   string(g.grant.Scope),
+		"scope":   g.grant.Scopes.String(),
 		"base":    g.baseHex(),
 	}
 	return map[string]any{

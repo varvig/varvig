@@ -207,7 +207,7 @@ func (g *Gate) handleInitialize(c *conn, req *request) error {
 		"protocolVersion": pv,
 		"capabilities":    map[string]any{"tools": map[string]any{}},
 		"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
-		"instructions": "varvig read-gate scoped to " + string(g.grant.Scope) + ". " +
+		"instructions": "varvig read-gate scoped to " + g.grant.Scopes.String() + ". " +
 			"Reads are logged into provenance; you may propose changes but never promote.",
 	})
 }
@@ -217,7 +217,7 @@ func (g *Gate) handleInitialize(c *conn, req *request) error {
 // scopePath is the grant's scope as a repo-relative directory ("" for the whole
 // repo). A read or proposal defaults to this path.
 func (g *Gate) scopePath() string {
-	return strings.Trim(string(g.grant.Scope), "/")
+	return g.grant.Scopes.Primary()
 }
 
 // resolvePath maps a possibly-empty request path to a concrete repo-relative
@@ -233,11 +233,11 @@ func (g *Gate) resolvePath(p string) (string, error) {
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == ".." {
-			return "", gerr(codeOutOfScope, "path %q escapes the task scope %q", p, g.grant.Scope)
+			return "", gerr(codeOutOfScope, "path %q escapes the task scope %q", p, g.grant.Scopes)
 		}
 	}
 	if !g.grant.Covers(p) {
-		return "", gerr(codeOutOfScope, "path %q is outside the task scope %q", p, g.grant.Scope)
+		return "", gerr(codeOutOfScope, "path %q is outside the task scope %q", p, g.grant.Scopes)
 	}
 	return p, nil
 }

@@ -254,7 +254,7 @@ func (d *Daemon) infoOf(ts *taskServer) TaskInfo {
 	info := TaskInfo{
 		ID:          ts.grant.ID,
 		Fingerprint: ts.grant.Fingerprint(),
-		Scope:       string(ts.grant.Scope),
+		Scope:       ts.grant.Scopes.String(),
 		Socket:      ts.socket,
 		Expires:     ts.grant.NotAfter,
 	}
