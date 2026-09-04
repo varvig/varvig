@@ -19,7 +19,16 @@ func DerivedAuthority(signer ed25519.PrivateKey) string {
 	if signer == nil {
 		return ""
 	}
-	pub := signer.Public().(ed25519.PublicKey)
+	return DerivedAuthorityOf(signer.Public().(ed25519.PublicKey))
+}
+
+// DerivedAuthorityOf is DerivedAuthority for a public key alone — used where the
+// signer keeps its private key elsewhere (the daemon) and only the public half is
+// in hand. The fingerprint is a property of the public key, so the two agree.
+func DerivedAuthorityOf(pub ed25519.PublicKey) string {
+	if len(pub) == 0 {
+		return ""
+	}
 	return sshkey.PublicKey{Key: pub}.Fingerprint()
 }
 

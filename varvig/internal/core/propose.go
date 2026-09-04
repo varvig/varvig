@@ -60,8 +60,11 @@ type ProposeParams struct {
 	// access record §1.1 requires. May be empty when no read log was kept.
 	ContextRead []string
 
-	// Signer signs the change with the proposer's key.
-	Signer ed25519.PrivateKey
+	// Signer signs the change with the proposer's key. RemoteSigner, when set,
+	// signs in its place — a task checkout signing as a task whose key lives in the
+	// daemon (design addendum, F4).
+	Signer       ed25519.PrivateKey
+	RemoteSigner Signer
 
 	// SpecTask is the speculation-pool bucket the proposal is recorded under.
 	SpecTask string
@@ -120,7 +123,7 @@ func Propose(r *repo.Repo, caps CapabilitySet, p ProposeParams) (ProposeResult, 
 		Message:   p.Message,
 		Timestamp: p.Now,
 		Author:    p.Author,
-	}, p.Signer)
+	}, signerFor(p.Signer, p.RemoteSigner))
 	if err != nil {
 		return ProposeResult{}, err
 	}

@@ -475,22 +475,35 @@ func cmdCommit(args []string) error {
 	// `task start`, so the change is already authored as the task; here we stamp the
 	// scope half. Outside a checkout there is no marker and this is a plain commit.
 	prov := provenance.Build(author())
+	var remote core.Signer
 	if m, ok, err := core.ReadTaskMarker(r); err != nil {
 		return err
 	} else if ok {
 		prov.Scope = m.Scope
+		// In the daemon-minted path the checkout holds no key; it signs as the task
+		// by asking the daemon to sign (F4). Standalone checkouts were seeded with
+		// the key, so `priv` already is the task key and no remote signer is needed.
+		rs, warn, err := taskRemoteSigner(m)
+		if err != nil {
+			return err
+		}
+		if warn != "" {
+			fmt.Fprintln(os.Stderr, "warning: "+warn)
+		}
+		remote = rs
 	}
 	res, err := core.Commit(r, core.CLICapabilities(), core.CommitParams{
-		Ref:         headRef,
-		ExpectedOld: parent,
-		Tree:        treeID,
-		Parents:     parents,
-		Message:     msg,
-		Author:      author(),
-		Fulfills:    fulfills,
-		Provenance:  prov,
-		Signer:      priv,
-		Now:         time.Now().Unix(),
+		Ref:          headRef,
+		ExpectedOld:  parent,
+		Tree:         treeID,
+		Parents:      parents,
+		Message:      msg,
+		Author:       author(),
+		Fulfills:     fulfills,
+		Provenance:   prov,
+		Signer:       priv,
+		RemoteSigner: remote,
+		Now:          time.Now().Unix(),
 	})
 	if err != nil {
 		return err
