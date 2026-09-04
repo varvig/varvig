@@ -219,6 +219,7 @@ not have."
 | Code | Meaning | Caller action |
 |---|---|---|
 | `out_of_scope` | Path or object outside the task's read set | Do not retry; message names the scope |
+| `denied` | Path is on the repo deny-list (distinct from not_found) | Do not retry; the path is intentionally unreadable |
 | `credential_expired` | Task TTL elapsed | Renew and retry |
 | `stale_base` | Proposal built on a superseded base | Re-fetch base; scheduler regenerates |
 | `not_found` | No such hash, ref, or path | Do not retry |

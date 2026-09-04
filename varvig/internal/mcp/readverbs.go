@@ -87,7 +87,10 @@ func (g *Gate) flattenScoped(tree multihash.Multihash) (map[string]worktree.File
 func (g *Gate) scopeStates(m map[string]worktree.FileState) map[string]worktree.FileState {
 	out := make(map[string]worktree.FileState, len(m))
 	for p, s := range m {
-		if g.grant.Covers(p) {
+		// A whole-tree view is confined to scope and excludes deny-listed paths, so
+		// a diff or status never renders content the task may not read (U5). A
+		// targeted read of a denied path is refused loudly in resolvePath.
+		if g.grant.Covers(p) && !g.deny.Denied(p) {
 			out[p] = s
 		}
 	}

@@ -820,6 +820,14 @@ func (g *Gate) proposeFromCheckout(baseTree multihash.Multihash) (multihash.Mult
 		// named message; surface it as invalid_args so the agent reads the reason.
 		return nil, nil, gerr(codeInvalidArgs, "%v", err)
 	}
+	// A proposal touching a deny-listed path cannot be produced without the F5
+	// tree splice, which is not built: refuse loudly rather than write the denied
+	// path into the tree (design addendum, U5).
+	for _, e := range edits {
+		if g.deny.Denied(e.Path) {
+			return nil, nil, gerr(codeDenied, "path %q is on the repository deny-list and cannot be proposed", e.Path)
+		}
+	}
 	proposed := worktree.Overlay(base, work, edits)
 	touched := make([]string, 0, len(edits))
 	for _, e := range edits {
