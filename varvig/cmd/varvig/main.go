@@ -469,6 +469,17 @@ func cmdCommit(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Inside a task checkout, a commit carries the task's scope in its provenance,
+	// so the scheduler can re-verify it against its own record at promotion (design
+	// addendum, F4). The checkout's identity was seeded with the task key at
+	// `task start`, so the change is already authored as the task; here we stamp the
+	// scope half. Outside a checkout there is no marker and this is a plain commit.
+	prov := provenance.Build(author())
+	if m, ok, err := core.ReadTaskMarker(r); err != nil {
+		return err
+	} else if ok {
+		prov.Scope = m.Scope
+	}
 	res, err := core.Commit(r, core.CLICapabilities(), core.CommitParams{
 		Ref:         headRef,
 		ExpectedOld: parent,
@@ -477,7 +488,7 @@ func cmdCommit(args []string) error {
 		Message:     msg,
 		Author:      author(),
 		Fulfills:    fulfills,
-		Provenance:  provenance.Build(author()),
+		Provenance:  prov,
 		Signer:      priv,
 		Now:         time.Now().Unix(),
 	})

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -417,6 +418,11 @@ func taskStart(r *repo.Repo, args []string) error {
 
 	var id, fp, socketDesc, scopeDisplay string
 	var expires int64
+	// taskKey is the task's ephemeral signing key when it is available to this
+	// process (the standalone-grant path). In the daemon path the key persists in
+	// the daemon and is never handed out, so it stays nil and the checkout is
+	// marked but not sealed with a signing identity — see the seal below.
+	var taskKey ed25519.PrivateKey
 	if daemonUp {
 		resp, err := daemon.DialControl(sock, daemon.StartRequest(scope, ttl.String(), hexOrEmpty(baseID)))
 		if err != nil {
@@ -439,6 +445,7 @@ func taskStart(r *repo.Repo, args []string) error {
 		}
 		id, fp, expires, scopeDisplay = grant.ID, grant.Fingerprint(), grant.NotAfter, grant.Scopes.String()
 		socketDesc = "(no daemon) run: varvig mcp --scope " + scope + " --ttl " + ttl.String()
+		taskKey = grant.PrivateKey()
 	}
 	if dir == "" {
 		dir = "./task-" + id
@@ -464,12 +471,28 @@ func taskStart(r *repo.Repo, args []string) error {
 	// is what confines the task now; read confinement is no longer by absence.
 	checkoutDesc := "(none — empty repo)"
 	if baseID != nil {
-		_, stat, err := core.ProvisionCheckout(r, dir, baseID)
+		dst, stat, err := core.ProvisionCheckout(r, dir, baseID)
 		if err != nil {
 			return fmt.Errorf("task start: provision checkout: %w", err)
 		}
-		checkoutDesc = fmt.Sprintf("%s (full tree; %d objects %s in %s)",
-			dir, stat.Objects, stat.Method, stat.Duration.Round(time.Millisecond))
+		// Seal the checkout as a task checkout: record the marker so `commit` and
+		// `propose` run inside it stamp the task's scope, and — when the task key is
+		// in hand (standalone path) — seed the checkout's identity with it so an
+		// in-checkout commit is authored as the task, its provenance authority the
+		// task fingerprint the source-side record is keyed by (design addendum, F4).
+		if err := core.SealTaskCheckout(dst, core.TaskMarker{
+			Fingerprint: fp,
+			Scope:       scopeDisplay,
+			Base:        hexOrEmpty(baseID),
+		}, taskKey); err != nil {
+			return fmt.Errorf("task start: seal checkout: %w", err)
+		}
+		sealed := "authored as the task"
+		if taskKey == nil {
+			sealed = "scope-marked only (daemon holds the key)"
+		}
+		checkoutDesc = fmt.Sprintf("%s (full tree; %d objects %s in %s; %s)",
+			dir, stat.Objects, stat.Method, stat.Duration.Round(time.Millisecond), sealed)
 	}
 
 	fmt.Printf("task %s\n", id)
