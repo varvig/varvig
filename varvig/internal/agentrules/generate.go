@@ -130,6 +130,20 @@ func renderBody(facts RepoFacts) string {
 	}
 	b.WriteString("\n")
 
+	// MCP gate tools — the surface an agent harness drives, one source with the
+	// gate itself (U2).
+	b.WriteString("## Gate tools (`varvig mcp`)\n\n")
+	b.WriteString("The MCP gate exposes exactly these tools. Reads are confined to your scope;\n")
+	b.WriteString("the two write tools are append-only and never move a ref.\n\n")
+	for _, t := range GateTools {
+		kind := "read"
+		if t.Write {
+			kind = "write"
+		}
+		fmt.Fprintf(&b, "- **`%s`** (%s) — %s\n", t.Name, kind, t.Summary)
+	}
+	b.WriteString("\n")
+
 	// Intent object.
 	b.WriteString("## Recording intent\n\n")
 	b.WriteString("Every proposal carries an intent record. These fields are yours to set:\n\n")
