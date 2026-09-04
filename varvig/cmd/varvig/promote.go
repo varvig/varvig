@@ -170,6 +170,13 @@ func cmdPromote(args []string) error {
 	if err := core.VerifyAuthority(r, newID); err != nil {
 		return fmt.Errorf("promote: %w", err)
 	}
+	// The scope half of the same invariant: if the change came from a recorded
+	// task, its self-described scope must equal what the scheduler granted, and it
+	// must not have written outside that scope. Also an integrity check, so it too
+	// ignores --allow-stale (design addendum, F4).
+	if err := core.VerifyTaskScope(r, newID); err != nil {
+		return fmt.Errorf("promote: %w", err)
+	}
 	if !allowStale {
 		if err := checkPromotionNotStale(r, newID); err != nil {
 			return err
