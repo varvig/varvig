@@ -159,3 +159,17 @@ func (ws *Workspace) finalize() (multihash.Multihash, error) {
 
 // mutated reports whether the transaction buffered any change.
 func (ws *Workspace) mutated() bool { return len(ws.pending) > 0 }
+
+// Written returns the transaction's observed write set: the concrete paths it
+// actually changed (wrote or removed), sorted. This is the after-execution
+// counterpart to the declared write set — path names only, never content — from
+// which the scheduler reports write-set overlap and declared/observed drift
+// (build spec P2.1).
+func (ws *Workspace) Written() []string {
+	out := make([]string, 0, len(ws.pending))
+	for p := range ws.pending {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
