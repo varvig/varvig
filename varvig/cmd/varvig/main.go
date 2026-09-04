@@ -57,6 +57,7 @@ var commands = map[string]func([]string) error{
 	"diff":        cmdDiff,
 	"status":      cmdStatus,
 	"propose":     cmdPropose,
+	"check":       cmdCheck,
 	"log":         cmdLog,
 	"verify":      cmdVerify,
 	"git-export":  cmdGitExport,

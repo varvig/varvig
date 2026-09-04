@@ -51,6 +51,13 @@ const (
 	// NoteScore holds computed and cached scoring output. Status and score are
 	// always derived and cached here, never authored (tickets §2.1, §3.3).
 	NoteScore = "varvig/score"
+	// NoteCheck holds verification evidence: the result of running the repo's
+	// declared checks over a proposal's tree (build spec P1.3, §1.3's evidence
+	// invariant). Each record binds to the tree hash it was produced against, so an
+	// edit after checking is detectable and stale evidence never counts as a pass.
+	// It is a reserved namespace so it always replicates to peers — evidence a peer
+	// cannot see is evidence that does not exist.
+	NoteCheck = "varvig/check"
 	// NoteScope carries a ticket's declared read set and write set (tickets
 	// §3.1) — what makes it schedulable, and the input from which blocking
 	// dependencies are derived rather than hand-declared (§3.2).
@@ -84,7 +91,7 @@ const (
 )
 
 // reservedNoteNamespaces is the fixed set of governance note namespaces.
-var reservedNoteNamespaces = []string{NoteAttest, NoteExternal, NoteScore, NoteScope}
+var reservedNoteNamespaces = []string{NoteAttest, NoteExternal, NoteScore, NoteScope, NoteCheck}
 
 // IsTicketRef reports whether name is (or is nested under) the reserved ticket
 // ref namespace.
