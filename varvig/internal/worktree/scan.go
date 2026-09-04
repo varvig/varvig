@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -227,6 +228,37 @@ func flattenStates(s *store.Store, treeID multihash.Multihash, prefix string, ou
 		out[rel] = FileState{Hash: e.ID, Mode: e.Mode}
 	}
 	return nil
+}
+
+// BuildTree writes a flat path→state map back into nested tree objects and
+// returns the root tree id — the inverse of FlattenStates. It is how a proposal
+// materializes a base tree overlaid with a selected set of working changes.
+func BuildTree(s *store.Store, files map[string]FileState) (multihash.Multihash, error) {
+	blobs := map[string]FileState{}
+	subdirs := map[string]map[string]FileState{}
+	for p, fs := range files {
+		if i := strings.IndexByte(p, '/'); i >= 0 {
+			seg, rest := p[:i], p[i+1:]
+			if subdirs[seg] == nil {
+				subdirs[seg] = map[string]FileState{}
+			}
+			subdirs[seg][rest] = fs
+			continue
+		}
+		blobs[p] = fs
+	}
+	var entries []object.Entry
+	for name, fs := range blobs {
+		entries = append(entries, object.Entry{Name: name, Mode: fs.Mode, Kind: object.TypeBlob, ID: fs.Hash})
+	}
+	for seg, sub := range subdirs {
+		subID, err := BuildTree(s, sub)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, object.Entry{Name: seg, Mode: modeTree, Kind: object.TypeTree, ID: subID})
+	}
+	return s.Put(object.NewTree(entries))
 }
 
 // --- comparison ----------------------------------------------------------------
