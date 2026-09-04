@@ -33,7 +33,8 @@ type Result struct {
 	Name     string
 	Change   multihash.Multihash // the committed change, if any
 	Attempts int
-	NoOp     bool // Apply made no changes
+	NoOp     bool     // Apply made no changes
+	Writes   []string // the observed write set: the concrete paths Apply changed
 	Err      error
 }
 
@@ -199,6 +200,10 @@ func (s *Scheduler) runOne(ctx context.Context, t *Txn) Result {
 			res.NoOp = true
 			return res
 		}
+
+		// Capture the observed write set (path names only) so the scheduler can
+		// report overlap and declared/observed drift after execution (P2.1).
+		res.Writes = ws.Written()
 
 		newTree, err := ws.finalize()
 		if err != nil {
