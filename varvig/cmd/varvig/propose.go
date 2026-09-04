@@ -120,6 +120,7 @@ func cmdPropose(args []string) error {
 		Message:   msg,
 		Reasoning: reasoning,
 		Author:    author(),
+		Scope:     scopes.String(),
 		Signer:    priv,
 		SpecTask:  proposeTask,
 		Now:       time.Now().Unix(),

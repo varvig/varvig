@@ -19,6 +19,7 @@ func TestProvenanceRoundTrip(t *testing.T) {
 		TaskSpec:        "add rate limiting",
 		ContextRead:     "auth/*.go",
 		Reasoning:       "guard the public interface",
+		Scope:           "src/auth,src/api",
 	}
 	obj := NewProvenance(p)
 	got, err := Decode(obj.Encode())
@@ -40,6 +41,9 @@ func TestProvenanceRoundTrip(t *testing.T) {
 	}
 	if back.TaskSpec != p.TaskSpec || back.Reasoning != p.Reasoning {
 		t.Fatalf("intent fields lost: %+v", back)
+	}
+	if back.Scope != p.Scope {
+		t.Fatalf("scope lost: %q", back.Scope)
 	}
 }
 

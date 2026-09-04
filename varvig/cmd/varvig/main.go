@@ -359,6 +359,9 @@ func cmdCatObject(args []string) error {
 		if p.Reasoning != "" {
 			fmt.Printf("reasoning %s\n", p.Reasoning)
 		}
+		if p.Scope != "" {
+			fmt.Printf("scope %s\n", p.Scope)
+		}
 		return nil
 	default:
 		fmt.Printf("%s object\n", o.Type())

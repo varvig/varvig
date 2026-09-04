@@ -38,6 +38,11 @@ type Provenance struct {
 	// environment. Provenance is the evidence object of the varvig model, and
 	// this is the field §2 adds to it.
 	Environment multihash.Multihash
+	// Scope is the task scope the change was produced under, recorded so the
+	// scheduler can re-verify a change's self-described scope against its own task
+	// record at promotion (design addendum, F4). Optional and additive; a change
+	// made outside a scoped task simply leaves it empty.
+	Scope string
 }
 
 // NewProvenance builds a provenance object, emitting only the fields that are
@@ -65,6 +70,7 @@ func NewProvenance(p Provenance) *Object {
 	if p.Environment != nil {
 		fields = append(fields, field{tag: tagProvEnvironment, val: append([]byte(nil), p.Environment...)})
 	}
+	add(tagProvScope, p.Scope)
 	return newObject(TypeProvenance, fields)
 }
 
@@ -100,6 +106,7 @@ func (o *Object) AsProvenance() (Provenance, error) {
 	if v, ok := o.Field(tagProvEnvironment); ok {
 		p.Environment = multihash.Multihash(append([]byte(nil), v...))
 	}
+	p.Scope = str(tagProvScope)
 	return p, nil
 }
 
