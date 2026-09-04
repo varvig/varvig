@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
 	"syscall"
 	"time"
 
@@ -178,7 +180,7 @@ func cmdMcp(args []string) error {
 			if i+1 >= len(args) {
 				return errors.New("mcp: --scope requires a value")
 			}
-			scope, i = args[i+1], i+1
+			scope, i = unionScope(scope, args[i+1]), i+1
 		case "--ttl":
 			if i+1 >= len(args) {
 				return errors.New("mcp: --ttl requires a value")
@@ -259,7 +261,7 @@ func cmdMcp(args []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "varvig mcp: standalone task %s scope %s key %s (expires %s)\n",
-		grant.ID, grant.Scope, grant.Fingerprint(),
+		grant.ID, grant.Scopes.String(), grant.Fingerprint(),
 		time.Unix(grant.NotAfter, 0).Format(time.Kitchen))
 	fmt.Fprintf(os.Stderr, "varvig mcp: base %s; propose-only, cannot promote\n", hexOrNone(baseID))
 
@@ -367,7 +369,7 @@ func taskStart(r *repo.Repo, args []string) error {
 			if i+1 >= len(args) {
 				return errors.New("task start: --scope requires a value")
 			}
-			scope, i = args[i+1], i+1
+			scope, i = unionScope(scope, args[i+1]), i+1
 		case "--ttl":
 			if i+1 >= len(args) {
 				return errors.New("task start: --ttl requires a value")
@@ -424,7 +426,7 @@ func taskStart(r *repo.Repo, args []string) error {
 		if err != nil {
 			return err
 		}
-		id, fp, expires, scopeDisplay = grant.ID, grant.Fingerprint(), grant.NotAfter, string(grant.Scope)
+		id, fp, expires, scopeDisplay = grant.ID, grant.Fingerprint(), grant.NotAfter, grant.Scopes.String()
 		socketDesc = "(no daemon) run: varvig mcp --scope " + scope + " --ttl " + ttl.String()
 	}
 	if dir == "" {
@@ -437,23 +439,32 @@ func taskStart(r *repo.Repo, args []string) error {
 	checkoutDesc := "(none — empty repo)"
 	if baseID != nil {
 		q := readapi.New(r)
-		scopePath := trimScope(scope)
-		listing, err := q.Tree(baseID, scopePath)
-		if err != nil {
-			return fmt.Errorf("task start: cannot resolve scope %q: %w", scope, err)
+		var dests []string
+		// Materialize each declared scope's subtree (build spec P0.5). An
+		// unresolvable scope fails the whole task start rather than silently
+		// dropping one element of the set.
+		for _, sc := range trust.NewScopeSet(scope) {
+			scopePath := trimScope(string(sc))
+			listing, err := q.Tree(baseID, scopePath)
+			if err != nil {
+				return fmt.Errorf("task start: cannot resolve scope %q: %w", sc, err)
+			}
+			subTree, err := multihash.ParseHex(listing.Hash)
+			if err != nil {
+				return err
+			}
+			dest := dir
+			if scopePath != "" {
+				dest = filepath.Join(dir, filepath.FromSlash(scopePath))
+			}
+			if err := worktree.Checkout(r.Objects, subTree, dest); err != nil {
+				return err
+			}
+			dests = append(dests, dest)
 		}
-		subTree, err := multihash.ParseHex(listing.Hash)
-		if err != nil {
-			return err
+		if len(dests) > 0 {
+			checkoutDesc = strings.Join(dests, ", ")
 		}
-		dest := dir
-		if scopePath != "" {
-			dest = filepath.Join(dir, filepath.FromSlash(scopePath))
-		}
-		if err := worktree.Checkout(r.Objects, subTree, dest); err != nil {
-			return err
-		}
-		checkoutDesc = dest
 	}
 
 	fmt.Printf("task %s\n", id)
@@ -516,6 +527,17 @@ func resolveBase(r *repo.Repo, ref string) (multihash.Multihash, error) {
 		return nil, nil
 	}
 	return id, err
+}
+
+// unionScope accumulates repeated --scope values into one comma-joined token.
+// The "/" default (no explicit scope) is replaced by the first value; further
+// values union. Last-wins is removed (build spec P0.5): a capability boundary
+// must never silently discard one of two declared scopes.
+func unionScope(cur, add string) string {
+	if cur == "" || cur == "/" {
+		return add
+	}
+	return cur + "," + add
 }
 
 func trimScope(scope string) string {

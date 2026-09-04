@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"strings"
+
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/store"
@@ -23,16 +25,23 @@ func (g *Gate) reachable() (map[string]bool, error) {
 	}
 	set := map[string]bool{}
 	if g.base != nil {
-		listing, err := g.q.Tree(g.base, g.scopePath())
-		if err != nil {
-			return nil, gerr(codeNotFound, "cannot resolve scope %q against base: %v", g.grant.Scope, err)
-		}
-		subID, err := multihash.ParseHex(listing.Hash)
-		if err != nil {
-			return nil, gerr(codeInternal, "bad subtree hash for scope %q: %v", g.grant.Scope, err)
-		}
-		if err := collectReach(g.repo.Objects, subID, set); err != nil {
-			return nil, gerr(codeInternal, "walking scope subtree: %v", err)
+		// The reachable set is the union of every scope's subtree, so an object is
+		// in-scope if any declared scope covers it (build spec P0.5). A declared
+		// scope with no files in the base yet is not an error — over-declaration is
+		// allowed; it simply contributes nothing.
+		for _, sc := range g.grant.Scopes {
+			root := strings.Trim(string(sc), "/")
+			listing, err := g.q.Tree(g.base, root)
+			if err != nil {
+				continue // scope path absent in the base: contributes nothing
+			}
+			subID, err := multihash.ParseHex(listing.Hash)
+			if err != nil {
+				return nil, gerr(codeInternal, "bad subtree hash for scope %q: %v", sc, err)
+			}
+			if err := collectReach(g.repo.Objects, subID, set); err != nil {
+				return nil, gerr(codeInternal, "walking scope %q subtree: %v", sc, err)
+			}
 		}
 	}
 	g.reach = set

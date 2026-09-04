@@ -33,7 +33,7 @@ func (g *Gate) scopeFiles() ([]fileRef, error) {
 	scopePath := g.scopePath()
 	listing, err := g.q.Tree(g.base, scopePath)
 	if err != nil {
-		return nil, gerr(codeNotFound, "cannot resolve scope %q: %v", g.grant.Scope, err)
+		return nil, gerr(codeNotFound, "cannot resolve scope %q: %v", g.grant.Scopes, err)
 	}
 	subID, err := multihash.ParseHex(listing.Hash)
 	if err != nil {
@@ -41,7 +41,7 @@ func (g *Gate) scopeFiles() ([]fileRef, error) {
 	}
 	flat, err := affected.FlattenTree(g.repo.Objects, subID)
 	if err != nil {
-		return nil, gerr(codeInternal, "walking scope %q: %v", g.grant.Scope, err)
+		return nil, gerr(codeInternal, "walking scope %q: %v", g.grant.Scopes, err)
 	}
 	refs := make([]fileRef, 0, len(flat))
 	for rel, blob := range flat {

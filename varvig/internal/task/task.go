@@ -39,9 +39,10 @@ type Grant struct {
 	// ID is a short handle for the task (the low bytes of the fingerprint),
 	// used to name the per-task socket and to look the grant up in the Table.
 	ID string
-	// Scope is the path prefix the task may read and propose within — the read
-	// set (§6.2). "/" is the whole repo; a narrower scope is a path prefix.
-	Scope trust.Scope
+	// Scopes is the set of path prefixes the task may read and propose within —
+	// the read set (§6.2). "/" is the whole repo; each narrower scope is a path
+	// prefix, and several union (build spec P0.5).
+	Scopes trust.ScopeSet
 	// ProposeOnly is always true at v1: a task key may propose, never promote
 	// (§6.2). The field is explicit so the invariant is visible at every call
 	// site rather than assumed.
@@ -74,7 +75,7 @@ func New(scope string, proposeOnly bool, ttl time.Duration, now time.Time) (*Gra
 	pk := sshkey.PublicKey{Key: pub, Comment: "task"}
 	return &Grant{
 		ID:          shortID(pub),
-		Scope:       trust.NormalizeScope(scope),
+		Scopes:      trust.NewScopeSet(scope),
 		ProposeOnly: proposeOnly,
 		NotAfter:    now.Add(ttl).Unix(),
 		pub:         pk,
@@ -107,7 +108,7 @@ func (g *Grant) Valid(now time.Time) bool { return now.Unix() <= g.NotAfter }
 // Covers reports whether path falls within the grant's scope — the single check
 // the gate makes on every read and every proposed path (§8.1, "the capability is
 // the read set"). The root scope covers everything.
-func (g *Grant) Covers(path string) bool { return g.Scope.Covers(path) }
+func (g *Grant) Covers(path string) bool { return g.Scopes.Covers(path) }
 
 // shortID derives a stable short handle from the public key: the first four
 // bytes of the raw key, hex-encoded (eight hex chars). It is used only for

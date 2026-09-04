@@ -121,7 +121,7 @@ var Commands = []Command{
 		Summary: "Mint an ephemeral, scoped, propose-only task credential and a sparse checkout of its read set.",
 		Usage:   "varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]",
 		Flags: []Flag{
-			{Name: "--scope", AgentFacing: true, Summary: "path prefix you may read and propose within; the capability boundary"},
+			{Name: "--scope", AgentFacing: true, Summary: "path prefix you may read and propose within; the capability boundary — repeatable, and repeated scopes union"},
 			{Name: "--ttl", AgentFacing: true, Summary: "how long the credential lives before it expires"},
 			{Name: "--base", AgentFacing: true, Summary: "the change your task reads and proposes from (defaults to HEAD)"},
 		},
@@ -131,7 +131,7 @@ var Commands = []Command{
 		Summary: "Open the MCP gate over stdio: the scoped, propose-only interface an agent harness drives. Reads are logged into provenance; you may propose, never promote.",
 		Usage:   "varvig mcp [--scope S] [--ttl DUR] [--base REF]",
 		Flags: []Flag{
-			{Name: "--scope", AgentFacing: true, Summary: "path prefix the gate confines every read and proposed path to"},
+			{Name: "--scope", AgentFacing: true, Summary: "path prefix the gate confines every read and proposed path to — repeatable, and repeated scopes union"},
 			{Name: "--ttl", AgentFacing: true, Summary: "credential lifetime; the gate refuses all calls once expired"},
 			{Name: "--base", AgentFacing: true, Summary: "the pinned change the task reads and proposes from"},
 		},

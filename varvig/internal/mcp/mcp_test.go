@@ -287,8 +287,8 @@ func TestTaskContext(t *testing.T) {
 	if out.Mode != "task" || out.Principal != "task:demo" {
 		t.Errorf("mode/principal = %q/%q, want task/task:demo", out.Mode, out.Principal)
 	}
-	if out.Scope != string(grant.Scope) {
-		t.Errorf("scope = %q, want %q", out.Scope, grant.Scope)
+	if out.Scope != grant.Scopes.String() {
+		t.Errorf("scope = %q, want %q", out.Scope, grant.Scopes.String())
 	}
 	if out.Base != f.base.Hex() {
 		t.Errorf("base = %q, want %q", out.Base, f.base.Hex())
