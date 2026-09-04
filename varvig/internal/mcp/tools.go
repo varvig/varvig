@@ -926,7 +926,6 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		Tree:        newTree,
 		Message:     a.Message,
 		Reasoning:   a.Reasoning,
-		Authority:   g.grant.Fingerprint(),
 		Author:      g.grant.Fingerprint(),
 		ContextRead: g.grant.Reads.Hashes(),
 		Signer:      g.grant.PrivateKey(),

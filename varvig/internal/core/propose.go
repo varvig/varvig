@@ -39,10 +39,9 @@ type ProposeParams struct {
 	Message   string
 	Reasoning string
 
-	// Authority is the provenance authority (a task fingerprint, or a session
-	// principal); Author is the change's author. They are usually the same string.
-	Authority string
-	Author    string
+	// Author is the change's author (a display attribution). The provenance
+	// authority is not taken here — the core derives it from the Signer (U4).
+	Author string
 
 	// ContextRead is the read set (object hashes) folded into provenance as the
 	// access record §1.1 requires. May be empty when no read log was kept.
@@ -91,7 +90,6 @@ func Propose(r *repo.Repo, caps CapabilitySet, p ProposeParams) (ProposeResult, 
 		parents = append(parents, p.Base)
 	}
 	changeID, provID, err := attachAndSign(r, object.Provenance{
-		Authority:   p.Authority,
 		TaskSpec:    p.Message,
 		ContextRead: strings.Join(p.ContextRead, " "),
 		Reasoning:   p.Reasoning,

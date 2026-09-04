@@ -17,6 +17,10 @@ import (
 // (design addendum, U4). The caller supplies the change template with everything
 // but Provenance filled in.
 func attachAndSign(r *repo.Repo, prov object.Provenance, tmpl object.Change, signer ed25519.PrivateKey) (changeID, provID multihash.Multihash, err error) {
+	// The authority is stamped from the signer, overriding anything a shell put in
+	// prov.Authority: a change's claimed authority is the key that signs it, and
+	// that determination is the core's alone (design addendum, U4).
+	prov.Authority = DerivedAuthority(signer)
 	provID, err = r.Objects.Put(object.NewProvenance(prov))
 	if err != nil {
 		return nil, nil, fmt.Errorf("core: store provenance: %w", err)
@@ -52,7 +56,8 @@ type CommitParams struct {
 
 	// Provenance is the provenance to attach. The shell builds it (e.g. from the
 	// environment via provenance.Build) so generator pinning stays a shell concern;
-	// the core attaches it so no change escapes without it.
+	// the core attaches it, and stamps its Authority from the Signer, so a shell
+	// cannot claim an authority it does not hold the key for (U4).
 	Provenance object.Provenance
 	Signer     ed25519.PrivateKey
 	Now        int64
