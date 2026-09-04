@@ -80,7 +80,7 @@ tool is destructive and **there is no promotion tool**.
 | `varvig_read_file` | File content, with line ranges | ✓ | — |
 | `varvig_find_files` | Glob within scope | ✓ | — |
 | `varvig_search_text` | Literal or regex search within scope | ✓ | — |
-| `varvig_read_change` | Intent, then evidence, then changed paths | ✓ | — |
+| `varvig_read_change` | Intent, evidence, verification (checks passed / current), then changed paths | ✓ | — |
 | `varvig_read_log` | Change list for a ref or path | ✓ | — |
 | `varvig_read_ticket` | Read intent records (tickets): spec, derived implementation status, named artifacts, discussion; list or detail | ✓ | — |
 | `varvig_list_proposals` | Unpromoted speculative states | ✓ | — |
@@ -186,10 +186,14 @@ always explicit — a marker plus an opaque cursor, never silent.
 - `varvig_read_file` takes a line range; without one it returns the whole file
   under the cap, else the head plus a cursor.
 - `varvig_read_change` is intent-first: intent, then an evidence summary, then
-  the changed paths — and the changed-paths section truncates first when the cap
-  binds. A diff-first response quietly rebuilds GitHub and loses the premise
-  (auth §7.3). The change view carries a path-level breakdown
-  (added/modified/removed), not a textual patch.
+  any verification evidence, then the changed paths — and the changed-paths
+  section truncates first when the cap binds. A diff-first response quietly
+  rebuilds GitHub and loses the premise (auth §7.3). The change view carries a
+  path-level breakdown (added/modified/removed), not a textual patch. The
+  verification section reflects `varvig check` (build spec P1.3): per evidence
+  record, whether the tree passed its declared checks and whether that evidence
+  is still `current` — evidence binds to a tree hash, so an edit after checking
+  is visible as stale and does not read as a pass.
 - `varvig_search_text` returns matches with surrounding lines, capped per file,
   so one pathological file cannot consume the budget.
 
