@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
@@ -83,6 +84,28 @@ func checkPromotionEvidenceNotStale(r *repo.Repo, newID multihash.Multihash) err
 	}
 }
 
+// checkPromotionReadsNotStale enforces §1.4's optimistic concurrency at promotion
+// (design addendum, F3): if the base has moved since the change was built and a
+// path the change actually read has changed, the change is stale and must be
+// re-derived on the new base. A path that changed but the change never read does
+// not block — that is the parallelism observation buys. --allow-stale overrides.
+func checkPromotionReadsNotStale(r *repo.Repo, refName string, newID multihash.Multihash) error {
+	tip, err := r.Refs.Resolve(refName)
+	if err != nil {
+		return nil // unborn ref: nothing has moved
+	}
+	stale, changed, err := core.CheckReadStaleness(r, newID, tip)
+	if err != nil {
+		return err
+	}
+	if stale {
+		return fmt.Errorf("promote: %s read %d object(s) that changed since it was built "+
+			"(base has moved to %s); re-derive it on the current base, or pass --allow-stale to override: %s",
+			newID.Hex(), len(changed), tip.Hex(), strings.Join(changed, ", "))
+	}
+	return nil
+}
+
 // cmdPromote moves a ref by way of a signed ref update (auth design §5, §10.7).
 // The signature travels with the change: the same bytes are signed here and
 // verified by the pipeline, so a promotion is authorized by *who signed it*,
@@ -152,6 +175,9 @@ func cmdPromote(args []string) error {
 			return err
 		}
 		if err := checkPromotionEvidenceNotStale(r, newID); err != nil {
+			return err
+		}
+		if err := checkPromotionReadsNotStale(r, refName, newID); err != nil {
 			return err
 		}
 	}
