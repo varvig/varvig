@@ -25,6 +25,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -51,6 +53,10 @@ type TaskInfo struct {
 	Socket      string `json:"socket"`
 	Base        string `json:"base,omitempty"`
 	Expires     int64  `json:"expires"`
+	// PublicKey is the base64 (std) of the task's Ed25519 public key. A task
+	// checkout records it so it can name — and later verify — the key the daemon
+	// signs its commits with, without ever holding the private half (F4).
+	PublicKey string `json:"public_key,omitempty"`
 }
 
 // Daemon holds the grant table and per-task MCP sockets for one repository.
@@ -261,7 +267,19 @@ func (d *Daemon) infoOf(ts *taskServer) TaskInfo {
 	if ts.base != nil {
 		info.Base = ts.base.Hex()
 	}
+	info.PublicKey = base64.StdEncoding.EncodeToString(ts.grant.PublicKey().Key)
 	return info
+}
+
+// signForTask signs data with a live task's key. An expired or unknown task is
+// refused — expiry is the revocation mechanism (§6.2), so a checkout cannot get
+// the daemon to sign as a task the daemon has already reaped.
+func (d *Daemon) signForTask(id string, data []byte) ([]byte, error) {
+	grant, ok := d.table.Get(id, d.clock())
+	if !ok {
+		return nil, fmt.Errorf("daemon: no live task %q (expired or never started)", id)
+	}
+	return ed25519.Sign(grant.PrivateKey(), data), nil
 }
 
 // --- control protocol ---
@@ -274,6 +292,7 @@ type ctrlRequest struct {
 	TTL   string `json:"ttl,omitempty"`  // a Go duration string
 	Base  string `json:"base,omitempty"` // a hex hash; empty means the daemon's HEAD
 	ID    string `json:"id,omitempty"`
+	Data  string `json:"data,omitempty"` // base64 (std) of bytes to sign ("sign" op)
 }
 
 // ctrlResponse is the reply to a ctrlRequest.
@@ -283,6 +302,7 @@ type ctrlResponse struct {
 	Task   *TaskInfo   `json:"task,omitempty"`
 	Tasks  []TaskInfo  `json:"tasks,omitempty"`
 	Status *StatusInfo `json:"status,omitempty"`
+	Sig    string      `json:"sig,omitempty"` // base64 (std) of the signature ("sign" op)
 }
 
 // ServeControl runs the control protocol over ln and a background reaper until
@@ -363,6 +383,21 @@ func (d *Daemon) handleControl(req ctrlRequest) ctrlResponse {
 			return ctrlResponse{Error: err.Error()}
 		}
 		return ctrlResponse{OK: true, Task: &info}
+	case "sign":
+		// Sign bytes on behalf of a live task, so a task checkout can commit as the
+		// task without the daemon ever handing out the key (design addendum, F4).
+		// The control socket is already uid-guarded (§7.4), the same boundary that
+		// lets a caller drive the task's gate — so signing here grants no authority a
+		// same-uid caller could not already exercise through that gate.
+		data, err := base64.StdEncoding.DecodeString(req.Data)
+		if err != nil {
+			return ctrlResponse{Error: "bad data: " + err.Error()}
+		}
+		sig, err := d.signForTask(req.ID, data)
+		if err != nil {
+			return ctrlResponse{Error: err.Error()}
+		}
+		return ctrlResponse{OK: true, Sig: base64.StdEncoding.EncodeToString(sig)}
 	case "list":
 		return ctrlResponse{OK: true, Tasks: d.ListTasks()}
 	case "stop":
@@ -468,3 +503,46 @@ func StatusRequest() ctrlRequest { return ctrlRequest{Op: "status"} }
 
 // ShutdownRequest builds a "shutdown" control request, asking the daemon to exit.
 func ShutdownRequest() ctrlRequest { return ctrlRequest{Op: "shutdown"} }
+
+// SignRequest builds a "sign" control request: ask the daemon to sign data with
+// live task id's key.
+func SignRequest(id string, data []byte) ctrlRequest {
+	return ctrlRequest{Op: "sign", ID: id, Data: base64.StdEncoding.EncodeToString(data)}
+}
+
+// RemoteSigner signs through a daemon: it holds the task's public key (so it can
+// report its authority up front) but never its private key, which stays in the
+// daemon. Each Sign round-trips to the control socket. It is how a task checkout
+// in the daemon path commits as the task — the checkout assembles and signs an
+// ordinary change, but the signature is produced by the daemon that owns the key
+// (design addendum, F4). It satisfies core.Signer / provenance.Signer.
+type RemoteSigner struct {
+	socket string
+	id     string
+	pub    ed25519.PublicKey
+}
+
+// NewRemoteSigner builds a signer that asks the daemon at socket to sign as task
+// id, whose public key is pub.
+func NewRemoteSigner(socket, id string, pub ed25519.PublicKey) *RemoteSigner {
+	return &RemoteSigner{socket: socket, id: id, pub: pub}
+}
+
+// Public returns the task's public key, known without contacting the daemon.
+func (s *RemoteSigner) Public() ed25519.PublicKey { return s.pub }
+
+// Sign asks the daemon to sign msg as the task and returns the raw signature.
+func (s *RemoteSigner) Sign(msg []byte) ([]byte, error) {
+	resp, err := DialControl(s.socket, SignRequest(s.id, msg))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: sign: %w", err)
+	}
+	if !resp.OK {
+		return nil, fmt.Errorf("daemon refused to sign: %s", resp.Error)
+	}
+	sig, err := base64.StdEncoding.DecodeString(resp.Sig)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: bad signature encoding: %w", err)
+	}
+	return sig, nil
+}

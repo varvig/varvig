@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -420,9 +421,11 @@ func taskStart(r *repo.Repo, args []string) error {
 	var expires int64
 	// taskKey is the task's ephemeral signing key when it is available to this
 	// process (the standalone-grant path). In the daemon path the key persists in
-	// the daemon and is never handed out, so it stays nil and the checkout is
-	// marked but not sealed with a signing identity — see the seal below.
+	// the daemon and is never handed out; instead the checkout is sealed to sign
+	// through the daemon (daemonPub/daemonID/sock below), so an in-checkout commit
+	// is still authored as the task without the key ever leaving the daemon.
 	var taskKey ed25519.PrivateKey
+	var daemonPub string
 	if daemonUp {
 		resp, err := daemon.DialControl(sock, daemon.StartRequest(scope, ttl.String(), hexOrEmpty(baseID)))
 		if err != nil {
@@ -433,6 +436,7 @@ func taskStart(r *repo.Repo, args []string) error {
 		}
 		id, fp, expires, scopeDisplay = resp.Task.ID, resp.Task.Fingerprint, resp.Task.Expires, resp.Task.Scope
 		socketDesc = resp.Task.Socket
+		daemonPub = resp.Task.PublicKey
 		if resp.Task.Base != "" {
 			if b, err := multihash.ParseHex(resp.Task.Base); err == nil {
 				baseID = b
@@ -476,20 +480,28 @@ func taskStart(r *repo.Repo, args []string) error {
 			return fmt.Errorf("task start: provision checkout: %w", err)
 		}
 		// Seal the checkout as a task checkout: record the marker so `commit` and
-		// `propose` run inside it stamp the task's scope, and — when the task key is
-		// in hand (standalone path) — seed the checkout's identity with it so an
-		// in-checkout commit is authored as the task, its provenance authority the
-		// task fingerprint the source-side record is keyed by (design addendum, F4).
-		if err := core.SealTaskCheckout(dst, core.TaskMarker{
+		// `propose` run inside it stamp the task's scope, and arrange for its commits
+		// to be authored as the task — either by seeding the checkout's identity with
+		// the task key (standalone path), or by recording the daemon coordinates so
+		// the checkout signs through the daemon that holds the key (daemon path).
+		// Either way the provenance authority is the task fingerprint the source-side
+		// record is keyed by (design addendum, F4).
+		marker := core.TaskMarker{
 			Fingerprint: fp,
 			Scope:       scopeDisplay,
 			Base:        hexOrEmpty(baseID),
-		}, taskKey); err != nil {
+		}
+		if taskKey == nil && daemonUp {
+			marker.DaemonSocket, marker.TaskID, marker.PublicKey = sock, id, daemonPub
+		}
+		if err := core.SealTaskCheckout(dst, marker, taskKey); err != nil {
 			return fmt.Errorf("task start: seal checkout: %w", err)
 		}
 		sealed := "authored as the task"
-		if taskKey == nil {
+		if taskKey == nil && marker.DaemonSocket == "" {
 			sealed = "scope-marked only (daemon holds the key)"
+		} else if taskKey == nil {
+			sealed = "authored as the task (signed via the daemon)"
 		}
 		checkoutDesc = fmt.Sprintf("%s (full tree; %d objects %s in %s; %s)",
 			dir, stat.Objects, stat.Method, stat.Duration.Round(time.Millisecond), sealed)
@@ -580,6 +592,30 @@ func hexOrEmpty(m multihash.Multihash) string {
 		return ""
 	}
 	return m.Hex()
+}
+
+// taskRemoteSigner returns a signer that authors changes as the task by asking
+// the daemon named in the checkout marker to sign — the daemon-minted path, where
+// the key never leaves the daemon (design addendum, F4). It returns (nil, reason,
+// nil) when the marker names no daemon or the daemon is unreachable, so the caller
+// falls back to the checkout's local identity with the reason surfaced. A live
+// daemon whose task key does not match the marker's fingerprint is a hard error:
+// signing as the wrong key would forge authority.
+func taskRemoteSigner(m core.TaskMarker) (core.Signer, string, error) {
+	if m.DaemonSocket == "" || m.TaskID == "" || m.PublicKey == "" {
+		return nil, "", nil
+	}
+	if resp, err := daemon.DialControl(m.DaemonSocket, daemon.PingRequest()); err != nil || !resp.OK {
+		return nil, "task daemon unreachable; committing with the checkout's local identity, not as the task", nil
+	}
+	pub, err := base64.StdEncoding.DecodeString(m.PublicKey)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		return nil, "", fmt.Errorf("commit: corrupt task public key in marker")
+	}
+	if core.DerivedAuthorityOf(ed25519.PublicKey(pub)) != m.Fingerprint {
+		return nil, "", fmt.Errorf("commit: task marker public key does not match its fingerprint")
+	}
+	return daemon.NewRemoteSigner(m.DaemonSocket, m.TaskID, ed25519.PublicKey(pub)), "", nil
 }
 
 // stdio is an io.ReadWriter bridging the process's stdin and stdout, for the MCP

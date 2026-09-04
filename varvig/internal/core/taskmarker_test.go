@@ -25,7 +25,7 @@ func TestSealedCheckoutCommitCarriesTaskProvenance(t *testing.T) {
 	}
 	blob, _ := PutBlob(src, []byte("hello"))
 	baseTree, _ := worktree.BuildTree(src.Objects, map[string]worktree.FileState{"README": {Hash: blob, Mode: 0o644}})
-	baseChange, _, err := attachAndSign(src, object.Provenance{}, object.Change{Tree: baseTree, Message: "base", Timestamp: 1}, mustKey(t))
+	baseChange, _, err := attachAndSign(src, object.Provenance{}, object.Change{Tree: baseTree, Message: "base", Timestamp: 1}, localSigner(mustKey(t)))
 	if err != nil {
 		t.Fatal(err)
 	}

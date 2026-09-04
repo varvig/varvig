@@ -34,6 +34,14 @@ type TaskMarker struct {
 	Fingerprint string `json:"fingerprint"` // the task key's fingerprint (== the change authority commits here will carry)
 	Scope       string `json:"scope"`       // the scope the task was granted, verbatim
 	Base        string `json:"base"`        // the base the checkout was provisioned from (hex, may be empty)
+
+	// When the task key lives in a daemon (the daemon-minted path), these locate
+	// it so the checkout can commit as the task by asking the daemon to sign,
+	// without ever holding the key (design addendum, F4). Empty in the
+	// standalone path, where the identity was seeded with the key directly.
+	DaemonSocket string `json:"daemon_socket,omitempty"` // the source repo's daemon control socket
+	TaskID       string `json:"task_id,omitempty"`       // the task id the daemon knows this task by
+	PublicKey    string `json:"public_key,omitempty"`    // base64 (std) of the task's Ed25519 public key
 }
 
 func taskMarkerPath(r *repo.Repo) string { return filepath.Join(r.GitDir(), taskMarkerFile) }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -158,17 +159,31 @@ func cmdPropose(args []string) error {
 	if err != nil {
 		return err
 	}
+	// In a daemon-minted checkout, sign the proposal as the task through the daemon
+	// (F4); standalone checkouts were seeded with the key, so priv already is it.
+	var remote core.Signer
+	if inCheckout {
+		rs, warn, err := taskRemoteSigner(marker)
+		if err != nil {
+			return err
+		}
+		if warn != "" {
+			fmt.Fprintln(os.Stderr, "warning: "+warn)
+		}
+		remote = rs
+	}
 	res, err := core.Propose(r, core.CLICapabilities(), core.ProposeParams{
-		Base:      baseChange,
-		ChainTip:  chainTip,
-		Tree:      newTree,
-		Message:   msg,
-		Reasoning: reasoning,
-		Author:    author(),
-		Scope:     scopes.String(),
-		Signer:    priv,
-		SpecTask:  proposeTask,
-		Now:       time.Now().Unix(),
+		Base:         baseChange,
+		ChainTip:     chainTip,
+		Tree:         newTree,
+		Message:      msg,
+		Reasoning:    reasoning,
+		Author:       author(),
+		Scope:        scopes.String(),
+		Signer:       priv,
+		RemoteSigner: remote,
+		SpecTask:     proposeTask,
+		Now:          time.Now().Unix(),
 	})
 	if err != nil {
 		return err

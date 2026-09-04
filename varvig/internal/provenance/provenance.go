@@ -36,20 +36,56 @@ var (
 	ErrNoProvenance = errors.New("provenance: change has no provenance record")
 )
 
-// Sign computes an Ed25519 signature over the change's SignableBytes and
-// attaches it. The change must already carry its provenance reference, since
-// SignableBytes covers it.
+// Signer is anything that can produce an Ed25519 signature for a public key,
+// whether the private key is held locally or somewhere the caller cannot reach
+// directly — the daemon that mints a task's ephemeral key never hands it out, so
+// a task checkout signs its commits through a signer that round-trips to the
+// daemon (design addendum, F4). A local key satisfies this too.
+type Signer interface {
+	Public() ed25519.PublicKey
+	Sign([]byte) ([]byte, error)
+}
+
+// Sign computes an Ed25519 signature over the change's SignableBytes with a
+// locally held key and attaches it. The change must already carry its provenance
+// reference, since SignableBytes covers it.
 func Sign(change *object.Object, priv ed25519.PrivateKey) error {
+	return SignWith(change, localSigner(priv))
+}
+
+// SignWith is Sign for any Signer, so a change can be signed by a key that lives
+// elsewhere (the daemon) without that key ever reaching this process. The
+// signature blob it attaches is byte-identical to Sign's for the same key — the
+// scheme, embedded public key, and raw signature are the same — so a change
+// signed remotely verifies exactly as a locally signed one does.
+func SignWith(change *object.Object, s Signer) error {
 	if change.Type() != object.TypeChange {
 		return fmt.Errorf("provenance: cannot sign a %s", change.Type())
 	}
-	pub, ok := priv.Public().(ed25519.PublicKey)
-	if !ok {
-		return errors.New("provenance: bad private key")
+	pub := s.Public()
+	if len(pub) != ed25519.PublicKeySize {
+		return errors.New("provenance: signer has no valid public key")
 	}
-	sig := ed25519.Sign(priv, change.SignableBytes())
+	sig, err := s.Sign(change.SignableBytes())
+	if err != nil {
+		return fmt.Errorf("provenance: signer: %w", err)
+	}
+	if len(sig) != ed25519.SignatureSize {
+		return fmt.Errorf("provenance: signer returned a %d-byte signature, want %d", len(sig), ed25519.SignatureSize)
+	}
 	change.SetSignature(encodeSig(schemeEd25519, pub, sig))
 	return nil
+}
+
+// localSigner adapts a locally held private key to the Signer interface.
+type localSigner ed25519.PrivateKey
+
+func (k localSigner) Public() ed25519.PublicKey {
+	return ed25519.PrivateKey(k).Public().(ed25519.PublicKey)
+}
+
+func (k localSigner) Sign(msg []byte) ([]byte, error) {
+	return ed25519.Sign(ed25519.PrivateKey(k), msg), nil
 }
 
 // Verify checks a change's signature and returns the signing public key.
