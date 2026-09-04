@@ -62,6 +62,17 @@ func cmdPropose(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Inside a task checkout, a proposal defaults to the task's granted scope (the
+	// marker sealed at `task start`) when the caller did not narrow it explicitly,
+	// so the write-set filter and the recorded provenance scope match what the
+	// scheduler granted (design addendum, F4). An explicit --scope still applies.
+	if scope == "/" {
+		if m, ok, err := core.ReadTaskMarker(r); err != nil {
+			return err
+		} else if ok && m.Scope != "" {
+			scope = m.Scope
+		}
+	}
 	scopes := trust.NewScopeSet(scope)
 
 	// The observed set: the working tree diffed against the base.
