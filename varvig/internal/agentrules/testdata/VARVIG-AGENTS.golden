@@ -5,7 +5,7 @@ This file is **generated and overwritten in full** on every `varvig init`
 and on every varvig upgrade. Edits here will be lost. Put your own agent
 instructions in AGENTS.md instead.
 
-Source: varvig v0.0.0-test · intent schema v1 · surface 0324a676
+Source: varvig v0.0.0-test · intent schema v1 · surface 04f188c6
 
 ## What varvig is
 
@@ -52,6 +52,12 @@ promote, force, rewrite, or delete. Promotion is a separate, human-gated step.
   - usage: `varvig verify [ref|id]`
 - **`affected`** — Show which files a change touched and, transitively, which files depend on them. Check this before proposing.
   - usage: `varvig affected [<base> <new>]`
+- **`diff`** — Show your working tree against the base as a unified textual diff — the local, independent view of your own change, before you propose it. This is the second feedback channel: read your change here, do not rely on a check happening to catch a mistake.
+  - usage: `varvig diff [--name-only|--stat] [<tree-a> <tree-b>]`
+  - `--name-only` — list only the changed paths — the set a proposal observes
+  - `--stat` — per-path added/removed line counts
+- **`status`** — Summarize the working tree's changes against the base, grouped by add / modify / delete / rename. Run this to orient before proposing.
+  - usage: `varvig status`
 - **`task`** — Mint an ephemeral, scoped, propose-only task credential and a sparse checkout of its read set.
   - usage: `varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]`
   - `--scope` — path prefix you may read and propose within; the capability boundary
