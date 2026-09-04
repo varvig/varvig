@@ -110,10 +110,23 @@ that an attempt was built on a stale base.
 
 Overlays file contents onto the base tree, signs a speculative change with the
 task's ephemeral key, and records it in the speculation pool (`internal/spec`)
-under the task. It returns the proposal's change, tree, and provenance hashes and
-its read set. It rejects any path outside scope with `out_of_scope`, naming the
+under the task. It rejects any path outside scope with `out_of_scope`, naming the
 scope in the message — an agent that cannot see why it was blocked will retry the
 same way.
+
+It takes two intent fields. `message` is the change's one-line intent; `reasoning`
+is the plan the agent followed to produce it — the deferrals, the alternatives
+weighed, the judgement calls — recorded so a reviewer can assess intent rather
+than reverse-engineering it from the diff. Both are persisted into the change's
+provenance (`task_spec` and `reasoning`); the message/reasoning split is what
+makes a varvig proposal more than a tree and a commit message (§1.1). Dropping
+`reasoning` would leave exactly what git already stores.
+
+The schema is **closed**: an input field the tool does not model is refused, not
+silently dropped (`invalid_args`). The response returns the proposal's change,
+tree, and provenance hashes, its read set, and — read back from the stored object,
+not echoed from the request — the persisted `intent` (`task_spec`, `context_read`,
+`reasoning`), so a caller can confirm at the write point that its reasoning landed.
 
 `destructiveHint: false` is accurate even for a delete: the proposal is a new
 immutable state, and nothing existing is modified or removed until a human

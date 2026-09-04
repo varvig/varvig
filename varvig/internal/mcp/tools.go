@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -136,7 +137,8 @@ var toolList = []map[string]any{
 			"openWorldHint":   false,
 		},
 		"inputSchema": objectSchema(map[string]any{
-			"message": strProp("the change's intent"),
+			"message":   strProp("the change's intent (one line)"),
+			"reasoning": strProp("the plan followed to produce the change — recorded so a reviewer can judge intent, not only the diff"),
 			"files": map[string]any{
 				"type":        "array",
 				"description": "files to create or overwrite in the proposed state",
@@ -152,6 +154,26 @@ var toolList = []map[string]any{
 			},
 		}, []string{"message", "files"}),
 	},
+}
+
+// --- argument decoding ---
+
+// decodeArgs parses a tool call's arguments into dst with a *closed* schema: an
+// input field the tool does not model is a refusal, not a silent drop (build spec
+// C0.1 / A3). This is the structural fix behind both C1 (a dropped `reasoning`)
+// and C2 (a wrong parameter name silently answered from the base): a
+// misspelled or unpersisted field now errors here instead of vanishing. Empty or
+// absent arguments decode to the zero value, so no-argument tools stay callable.
+func decodeArgs(raw json.RawMessage, dst any) error {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return gerr(codeInvalidArgs, "bad arguments: %v", err)
+	}
+	return nil
 }
 
 // --- schema helpers ---
@@ -257,7 +279,9 @@ func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	var a struct {
 		Ref string `json:"ref"`
 	}
-	_ = json.Unmarshal(raw, &a)
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(a.Ref) == "" {
 		return nil, gerr(codeInvalidArgs, "ref is required")
 	}
@@ -289,7 +313,9 @@ func toolListTree(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		Path   string `json:"path"`
 		Cursor string `json:"cursor"`
 	}
-	_ = json.Unmarshal(raw, &a)
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
 	if g.base == nil {
 		return nil, gerr(codeNotFound, "task has no base state to read")
 	}
@@ -322,8 +348,8 @@ func toolReadFile(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		End    int    `json:"end"`
 		Cursor string `json:"cursor"`
 	}
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return nil, gerr(codeInvalidArgs, "bad arguments: %v", err)
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(a.Path) == "" {
 		return nil, gerr(codeInvalidArgs, "path is required")
@@ -396,7 +422,9 @@ func toolFindFiles(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		Glob   string `json:"glob"`
 		Cursor string `json:"cursor"`
 	}
-	_ = json.Unmarshal(raw, &a)
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(a.Glob) == "" {
 		return nil, gerr(codeInvalidArgs, "glob is required")
 	}
@@ -428,7 +456,9 @@ func toolSearchText(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		Path   string `json:"path"`
 		Cursor string `json:"cursor"`
 	}
-	_ = json.Unmarshal(raw, &a)
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
 	if a.Query == "" {
 		return nil, gerr(codeInvalidArgs, "query is required")
 	}
@@ -500,7 +530,9 @@ func toolReadChange(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		Change string `json:"change"`
 		Cursor string `json:"cursor"`
 	}
-	_ = json.Unmarshal(raw, &a)
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
 	cur, err := decodeCursor(a.Cursor)
 	if err != nil {
 		return nil, err
@@ -549,7 +581,9 @@ func toolReadLog(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		Path   string `json:"path"`
 		Cursor string `json:"cursor"`
 	}
-	_ = json.Unmarshal(raw, &a)
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
 	cur, err := decodeCursor(a.Cursor)
 	if err != nil {
 		return nil, err
@@ -600,7 +634,9 @@ func toolReadTicket(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		Ticket string `json:"ticket"`
 		Cursor string `json:"cursor"`
 	}
-	_ = json.Unmarshal(raw, &a)
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
 	cur, err := decodeCursor(a.Cursor)
 	if err != nil {
 		return nil, err
@@ -675,15 +711,16 @@ func toolListProposals(g *Gate, _ json.RawMessage) (map[string]any, error) {
 
 func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	var a struct {
-		Message string `json:"message"`
-		Files   []struct {
+		Message   string `json:"message"`
+		Reasoning string `json:"reasoning"`
+		Files     []struct {
 			Path       string `json:"path"`
 			Content    string `json:"content"`
 			Executable bool   `json:"executable"`
 		} `json:"files"`
 	}
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return nil, gerr(codeInvalidArgs, "bad arguments: %v", err)
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(a.Message) == "" {
 		return nil, gerr(codeInvalidArgs, "message (the change's intent) is required")
@@ -734,6 +771,11 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		Authority:   g.grant.Fingerprint(),
 		TaskSpec:    a.Message,
 		ContextRead: strings.Join(g.grant.Reads.Hashes(), " "),
+		// Reasoning — the plan the agent followed to produce the change — is the
+		// half of the message/reasoning split that makes a varvig proposal more
+		// than a tree and a commit message (§1.1). Persisted here, surfaced by
+		// read_change, and confirmed back in this response (C1).
+		Reasoning: a.Reasoning,
 	})
 	provID, err := g.repo.Objects.Put(prov)
 	if err != nil {
@@ -765,6 +807,24 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		return nil, gerr(codeInternal, "cannot record proposal: %v", err)
 	}
 
+	// Confirm what was stored, not what was sent (C0.4): read the provenance
+	// object back straight from the store — not through the read-logging query
+	// path, which would fold these hashes into the task's own read set — so the
+	// caller can verify reasoning (and the rest) actually landed, not an echo.
+	storedProv, err := g.repo.Objects.Get(provID)
+	if err != nil {
+		return nil, gerr(codeInternal, "cannot read back stored provenance: %v", err)
+	}
+	pv, err := storedProv.AsProvenance()
+	if err != nil {
+		return nil, gerr(codeInternal, "stored provenance unreadable: %v", err)
+	}
+	stored := map[string]any{
+		"task_spec":    pv.TaskSpec,
+		"context_read": pv.ContextRead,
+		"reasoning":    pv.Reasoning,
+	}
+
 	return map[string]any{
 		"task":       g.specTask(),
 		"change":     changeID.Hex(),
@@ -773,6 +833,7 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		"parents":    hexes(parents),
 		"paths":      touched,
 		"read_set":   g.grant.Reads.Hashes(),
+		"intent":     stored,
 		"promoted":   false, // always: the gate can never promote
 	}, nil
 }
@@ -806,6 +867,9 @@ func evidenceSummary(p *readapi.ProvenanceView) map[string]any {
 		"model_version": p.ModelVersion,
 		"tool_perms":    p.ToolPerms,
 		"intent":        p.TaskSpec,
+		"context_read":  p.ContextRead,
+		// The persisted plan (C1): a reader judges intent, not only the diff.
+		"reasoning": p.Reasoning,
 	}
 }
 
