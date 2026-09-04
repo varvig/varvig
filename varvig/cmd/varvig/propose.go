@@ -23,11 +23,17 @@ import (
 // (P0.4) unless --quiet. It signs a change and records it in the speculation
 // pool; it never moves a ref.
 //
-//	varvig propose -m <msg> [--reasoning R] [--scope S ...] [--quiet] [paths...]
+// Inside a task checkout it measures the write set against the task base and, by
+// default, proposes one summarized change on that base — the task-local commit
+// chain does not survive. --carry-chain instead parents the proposal on HEAD (the
+// chain tip) so the whole chain is carried forward and retained under GC (F4).
+//
+//	varvig propose -m <msg> [--reasoning R] [--scope S ...] [--carry-chain] [--quiet] [paths...]
 func cmdPropose(args []string) error {
 	var msg, reasoning, scope string
 	var paths []string
 	quiet := false
+	carryChain := false
 	scope = "/"
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
@@ -48,6 +54,8 @@ func cmdPropose(args []string) error {
 			scope, i = unionScope(scope, args[i+1]), i+1
 		case "--quiet":
 			quiet = true
+		case "--carry-chain":
+			carryChain = true
 		default:
 			if strings.HasPrefix(a, "--") {
 				return fmt.Errorf("propose: unknown flag %q", a)
@@ -62,23 +70,48 @@ func cmdPropose(args []string) error {
 	if err != nil {
 		return err
 	}
+	marker, inCheckout, err := core.ReadTaskMarker(r)
+	if err != nil {
+		return err
+	}
 	// Inside a task checkout, a proposal defaults to the task's granted scope (the
 	// marker sealed at `task start`) when the caller did not narrow it explicitly,
 	// so the write-set filter and the recorded provenance scope match what the
 	// scheduler granted (design addendum, F4). An explicit --scope still applies.
-	if scope == "/" {
-		if m, ok, err := core.ReadTaskMarker(r); err != nil {
-			return err
-		} else if ok && m.Scope != "" {
-			scope = m.Scope
-		}
+	if scope == "/" && inCheckout && marker.Scope != "" {
+		scope = marker.Scope
 	}
 	scopes := trust.NewScopeSet(scope)
 
-	// The observed set: the working tree diffed against the base.
+	// Choose the diff baseline and the proposal's parent (design addendum, F4).
+	// Outside a checkout the base is HEAD, as always. Inside one, the write set is
+	// measured against the *task base* (what the scheduler granted from), and the
+	// proposal is a single summarized change on that base by default — the
+	// task-local commit chain does not survive. With --carry-chain the parent is
+	// instead HEAD, the chain tip, so the whole chain is carried forward and
+	// retained under GC.
 	baseChange, baseTreeID, err := baseChangeAndTree(r)
 	if err != nil {
 		return err
+	}
+	var chainTip multihash.Multihash
+	if inCheckout {
+		if carryChain {
+			chainTip = baseChange // HEAD == the task-local chain tip
+		}
+		if marker.Base != "" {
+			taskBase, err := multihash.ParseHex(marker.Base)
+			if err != nil {
+				return fmt.Errorf("propose: corrupt task base in marker: %w", err)
+			}
+			taskTree, err := treeOf(r, taskBase)
+			if err != nil {
+				return err
+			}
+			baseChange, baseTreeID = taskBase, taskTree
+		}
+	} else if carryChain {
+		return fmt.Errorf("propose: --carry-chain is only meaningful inside a task checkout")
 	}
 	baseStates, err := worktree.FlattenStates(r.Objects, baseTreeID)
 	if err != nil {
@@ -127,6 +160,7 @@ func cmdPropose(args []string) error {
 	}
 	res, err := core.Propose(r, core.CLICapabilities(), core.ProposeParams{
 		Base:      baseChange,
+		ChainTip:  chainTip,
 		Tree:      newTree,
 		Message:   msg,
 		Reasoning: reasoning,
@@ -139,7 +173,11 @@ func cmdPropose(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("proposed %s (tree %s)\n", res.Change.Hex(), newTree.Hex())
+	if carryChain {
+		fmt.Printf("proposed %s (tree %s; carrying task-local chain forward)\n", res.Change.Hex(), newTree.Hex())
+	} else {
+		fmt.Printf("proposed %s (tree %s)\n", res.Change.Hex(), newTree.Hex())
+	}
 	return nil
 }
 
@@ -148,7 +186,7 @@ func cmdPropose(args []string) error {
 const proposeTask = "local"
 
 func errUsagePropose() error {
-	return fmt.Errorf("usage: varvig propose -m <msg> [--reasoning R] [--scope S ...] [--quiet] [paths...]")
+	return fmt.Errorf("usage: varvig propose -m <msg> [--reasoning R] [--scope S ...] [--carry-chain] [--quiet] [paths...]")
 }
 
 // baseChangeAndTree resolves the current HEAD to its change id and tree, or
