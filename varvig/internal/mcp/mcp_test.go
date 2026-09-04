@@ -170,6 +170,7 @@ func itoa(i int) string {
 var advertisedTools = []string{
 	"varvig_task_context", "varvig_resolve", "varvig_list_tree", "varvig_read_file",
 	"varvig_find_files", "varvig_search_text", "varvig_read_change", "varvig_read_log",
+	"varvig_diff", "varvig_status",
 	"varvig_read_ticket", "varvig_list_proposals", "varvig_propose",
 	"varvig_report_blocked",
 }

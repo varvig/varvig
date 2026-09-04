@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/textdiff"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
 )
 
@@ -46,17 +46,8 @@ func cmdDiff(args []string) error {
 	if err != nil {
 		return err
 	}
-	d := worktree.Compare(base, work)
-	if d.Empty() {
-		return nil // no changes: empty output, exit 0
-	}
-
-	if nameOnly {
-		for _, p := range changedPaths(d) {
-			fmt.Println(p)
-		}
-		return nil
-	}
+	// Byte readers for each side; the rendering itself lives in the shared core so
+	// the CLI and the gate present an identical diff.
 	old := func(p string) ([]byte, bool, error) { return blobBytes(r, base[p].Hash) }
 	newer := func(p string) ([]byte, bool, error) {
 		if fromWorking {
@@ -64,10 +55,28 @@ func cmdDiff(args []string) error {
 		}
 		return blobBytes(r, work[p].Hash)
 	}
-	if stat {
-		return diffStat(d, old, newer)
+	res := core.Diff(base, work, old, newer)
+	if res.Diff.Empty() {
+		return nil // no changes: empty output, exit 0
 	}
-	return diffUnified(d, base, work, old, newer)
+
+	switch {
+	case nameOnly:
+		for _, p := range res.Changed {
+			fmt.Println(p)
+		}
+	case stat:
+		for _, s := range res.Stat {
+			if s.Note != "" {
+				fmt.Printf("%s\t+0\t-0 (%s)\n", s.Path, s.Note)
+				continue
+			}
+			fmt.Printf("%s\t+%d\t-%d\n", s.Path, s.Added, s.Removed)
+		}
+	default:
+		fmt.Print(res.Unified)
+	}
+	return nil
 }
 
 // diffSides resolves the two comparison sides from the positional args: none →
@@ -132,89 +141,6 @@ func resolveTree(r *repo.Repo, arg string) (multihash.Multihash, error) {
 		return nil, fmt.Errorf("diff: cannot resolve %q: %w", arg, err)
 	}
 	return treeOf(r, id)
-}
-
-// changedPaths lists every path touched, sorted, one class after another —
-// exactly the set `propose` observes (build spec P0.2 / P1.1).
-func changedPaths(d worktree.TreeDiff) []string {
-	var ps []string
-	ps = append(ps, d.Added...)
-	ps = append(ps, d.Modified...)
-	ps = append(ps, d.ModeChanged...)
-	ps = append(ps, d.Removed...)
-	for _, rn := range d.Renamed {
-		ps = append(ps, rn.To)
-	}
-	return ps
-}
-
-func diffStat(d worktree.TreeDiff, old, newer func(string) ([]byte, bool, error)) error {
-	line := func(label string, a, b []byte) {
-		added, removed := textdiff.Stat(a, b)
-		fmt.Printf("%s\t+%d\t-%d\n", label, added, removed)
-	}
-	for _, p := range d.Added {
-		nb, _, _ := newer(p)
-		line(p, nil, nb)
-	}
-	for _, p := range d.Modified {
-		ob, _, _ := old(p)
-		nb, _, _ := newer(p)
-		line(p, ob, nb)
-	}
-	for _, p := range d.Removed {
-		ob, _, _ := old(p)
-		line(p, ob, nil)
-	}
-	for _, p := range d.ModeChanged {
-		fmt.Printf("%s\t+0\t-0 (mode)\n", p)
-	}
-	for _, rn := range d.Renamed {
-		fmt.Printf("%s => %s\t+0\t-0 (rename)\n", rn.From, rn.To)
-	}
-	return nil
-}
-
-func diffUnified(d worktree.TreeDiff, base, work map[string]worktree.FileState, old, newer func(string) ([]byte, bool, error)) error {
-	// git-style side labels: a real path gets an a//b/ prefix; /dev/null does not.
-	label := func(side, p string) string {
-		if p == "/dev/null" {
-			return p
-		}
-		return side + p
-	}
-	emit := func(pathA, pathB string, a, b []byte) {
-		la, lb := label("a/", pathA), label("b/", pathB)
-		fmt.Printf("diff --varvig %s %s\n", la, lb)
-		if textdiff.IsBinary(a) || textdiff.IsBinary(b) {
-			fmt.Printf("Binary files %s and %s differ\n", la, lb)
-			return
-		}
-		body, empty := textdiff.Unified(a, b, la, lb, textdiff.DefaultContext)
-		if !empty {
-			fmt.Print(body)
-		}
-	}
-	for _, p := range d.Added {
-		nb, _, _ := newer(p)
-		emit("/dev/null", p, nil, nb)
-	}
-	for _, p := range d.Modified {
-		ob, _, _ := old(p)
-		nb, _, _ := newer(p)
-		emit(p, p, ob, nb)
-	}
-	for _, p := range d.ModeChanged {
-		fmt.Printf("diff --varvig a/%s b/%s\nold mode %o\nnew mode %o\n", p, p, base[p].Mode, work[p].Mode)
-	}
-	for _, p := range d.Removed {
-		ob, _, _ := old(p)
-		emit(p, "/dev/null", ob, nil)
-	}
-	for _, rn := range d.Renamed {
-		fmt.Printf("diff --varvig a/%s b/%s\nrename from %s\nrename to %s\n", rn.From, rn.To, rn.From, rn.To)
-	}
-	return nil
 }
 
 // blobBytes reads a stored blob's content; ok=false when the hash is nil.

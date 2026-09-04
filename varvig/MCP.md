@@ -66,8 +66,8 @@ the adapter.
 ## 3. Tool surface
 
 **Small and domain-shaped.** Not one wrapper per read-API endpoint, because the
-agent's context window is the scarce resource (auth §8.1). The surface is the ten
-read/propose tools plus read-only ticket access. Every tool declares a `title`
+agent's context window is the scarce resource (auth §8.1). The surface is a
+handful of read/propose tools plus read-only ticket access. Every tool declares a `title`
 and the applicable annotations — a directory-submission requirement asserted by
 the release smoke test (release §7) — and the write path is append-only, so no
 tool is destructive and **there is no promotion tool**.
@@ -82,6 +82,8 @@ tool is destructive and **there is no promotion tool**.
 | `varvig_search_text` | Literal or regex search within scope | ✓ | — |
 | `varvig_read_change` | Intent, evidence, verification (checks passed / current), then changed paths | ✓ | — |
 | `varvig_read_log` | Change list for a ref or path | ✓ | — |
+| `varvig_diff` | Unified diff of a change vs its parent, or the bound checkout vs base — scope-confined | ✓ | — |
+| `varvig_status` | Changed paths grouped by add/modify/delete/mode/rename — scope-confined | ✓ | — |
 | `varvig_read_ticket` | Read intent records (tickets): spec, derived implementation status, named artifacts, discussion; list or detail | ✓ | — |
 | `varvig_list_proposals` | Unpromoted speculative states | ✓ | — |
 | `varvig_propose` | Create objects, propose a state | ✗ | false |
