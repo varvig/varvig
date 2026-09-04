@@ -28,7 +28,6 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/merge"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/p2p"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/peercred"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
@@ -269,20 +268,19 @@ func cmdHashObject(args []string) error {
 	if err != nil {
 		return err
 	}
-	blob := object.NewBlob(data)
 	if write {
 		r, err := repo.Open(".")
 		if err != nil {
 			return err
 		}
-		id, err := r.Objects.Put(blob)
+		id, err := core.PutBlob(r, data)
 		if err != nil {
 			return err
 		}
 		fmt.Println(id.Hex())
 		return nil
 	}
-	id, err := blob.ID(multihash.Default)
+	id, err := core.HashBlob(data)
 	if err != nil {
 		return err
 	}
@@ -306,12 +304,12 @@ func cmdCatObject(args []string) error {
 	if err != nil {
 		return err
 	}
-	switch o.Type() {
-	case object.TypeBlob:
+	switch o.Type().String() {
+	case "blob":
 		content, _ := o.BlobContent()
 		_, err := os.Stdout.Write(content)
 		return err
-	case object.TypeTree:
+	case "tree":
 		entries, err := o.TreeEntries()
 		if err != nil {
 			return err
@@ -320,7 +318,7 @@ func cmdCatObject(args []string) error {
 			fmt.Printf("%06o %s %s\t%s\n", e.Mode, e.Kind, e.ID.Hex(), e.Name)
 		}
 		return nil
-	case object.TypeChange:
+	case "change":
 		c, err := o.AsChange()
 		if err != nil {
 			return err
@@ -339,7 +337,7 @@ func cmdCatObject(args []string) error {
 		fmt.Printf("timestamp %d\n", c.Timestamp)
 		fmt.Printf("\n%s\n", c.Message)
 		return nil
-	case object.TypeProvenance:
+	case "provenance":
 		p, err := o.AsProvenance()
 		if err != nil {
 			return err
@@ -508,7 +506,7 @@ func cmdCheckout(args []string) error {
 		return err
 	}
 	treeID := id
-	if o.Type() == object.TypeChange {
+	if core.IsChange(o) {
 		c, err := o.AsChange()
 		if err != nil {
 			return err
@@ -516,7 +514,7 @@ func cmdCheckout(args []string) error {
 		if !c.Materialized() {
 			// An unmaterialized change (a ticket) has no tree to lay down; this
 			// is a specific, named failure, not an empty working tree (D1).
-			return fmt.Errorf("%w: %s", object.ErrUnmaterialized, id.Hex())
+			return fmt.Errorf("%w: %s", core.ErrUnmaterialized, id.Hex())
 		}
 		treeID = c.Tree
 	}
@@ -626,7 +624,7 @@ func cmdVerify(args []string) error {
 				summary := ""
 				if prov, err := r.Objects.Get(c.Provenance); err == nil {
 					if p, err := prov.AsProvenance(); err == nil {
-						summary = provenanceSummary(p)
+						summary = core.ProvenanceSummary(p)
 					}
 				}
 				fmt.Printf("✓ %s  signed-by %s… %s\n", short, hex.EncodeToString(pub[:8]), summary)
@@ -646,24 +644,6 @@ func cmdVerify(args []string) error {
 		return fmt.Errorf("%d change(s) failed verification", failures)
 	}
 	return nil
-}
-
-func provenanceSummary(p object.Provenance) string {
-	parts := []string{}
-	if p.Authority != "" {
-		parts = append(parts, "authority="+p.Authority)
-	}
-	if p.Model != "" {
-		m := p.Model
-		if p.ModelVersion != "" {
-			m += "@" + p.ModelVersion
-		}
-		parts = append(parts, "model="+m)
-	}
-	if p.ToolHash != nil {
-		parts = append(parts, "tool="+p.ToolHash.Hex()[4:16])
-	}
-	return strings.Join(parts, " ")
 }
 
 func cmdUpdateRef(args []string) error {
@@ -1054,13 +1034,13 @@ func checkoutChange(r *repo.Repo, id multihash.Multihash) error {
 		return err
 	}
 	treeID := id
-	if o.Type() == object.TypeChange {
+	if core.IsChange(o) {
 		c, err := o.AsChange()
 		if err != nil {
 			return err
 		}
 		if !c.Materialized() {
-			return fmt.Errorf("%w: %s", object.ErrUnmaterialized, id.Hex())
+			return fmt.Errorf("%w: %s", core.ErrUnmaterialized, id.Hex())
 		}
 		treeID = c.Tree
 	}
@@ -1612,7 +1592,7 @@ func treeOf(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, error) {
 	if err != nil {
 		return nil, err
 	}
-	if obj.Type() == object.TypeChange {
+	if core.IsChange(obj) {
 		c, err := obj.AsChange()
 		if err != nil {
 			return nil, err

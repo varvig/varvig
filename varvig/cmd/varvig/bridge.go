@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/bridge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 )
@@ -303,16 +303,16 @@ func bridgeKey(r *repo.Repo) (ed25519.PrivateKey, error) {
 	return provenance.LoadOrCreateIdentity(r.GitDir())
 }
 
-func parseDecision(s string) (object.Decision, error) {
+func parseDecision(s string) (attest.Decision, error) {
 	switch s {
 	case "approve":
-		return object.DecisionApprove, nil
+		return attest.Approve, nil
 	case "veto":
-		return object.DecisionVeto, nil
+		return attest.Veto, nil
 	case "request-change":
-		return object.DecisionRequestChange, nil
+		return attest.RequestChange, nil
 	default:
-		return object.DecisionUnknown, fmt.Errorf("bridge: unknown transition %q (want approve|veto|request-change)", s)
+		return attest.DecisionUnknown, fmt.Errorf("bridge: unknown transition %q (want approve|veto|request-change)", s)
 	}
 }
 

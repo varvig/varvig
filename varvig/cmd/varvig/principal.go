@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/principal"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 )
@@ -100,7 +99,7 @@ func principalAdd(r *repo.Repo, reg *principal.Registry, args []string) error {
 		key = id.PublicKey.Key
 	}
 
-	p := object.Principal{Key: key, Name: name, Kind: kind}
+	p := principal.NewPrincipal(key, name, kind)
 	if err := reg.Add(p, author(), time.Now().Unix()); err != nil {
 		return err
 	}
@@ -123,15 +122,15 @@ func principalList(reg *principal.Registry) error {
 	return nil
 }
 
-func parseKind(s string) (object.Kind, error) {
+func parseKind(s string) (principal.Kind, error) {
 	switch s {
 	case "human":
-		return object.KindHuman, nil
+		return principal.KindHuman, nil
 	case "agent":
-		return object.KindAgent, nil
+		return principal.KindAgent, nil
 	case "bridge":
-		return object.KindBridge, nil
+		return principal.KindBridge, nil
 	default:
-		return object.KindUnknown, fmt.Errorf("principal: unknown kind %q (want human|agent|bridge)", s)
+		return principal.KindUnknown, fmt.Errorf("principal: unknown kind %q (want human|agent|bridge)", s)
 	}
 }

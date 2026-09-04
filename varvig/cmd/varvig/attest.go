@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/principal"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
@@ -52,7 +52,7 @@ func cmdAttest(args []string) error {
 
 	switch sub {
 	case "approve":
-		strength := object.StrengthStrong
+		strength := attest.Strong
 		rationale := ""
 		for i := 0; i < len(rest); i++ {
 			switch rest[i] {
@@ -64,7 +64,7 @@ func cmdAttest(args []string) error {
 				if err != nil {
 					return err
 				}
-				if s == object.StrengthWeak {
+				if s == attest.Weak {
 					return errors.New("attest: weak is reserved for bridges (a keyholder signs strong or delegated)")
 				}
 				strength = s
@@ -79,7 +79,7 @@ func cmdAttest(args []string) error {
 				return fmt.Errorf("attest: unknown argument %q", rest[i])
 			}
 		}
-		return signAndAttach(r, target, object.DecisionApprove, strength, rationale)
+		return signAndAttach(r, target, attest.Approve, strength, rationale)
 	case "veto", "request-change":
 		rationale := ""
 		for i := 0; i < len(rest); i++ {
@@ -90,15 +90,15 @@ func cmdAttest(args []string) error {
 			}
 			return fmt.Errorf("attest: unknown argument %q", rest[i])
 		}
-		decision := object.DecisionVeto
+		decision := attest.Veto
 		if sub == "request-change" {
-			decision = object.DecisionRequestChange
+			decision = attest.RequestChange
 		}
-		return signAndAttach(r, target, decision, object.StrengthStrong, rationale)
+		return signAndAttach(r, target, decision, attest.Strong, rationale)
 	case "list":
 		return attestList(r, target)
 	case "status":
-		required := object.StrengthStrong
+		required := attest.Strong
 		for i := 0; i < len(rest); i++ {
 			if rest[i] == "--require" && i+1 < len(rest) {
 				s, err := parseStrength(rest[i+1])
@@ -118,7 +118,7 @@ func cmdAttest(args []string) error {
 }
 
 // signAndAttach signs an attestation with the active identity and attaches it.
-func signAndAttach(r *repo.Repo, target multihash.Multihash, decision object.Decision, strength object.Strength, rationale string) error {
+func signAndAttach(r *repo.Repo, target multihash.Multihash, decision attest.Decision, strength attest.Strength, rationale string) error {
 	id, err := identity.Resolve("", os.Getenv)
 	if err != nil {
 		return err
@@ -137,13 +137,7 @@ func signAndAttach(r *repo.Repo, target multihash.Multihash, decision object.Dec
 			return err
 		}
 	}
-	obj, err := attest.Sign(id.Signer, object.Attestation{
-		Target:    target,
-		Decision:  decision,
-		Strength:  strength,
-		Timestamp: time.Now().Unix(),
-		Rationale: rationale,
-	})
+	obj, err := attest.SignDecision(id.Signer, target, decision, strength, rationale, time.Now().Unix())
 	if err != nil {
 		return err
 	}
@@ -174,7 +168,7 @@ func attestList(r *repo.Repo, target multihash.Multihash) error {
 	return nil
 }
 
-func attestStatus(r *repo.Repo, target multihash.Multihash, required object.Strength) error {
+func attestStatus(r *repo.Repo, target multihash.Multihash, required attest.Strength) error {
 	atts, err := attest.Attestations(r, target)
 	if err != nil {
 		return err
@@ -202,7 +196,7 @@ func attestPolicy(r *repo.Repo, args []string) error {
 		if err != nil {
 			return err
 		}
-		id, err := r.Objects.Put(object.NewBlob(mod))
+		id, err := core.PutBlob(r, mod)
 		if err != nil {
 			return err
 		}
@@ -236,15 +230,15 @@ func attestPolicy(r *repo.Repo, args []string) error {
 	}
 }
 
-func parseStrength(s string) (object.Strength, error) {
+func parseStrength(s string) (attest.Strength, error) {
 	switch s {
 	case "weak":
-		return object.StrengthWeak, nil
+		return attest.Weak, nil
 	case "delegated":
-		return object.StrengthDelegated, nil
+		return attest.Delegated, nil
 	case "strong":
-		return object.StrengthStrong, nil
+		return attest.Strong, nil
 	default:
-		return object.StrengthUnknown, fmt.Errorf("attest: unknown strength %q (want weak|delegated|strong)", s)
+		return attest.StrengthUnknown, fmt.Errorf("attest: unknown strength %q (want weak|delegated|strong)", s)
 	}
 }

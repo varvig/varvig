@@ -13,7 +13,6 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/refupdate"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
@@ -40,7 +39,7 @@ func checkPromotionNotStale(r *repo.Repo, newID multihash.Multihash) error {
 	if err != nil {
 		return err
 	}
-	if status := attest.Derive(atts, object.StrengthStrong); status != attest.StatusApproved {
+	if status := attest.Derive(atts, attest.Strong); status != attest.StatusApproved {
 		return fmt.Errorf("promote: %s implements intent revision %s, which is not approved (%s); "+
 			"the approved spec has moved on — re-approve the current revision, or pass --allow-stale to override",
 			newID.Hex(), c.Fulfills.Hex(), status)
