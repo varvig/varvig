@@ -26,7 +26,7 @@
     { "name": "varvig_read_file", "description": "Read a file's contents, with optional line ranges, within scope." },
     { "name": "varvig_find_files", "description": "Find files by glob within scope." },
     { "name": "varvig_search_text", "description": "Search file contents (literal or regex) within scope." },
-    { "name": "varvig_read_change", "description": "Read a change intent-first: intent, then evidence, then changed paths." },
+    { "name": "varvig_read_change", "description": "Read a change intent-first: intent, provenance evidence, verification evidence (checks passed / current), then changed paths." },
     { "name": "varvig_read_log", "description": "List change history for a ref or path." },
     { "name": "varvig_read_ticket", "description": "Read intent records (tickets): spec, derived implementation status, named artifacts, and discussion; list or detail. Read-only." },
     { "name": "varvig_list_proposals", "description": "List this task's proposed, un-promoted changes." },

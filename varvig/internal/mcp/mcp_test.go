@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/check"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
@@ -859,6 +860,77 @@ func TestReadTicket(t *testing.T) {
 	br := decodeTool(t, drive(t, gate, call(3, "varvig_read_ticket", `{"ticket":"nothex"}`))[0])
 	if !br.IsError || errCode(t, br) != codeNotFound {
 		t.Errorf("bad ticket id should be not_found, got %+v", br)
+	}
+}
+
+// TestReadChangeSurfacesChecks covers the verification-evidence surface: an
+// agent reading a change sees whether the tree passed its declared checks, and
+// whether that evidence is still current for the change's tree (stale evidence,
+// bound to a superseded tree, must not read as current).
+func TestReadChangeSurfacesChecks(t *testing.T) {
+	f := newGateFixture(t)
+	bo, err := f.repo.Objects.Get(f.base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bc, err := bo.AsChange()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A passing check bound to the change's current tree...
+	if _, err := check.Attach(f.repo, check.Evidence{
+		Tree:      bc.Tree.Hex(),
+		Change:    f.base.Hex(),
+		Passed:    true,
+		Results:   []check.CommandResult{{Command: "go test ./...", Exit: 0}},
+		Timestamp: 1002,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// ...and a stale one bound to a superseded tree.
+	if _, err := check.Attach(f.repo, check.Evidence{
+		Tree:      "superseded-tree",
+		Change:    f.base.Hex(),
+		Passed:    false,
+		Timestamp: 1001,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gate, _ := newGate(f, "/", time.Hour)
+	tr := decodeTool(t, drive(t, gate, call(1, "varvig_read_change", `{}`))[0])
+	if tr.IsError {
+		t.Fatalf("read_change errored: %s", tr.Content[0].Text)
+	}
+	var out struct {
+		Checks []struct {
+			Tree    string `json:"tree"`
+			Passed  bool   `json:"passed"`
+			Current bool   `json:"current"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal(tr.StructuredContent, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Checks) != 2 {
+		t.Fatalf("got %d check records, want 2", len(out.Checks))
+	}
+	var sawCurrent bool
+	for _, c := range out.Checks {
+		switch c.Tree {
+		case bc.Tree.Hex():
+			if !c.Passed || !c.Current {
+				t.Errorf("fresh check = %+v, want passed and current", c)
+			}
+			sawCurrent = true
+		case "superseded-tree":
+			if c.Current {
+				t.Error("stale evidence bound to a superseded tree must not be current")
+			}
+		}
+	}
+	if !sawCurrent {
+		t.Errorf("read_change did not surface the current check evidence: %+v", out.Checks)
 	}
 }
 

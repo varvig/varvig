@@ -89,7 +89,7 @@ var toolList = []map[string]any{
 	{
 		"name":        "varvig_read_change",
 		"title":       "Read a change (intent first)",
-		"description": "Read a change intent-first: its intent, then a provenance evidence summary, then the changed paths. Defaults to the task's base change. The changed-paths section is truncated first when the cap binds.",
+		"description": "Read a change intent-first: its intent, a provenance evidence summary, any verification evidence (whether the tree passed its declared checks, and whether that evidence is still current), then the changed paths. Defaults to the task's base change. The changed-paths section is truncated first when the cap binds.",
 		"annotations": readOnlyAnnotations("Read a change (intent first)"),
 		"inputSchema": objectSchema(map[string]any{
 			"change": strProp("change hash or ref; defaults to the task base"),
@@ -591,10 +591,19 @@ func toolReadChange(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	}
 	page, next, truncated := paginate(changed, cur.Offset, treePageSize)
 
+	// Verification evidence for the change (build spec P1.3): whether the tree
+	// passed its declared checks, and whether that evidence is still current for
+	// the change's tree. Bounded (a few commands), so it is not paginated.
+	checks, err := g.q.Checks(id)
+	if err != nil {
+		return nil, gerr(codeUnavailable, "cannot read checks: %v", err)
+	}
+
 	out := map[string]any{
 		"change":    view.Hash,
 		"intent":    view.Intent,
 		"evidence":  evidenceSummary(view.Evidence),
+		"checks":    checks,
 		"author":    view.Author,
 		"signed":    view.Signed,
 		"timestamp": view.Timestamp,

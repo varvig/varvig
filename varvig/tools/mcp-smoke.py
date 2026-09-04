@@ -120,12 +120,14 @@ def main():
                                 "the gate can never promote")
 
         got = sorted(t.get("name", "?") for t in tools)
-        # The surface is exactly ten tools (§4) — no more, no fewer.
+        # The exact advertised surface — read/propose plus ticket reads and the
+        # blocked-on-scope report. Asserting the exact set catches an accidental
+        # addition or removal (§9); keep it in step with the gate.
         want = sorted([
             "varvig_task_context", "varvig_resolve", "varvig_list_tree",
             "varvig_read_file", "varvig_find_files", "varvig_search_text",
             "varvig_read_change", "varvig_read_log", "varvig_read_ticket",
-            "varvig_list_proposals", "varvig_propose",
+            "varvig_list_proposals", "varvig_propose", "varvig_report_blocked",
         ])
         if got != want:
             problems.append(f"tool set is {got}, want exactly {want}")
