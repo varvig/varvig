@@ -444,6 +444,19 @@ func taskStart(r *repo.Repo, args []string) error {
 		dir = "./task-" + id
 	}
 
+	// Record the task in the source repository, as the operator — the scheduler's
+	// own trusted record of {which key, what scope, what base} (design addendum,
+	// F4). The sandboxed checkout cannot write here, so at promotion the change's
+	// self-described scope can be re-verified against this record rather than
+	// trusted (core.VerifyTaskScope).
+	if err := core.RecordTask(r, core.TaskRecord{
+		Fingerprint: fp,
+		Scope:       scopeDisplay,
+		Base:        hexOrEmpty(baseID),
+	}); err != nil {
+		return fmt.Errorf("task start: record task: %w", err)
+	}
+
 	// Full checkout: the task gets an ordinary varvig repository — a complete
 	// .varvig and the whole base tree — so diff, status, log, commit, and export
 	// all work in it unmodified (design addendum, F1). Only the base ref is
