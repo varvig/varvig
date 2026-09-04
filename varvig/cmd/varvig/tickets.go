@@ -13,7 +13,6 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/bridge"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/deps"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
@@ -146,7 +145,7 @@ func ticketsList(r *repo.Repo) error {
 	}
 	for _, info := range list {
 		atts, _ := attest.Attestations(r, info.Head)
-		fmt.Printf("%s  %-9s  %s\n", info.ID.Hex()[4:16], attest.Derive(atts, object.StrengthStrong), info.Spec)
+		fmt.Printf("%s  %-9s  %s\n", info.ID.Hex()[4:16], attest.Derive(atts, attest.Strong), info.Spec)
 	}
 	return nil
 }
@@ -171,7 +170,7 @@ func ticketsShow(r *repo.Repo, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("status   %s (require strong)\n", attest.Derive(atts, object.StrengthStrong))
+	fmt.Printf("status   %s (require strong)\n", attest.Derive(atts, attest.Strong))
 
 	implState, implCommits, err := ticket.Implementation(r, id)
 	if err != nil {
@@ -255,7 +254,7 @@ func ticketsStatus(r *repo.Repo, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Print(attest.Derive(atts, object.StrengthStrong).String())
+	fmt.Print(attest.Derive(atts, attest.Strong).String())
 	return nil
 }
 
@@ -395,7 +394,7 @@ func ticketsAttachArtifact(r *repo.Repo, args []string) error {
 		return err
 	}
 	var (
-		ref     object.ArtifactRef
+		ref     ticket.ArtifactRef
 		hashHex string
 		who     = author()
 	)
