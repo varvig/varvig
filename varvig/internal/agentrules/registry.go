@@ -157,6 +157,7 @@ var Commands = []Command{
 	{Name: "attest", NoRules: "governance decisions (approve/veto/policy); a director signs these, and a propose-only agent neither approves nor promotes"},
 	{Name: "principal", NoRules: "org-chart administration; a director/admin registers keyholders and their kind, like the trust store"},
 	{Name: "spec", NoRules: "speculation pool is orchestrator-driven; candidates are added and scored around the agent, not by it"},
+	{Name: "check", NoRules: "runs the repo's declared verification commands over a proposal and records evidence; orchestrator/CI-driven — an agent proposes work, and the checks run around it, not as a tool it drives"},
 	{Name: "tickets", NoRules: "ticket scheduling metadata (scope) and derived blocking; computed by the orchestrator/scheduler around the agent, not driven by a propose-only task"},
 	{Name: "blocked", NoRules: "the scope-authority side of blocked-on-scope: a human reads reports and records a widening decision. An agent reports being blocked through the gate's varvig_report_blocked and never widens its own scope"},
 	{Name: "bridge", NoRules: "external-tracker mirroring; driven by an out-of-core bridge peer holding a bridge key, not by a propose-only agent"},

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/check"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
@@ -44,6 +45,42 @@ func checkPromotionNotStale(r *repo.Repo, newID multihash.Multihash) error {
 			newID.Hex(), c.Fulfills.Hex(), status)
 	}
 	return nil
+}
+
+// checkPromotionEvidenceNotStale enforces §1.3's evidence invariant at promotion
+// (build spec P1.3): verification evidence binds to the tree it was produced
+// against, so an edit after checking is detectable. A proposal that has been
+// checked must promote with *fresh, passing* evidence — evidence produced against
+// a different tree is stale and is treated as absent, never as a pass. A proposal
+// that was never checked is unaffected (evidence is opt-in per proposal); the
+// guard exists so a passing check cannot be silently invalidated by a later edit
+// and still wave the change through. --allow-stale overrides it deliberately.
+func checkPromotionEvidenceNotStale(r *repo.Repo, newID multihash.Multihash) error {
+	obj, err := r.Objects.Get(newID)
+	if err != nil {
+		return nil
+	}
+	c, err := obj.AsChange()
+	if err != nil {
+		return nil // not a change — no tree, no evidence to judge
+	}
+	state, staleTree, err := check.Promotion(r, newID, c.Tree)
+	if err != nil {
+		return err
+	}
+	switch state {
+	case check.FreshFail:
+		return fmt.Errorf("promote: %s failed its checks on the current tree %s; "+
+			"fix the cause and re-run `varvig check`, or pass --allow-stale to override",
+			newID.Hex(), c.Tree.Hex())
+	case check.Stale:
+		return fmt.Errorf("promote: %s has only stale check evidence — it was checked against tree %s "+
+			"but the current tree is %s; the proposal was edited after checking, so the evidence does not count. "+
+			"Re-run `varvig check`, or pass --allow-stale to override",
+			newID.Hex(), staleTree, c.Tree.Hex())
+	default: // NoEvidence (opt-in) or FreshPass
+		return nil
+	}
 }
 
 // cmdPromote moves a ref by way of a signed ref update (auth design §5, §10.7).
@@ -106,6 +143,9 @@ func cmdPromote(args []string) error {
 	}
 	if !allowStale {
 		if err := checkPromotionNotStale(r, newID); err != nil {
+			return err
+		}
+		if err := checkPromotionEvidenceNotStale(r, newID); err != nil {
 			return err
 		}
 	}
