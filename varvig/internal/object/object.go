@@ -85,6 +85,7 @@ const (
 	tagProvContextRead  = 8
 	tagProvReasoning    = 9
 	tagProvEnvironment  = 10 // id of a TypeEnvironment object (federation §2)
+	tagProvScope        = 11 // the task scope the change was produced under (design addendum, F4)
 
 	tagNoteTarget    = 1
 	tagNoteNamespace = 2

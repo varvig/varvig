@@ -43,6 +43,11 @@ type ProposeParams struct {
 	// authority is not taken here — the core derives it from the Signer (U4).
 	Author string
 
+	// Scope is the task scope the change was produced under, recorded in
+	// provenance so the scheduler can re-verify it later (F4). Empty for a change
+	// made outside a scoped task.
+	Scope string
+
 	// ContextRead is the read set (object hashes) folded into provenance as the
 	// access record §1.1 requires. May be empty when no read log was kept.
 	ContextRead []string
@@ -93,6 +98,7 @@ func Propose(r *repo.Repo, caps CapabilitySet, p ProposeParams) (ProposeResult, 
 		TaskSpec:    p.Message,
 		ContextRead: strings.Join(p.ContextRead, " "),
 		Reasoning:   p.Reasoning,
+		Scope:       p.Scope,
 	}, object.Change{
 		Tree:      p.Tree,
 		Parents:   parents,

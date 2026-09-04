@@ -940,6 +940,7 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		Message:     a.Message,
 		Reasoning:   a.Reasoning,
 		Author:      g.grant.Fingerprint(),
+		Scope:       g.grant.Scopes.String(),
 		ContextRead: g.grant.Reads.Hashes(),
 		Signer:      g.grant.PrivateKey(),
 		SpecTask:    g.specTask(),
