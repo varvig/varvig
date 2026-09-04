@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
@@ -187,9 +186,7 @@ func scanDir(s *store.Store, dir, prefix string, idx *Index, out map[string]File
 func statTuple(info os.FileInfo) (size, mtimeNs int64, inode uint64) {
 	size = info.Size()
 	mtimeNs = info.ModTime().UnixNano()
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		inode = st.Ino
-	}
+	inode = sysInode(info) // platform-specific; 0 where unavailable (e.g. Windows)
 	return size, mtimeNs, inode
 }
 
