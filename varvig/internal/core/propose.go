@@ -31,6 +31,14 @@ import (
 type ProposeParams struct {
 	// Base is the parent change the proposal builds on, or nil for an unborn base.
 	Base multihash.Multihash
+	// ChainTip, when set, makes the proposal carry its task-local commit chain
+	// forward (design addendum, F4): the proposed change's parent is the chain tip
+	// rather than Base, so the whole task-local chain — the "raw operations beneath
+	// summarized intent" of §1.6 — is inside the proposal's reachable closure and
+	// retained under GC exactly as long as the proposal is. When nil, only the
+	// summarized change is proposed (parent Base) and the chain, referenced by
+	// nothing, is not retained — it dies with the checkout, which is the default.
+	ChainTip multihash.Multihash
 	// Tree is the already-built proposed tree the change points at.
 	Tree multihash.Multihash
 
@@ -90,8 +98,15 @@ func Propose(r *repo.Repo, caps CapabilitySet, p ProposeParams) (ProposeResult, 
 	if err := caps.Require(CapPropose); err != nil {
 		return ProposeResult{}, err
 	}
+	// The proposal's parent is the chain tip when carrying the task-local chain
+	// forward, else the base. Pointing at the tip is what pulls the whole chain
+	// into the proposal's reachable closure, so GC retains it; pointing at the base
+	// leaves the chain referenced by nothing (F4).
 	var parents []multihash.Multihash
-	if p.Base != nil {
+	switch {
+	case p.ChainTip != nil:
+		parents = append(parents, p.ChainTip)
+	case p.Base != nil:
 		parents = append(parents, p.Base)
 	}
 	changeID, provID, err := attachAndSign(r, object.Provenance{
