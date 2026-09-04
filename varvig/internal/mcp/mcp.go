@@ -33,6 +33,7 @@ import (
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/blocked"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/denylist"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
@@ -89,6 +90,10 @@ type Gate struct {
 	// verb checks it, so the gate cannot advance a ref even if a code path tried.
 	caps core.CapabilitySet
 
+	// deny is the repo-level read deny-list (design addendum, U5). It ships empty;
+	// a denied path is refused with a named error, never presented as not-found.
+	deny denylist.List
+
 	// mode and principal describe how this session was resolved (§2.1): "task"
 	// or "session", and who the principal is. Reported by varvig_task_context.
 	mode      string
@@ -103,7 +108,8 @@ type Gate struct {
 // against base (the change the task started from; may be nil for an empty repo).
 func NewGate(r *repo.Repo, g *task.Grant, base multihash.Multihash) *Gate {
 	q := readapi.New(r)
-	return &Gate{repo: r, q: q, rl: newReadLog(q, g.Reads), grant: g, base: base, caps: core.GateCapabilities()}
+	return &Gate{repo: r, q: q, rl: newReadLog(q, g.Reads), grant: g, base: base,
+		caps: core.GateCapabilities(), deny: denylist.Load(r.GitDir())}
 }
 
 // SetIdentity records the resolved operating mode and principal (§2.1) so
@@ -266,6 +272,12 @@ func (g *Gate) resolvePath(p string) (string, error) {
 	if !g.grant.Covers(p) {
 		g.noteBoundaryHit(p, "path is outside the task scope")
 		return "", gerr(codeOutOfScope, "path %q is outside the task scope %q", p, g.grant.Scopes)
+	}
+	// The repo deny-list is a hard block on top of scope (design addendum, U5). A
+	// denied path is refused by name — never presented as not-found, which would
+	// recreate the missing-vs-denied ambiguity that makes sparse dangerous.
+	if g.deny.Denied(p) {
+		return "", gerr(codeDenied, "path %q is on the repository deny-list", p)
 	}
 	return p, nil
 }

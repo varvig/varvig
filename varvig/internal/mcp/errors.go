@@ -13,6 +13,7 @@ import (
 // on vague ones.
 const (
 	codeOutOfScope        = "out_of_scope"       // path or object outside the task's read set
+	codeDenied            = "denied"             // path is on the repo deny-list (distinct from not_found)
 	codeCredentialExpired = "credential_expired" // task TTL elapsed
 	codeStaleBase         = "stale_base"         // proposal built on a superseded base
 	codeNotFound          = "not_found"          // no such hash, ref, or path
