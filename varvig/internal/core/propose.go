@@ -20,7 +20,6 @@ import (
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
 )
@@ -84,35 +83,24 @@ type ProposeResult struct {
 // the caller can confirm what was stored. It is the single write-finalization
 // path both shells use.
 func Propose(r *repo.Repo, p ProposeParams) (ProposeResult, error) {
-	prov := object.NewProvenance(object.Provenance{
-		Authority:   p.Authority,
-		TaskSpec:    p.Message,
-		ContextRead: strings.Join(p.ContextRead, " "),
-		Reasoning:   p.Reasoning,
-	})
-	provID, err := r.Objects.Put(prov)
-	if err != nil {
-		return ProposeResult{}, fmt.Errorf("core: store provenance: %w", err)
-	}
-
 	var parents []multihash.Multihash
 	if p.Base != nil {
 		parents = append(parents, p.Base)
 	}
-	change := object.NewChange(object.Change{
-		Tree:       p.Tree,
-		Parents:    parents,
-		Message:    p.Message,
-		Timestamp:  p.Now,
-		Author:     p.Author,
-		Provenance: provID,
-	})
-	if err := provenance.Sign(change, p.Signer); err != nil {
-		return ProposeResult{}, fmt.Errorf("core: sign change: %w", err)
-	}
-	changeID, err := r.Objects.Put(change)
+	changeID, provID, err := attachAndSign(r, object.Provenance{
+		Authority:   p.Authority,
+		TaskSpec:    p.Message,
+		ContextRead: strings.Join(p.ContextRead, " "),
+		Reasoning:   p.Reasoning,
+	}, object.Change{
+		Tree:      p.Tree,
+		Parents:   parents,
+		Message:   p.Message,
+		Timestamp: p.Now,
+		Author:    p.Author,
+	}, p.Signer)
 	if err != nil {
-		return ProposeResult{}, fmt.Errorf("core: store change: %w", err)
+		return ProposeResult{}, err
 	}
 
 	if err := spec.Open(r.GitDir()).Add(p.SpecTask, changeID, p.Now); err != nil {

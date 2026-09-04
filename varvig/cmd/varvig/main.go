@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,6 +21,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/affected"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/conformance"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/gc"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/gitport"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/hook"
@@ -460,41 +460,34 @@ func cmdCommit(args []string) error {
 		}
 	}
 
-	// Provenance and signing are required on native changes (design §2.1):
-	// record who/what produced the change, then sign it.
-	provID, err := r.Objects.Put(object.NewProvenance(provenance.Build(author())))
-	if err != nil {
-		return err
-	}
-	change := object.NewChange(object.Change{
-		Tree:       treeID,
-		Parents:    parents,
-		Message:    msg,
-		Timestamp:  time.Now().Unix(),
-		Author:     author(),
-		Provenance: provID,
-		Fulfills:   fulfills,
-	})
+	// Provenance and signing are required on native changes (design §2.1). The
+	// shell builds the provenance (generator pinning is a shell concern) and the
+	// core attaches it, signs, stores, and advances HEAD — the same finalization,
+	// wherever a change is committed from (design addendum, U1/U4).
 	priv, err := provenance.LoadOrCreateIdentity(r.GitDir())
 	if err != nil {
 		return err
 	}
-	if err := provenance.Sign(change, priv); err != nil {
-		return err
-	}
-	id, err := r.Objects.Put(change)
+	res, err := core.Commit(r, core.CommitParams{
+		Ref:         headRef,
+		ExpectedOld: parent,
+		Tree:        treeID,
+		Parents:     parents,
+		Message:     msg,
+		Author:      author(),
+		Fulfills:    fulfills,
+		Provenance:  provenance.Build(author()),
+		Signer:      priv,
+		Now:         time.Now().Unix(),
+	})
 	if err != nil {
 		return err
 	}
-	if err := r.Refs.CompareAndSwap(headRef, parent, id, author(), "commit"); err != nil {
-		return err
-	}
 	// post-commit hooks are informational; their verdict does not block.
-	postInput, _ := json.Marshal(map[string]string{"event": hook.EventPostCommit, "change": id.Hex()})
+	postInput, _ := json.Marshal(map[string]string{"event": hook.EventPostCommit, "change": res.Change.Hex()})
 	_, _ = hook.Fire(ctx, r, hook.EventPostCommit, postInput)
 
-	pub := priv.Public().(ed25519.PublicKey)
-	fmt.Printf("%s %s\n  signed-by %s…\n", id.Hex(), msg, hex.EncodeToString(pub[:8]))
+	fmt.Printf("%s %s\n  signed-by %s…\n", res.Change.Hex(), msg, hex.EncodeToString(res.SignerKey[:8]))
 	return nil
 }
 
