@@ -44,6 +44,20 @@ func TestSurfaceCompleteness(t *testing.T) {
 		}
 	}
 
+	seenGate := map[string]bool{}
+	for _, gt := range GateTools {
+		if gt.Name == "" || gt.Summary == "" {
+			t.Errorf("gate tool %+v: both Name and Summary are required", gt)
+		}
+		if seenGate[gt.Name] {
+			t.Errorf("gate tool %q is listed twice", gt.Name)
+		}
+		seenGate[gt.Name] = true
+		if !strings.Contains(body, "`"+gt.Name+"`") {
+			t.Errorf("gate tool %q is not rendered into VARVIG-AGENTS.md", gt.Name)
+		}
+	}
+
 	for _, e := range Errors {
 		if !strings.Contains(body, e.Code) {
 			t.Errorf("error code %q is not rendered", e.Code)

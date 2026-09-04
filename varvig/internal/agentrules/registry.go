@@ -173,6 +173,53 @@ var Commands = []Command{
 	{Name: "conform", NoRules: "format-conformance self-check; run by CI"},
 }
 
+// GateTool is one tool the MCP gate exposes — the surface an agent harness drives
+// (design addendum, U2). It is the single source for the gate's agent-facing
+// surface: VARVIG-AGENTS.md is rendered from it, and a drift test in package mcp
+// asserts the gate's live tools/list matches this list in both directions, so a
+// tool cannot be added to the gate without a rules entry, or removed from the
+// gate while the rules still advertise it.
+type GateTool struct {
+	Name    string
+	Summary string
+	// Write marks the append-only write tools (propose, report-blocked). Every
+	// other gate tool is a pure read; none is destructive (there is no promote
+	// tool, by design).
+	Write bool
+}
+
+// GateTools is the full MCP gate surface. It mirrors the tool list in package
+// mcp; the mcp drift test asserts the two agree, so this registry and the gate
+// cannot diverge. Verb parity with the CLI is deliberately not asserted: the gate
+// decomposes the CLI's `read` verb into several scoped tools and, by design,
+// exposes no promotion tool — the shells share one core (U1) and differ in
+// surface shape and in capability (U3), not in a byte-identical verb list.
+var GateTools = []GateTool{
+	{Name: "varvig_task_context", Summary: "Who this task is, its scope, and the base its reads resolve against."},
+	{Name: "varvig_resolve", Summary: "Resolve a ref or partial hash to a full object hash, within scope."},
+	{Name: "varvig_list_tree", Summary: "List a directory at the base, within scope."},
+	{Name: "varvig_read_file", Summary: "Read a file's contents by path, within scope, with line ranges."},
+	{Name: "varvig_find_files", Summary: "Find files within scope whose path matches a glob."},
+	{Name: "varvig_search_text", Summary: "Search file contents within scope for a literal or regex."},
+	{Name: "varvig_read_change", Summary: "Read a change intent-first: intent, evidence, verification, then changed paths."},
+	{Name: "varvig_read_log", Summary: "List the change history for a ref or path, within scope."},
+	{Name: "varvig_diff", Summary: "Unified diff of a change vs its parent, or the checkout vs base — scope-confined."},
+	{Name: "varvig_status", Summary: "Changed paths grouped by add/modify/delete/mode/rename — scope-confined."},
+	{Name: "varvig_read_ticket", Summary: "Read intent records (tickets): spec, derived status, artifacts, discussion."},
+	{Name: "varvig_list_proposals", Summary: "List the speculative, unpromoted changes this task has proposed."},
+	{Name: "varvig_propose", Summary: "Propose a signed, speculative change within scope. Never moves a ref.", Write: true},
+	{Name: "varvig_report_blocked", Summary: "Report a blocked-on-scope outcome and route it to scope authority.", Write: true},
+}
+
+// GateToolNames returns the gate tool names in registry order.
+func GateToolNames() []string {
+	out := make([]string, len(GateTools))
+	for i, t := range GateTools {
+		out[i] = t.Name
+	}
+	return out
+}
+
 // IntentFields describes the intent (provenance) object recorded with every
 // proposal. Agent-facing fields are the agent's responsibility; the rest are
 // filled by the gate or harness and excused, so the file stays short while the

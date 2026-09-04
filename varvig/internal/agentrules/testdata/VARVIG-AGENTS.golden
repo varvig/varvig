@@ -5,7 +5,7 @@ This file is **generated and overwritten in full** on every `varvig init`
 and on every varvig upgrade. Edits here will be lost. Put your own agent
 instructions in AGENTS.md instead.
 
-Source: varvig v0.0.0-test · intent schema v1 · surface 595039be
+Source: varvig v0.0.0-test · intent schema v1 · surface 6bd7b212
 
 ## What varvig is
 
@@ -69,6 +69,26 @@ promote, force, rewrite, or delete. Promotion is a separate, human-gated step.
   - `--ttl` — credential lifetime; the gate refuses all calls once expired
   - `--base` — the pinned change the task reads and proposes from
   - `--checkout` — a materialized working tree the gate observes; varvig_propose with no files then proposes every in-scope change in it, so a forgotten edit is never dropped
+
+## Gate tools (`varvig mcp`)
+
+The MCP gate exposes exactly these tools. Reads are confined to your scope;
+the two write tools are append-only and never move a ref.
+
+- **`varvig_task_context`** (read) — Who this task is, its scope, and the base its reads resolve against.
+- **`varvig_resolve`** (read) — Resolve a ref or partial hash to a full object hash, within scope.
+- **`varvig_list_tree`** (read) — List a directory at the base, within scope.
+- **`varvig_read_file`** (read) — Read a file's contents by path, within scope, with line ranges.
+- **`varvig_find_files`** (read) — Find files within scope whose path matches a glob.
+- **`varvig_search_text`** (read) — Search file contents within scope for a literal or regex.
+- **`varvig_read_change`** (read) — Read a change intent-first: intent, evidence, verification, then changed paths.
+- **`varvig_read_log`** (read) — List the change history for a ref or path, within scope.
+- **`varvig_diff`** (read) — Unified diff of a change vs its parent, or the checkout vs base — scope-confined.
+- **`varvig_status`** (read) — Changed paths grouped by add/modify/delete/mode/rename — scope-confined.
+- **`varvig_read_ticket`** (read) — Read intent records (tickets): spec, derived status, artifacts, discussion.
+- **`varvig_list_proposals`** (read) — List the speculative, unpromoted changes this task has proposed.
+- **`varvig_propose`** (write) — Propose a signed, speculative change within scope. Never moves a ref.
+- **`varvig_report_blocked`** (write) — Report a blocked-on-scope outcome and route it to scope authority.
 
 ## Recording intent
 
