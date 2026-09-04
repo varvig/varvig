@@ -15,7 +15,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
 )
 
-// The tool surface is small and domain-shaped (MCP spec §4): the ten
+// The tool surface is small and domain-shaped (MCP spec §4): a handful of
 // read/propose tools plus read-only ticket access, not one wrapper per endpoint,
 // because the agent's context window is the scarce resource (§8.1). Every tool
 // declares a title and the applicable annotations —
@@ -104,6 +104,24 @@ var toolList = []map[string]any{
 			"ref":    strProp("ref or change hash to start from; defaults to the task base"),
 			"path":   strProp("only include changes touching this repo-relative path within scope"),
 			"cursor": strProp("opaque continuation from a previous truncated log"),
+		}, nil),
+	},
+	{
+		"name":        "varvig_diff",
+		"title":       "Diff a change",
+		"description": "Show a unified diff, confined to your scope. With a change, it is that change against its first parent (what the change did); with no change and a bound working tree, it is the working tree against the base (the set a proposal would observe). Returns the changed paths, per-file stats, and the unified text. Read this before proposing — the second, independent feedback channel on your own change.",
+		"annotations": readOnlyAnnotations("Diff a change"),
+		"inputSchema": objectSchema(map[string]any{
+			"change": strProp("change hash or ref to diff against its parent; omit to diff the bound working tree against the base"),
+		}, nil),
+	},
+	{
+		"name":        "varvig_status",
+		"title":       "Status of a change",
+		"description": "Summarize the changed paths, confined to your scope, grouped by add / modify / delete / mode / rename. With a change, it is that change against its parent; with no change and a bound working tree, the working tree against the base. Run this to orient before proposing.",
+		"annotations": readOnlyAnnotations("Status of a change"),
+		"inputSchema": objectSchema(map[string]any{
+			"change": strProp("change hash or ref; omit to summarize the bound working tree against the base"),
 		}, nil),
 	},
 	{
@@ -248,6 +266,8 @@ var toolHandlers = map[string]toolHandler{
 	"varvig_search_text":    toolSearchText,
 	"varvig_read_change":    toolReadChange,
 	"varvig_read_log":       toolReadLog,
+	"varvig_diff":           toolDiff,
+	"varvig_status":         toolStatus,
 	"varvig_read_ticket":    toolReadTicket,
 	"varvig_list_proposals": toolListProposals,
 	"varvig_propose":        toolPropose,
