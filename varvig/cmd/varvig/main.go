@@ -56,6 +56,7 @@ var commands = map[string]func([]string) error{
 	"checkout":    cmdCheckout,
 	"diff":        cmdDiff,
 	"status":      cmdStatus,
+	"propose":     cmdPropose,
 	"log":         cmdLog,
 	"verify":      cmdVerify,
 	"git-export":  cmdGitExport,
@@ -157,6 +158,8 @@ usage:
   varvig diff [--name-only|--stat]      working tree vs base, or two trees
               [<tree-a> <tree-b>]        (local read; the independent view of a change)
   varvig status                         changed paths grouped by add/modify/delete
+  varvig propose -m <msg>               record a speculative change from the working tree
+              [--reasoning R] [--scope S ...] [--quiet] [paths...]  (observed set; prints it)
   varvig log [ref|id]                   walk the change DAG from HEAD (or arg)
   varvig verify [ref|id]                check provenance and signatures on changes
   varvig update-ref <name> <new> [old]  atomically set a ref (CAS on old)

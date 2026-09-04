@@ -144,6 +144,7 @@ var Commands = []Command{
 	{Name: "key", NoRules: "identity setup; a human creates keys, an agent is issued a task credential"},
 	{Name: "trust", NoRules: "trust-store administration; a human manages allowed keys"},
 	{Name: "commit", NoRules: "advances HEAD directly; an agent proposes through the gate and never commits"},
+	{Name: "propose", NoRules: "the local/human working-tree propose loop; an agent proposes through the gate's varvig_propose, which enforces scope on a sandboxed checkout"},
 	{Name: "checkout", NoRules: "overwrites the working tree for an edit-then-commit flow a propose-only agent cannot complete; `task start` already materializes the read set"},
 	{Name: "promote", NoRules: "promotion is the human-gated step; a propose-only credential can never promote"},
 	{Name: "update-ref", NoRules: "moves a ref directly; agents are propose-only and cannot move refs"},
