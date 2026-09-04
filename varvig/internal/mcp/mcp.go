@@ -71,6 +71,11 @@ type Gate struct {
 
 	reach map[string]bool // memoized in-scope reachable object set (§9.4); nil until first use
 
+	// checkout is the task's sparse working tree, if the gate was given one. When
+	// set, varvig_propose with no files observes it (build spec P1.1). Empty means
+	// the gate never touches a filesystem and a proposal must send file contents.
+	checkout string
+
 	// mode and principal describe how this session was resolved (§2.1): "task"
 	// or "session", and who the principal is. Reported by varvig_task_context.
 	mode      string
@@ -115,6 +120,14 @@ func (g *Gate) resolvedPrincipal() string {
 
 // SetClock overrides the gate's clock (tests pin expiry).
 func (g *Gate) SetClock(now func() time.Time) { g.now = now }
+
+// SetCheckout binds the gate to a materialized working tree (the task's sparse
+// checkout). Once set, varvig_propose called with no file contents observes this
+// tree — it reconciles it against the base and proposes every in-scope change,
+// the same observed-set reconciliation `varvig propose` performs (build spec
+// P1.1). Left unset, the gate never touches a filesystem and a proposal must
+// carry its file contents inline.
+func (g *Gate) SetCheckout(dir string) { g.checkout = dir }
 
 // baseHex is the base change hash this task resolves reads against, or "" for a
 // fresh repo. Every tool response names it (§4.1).

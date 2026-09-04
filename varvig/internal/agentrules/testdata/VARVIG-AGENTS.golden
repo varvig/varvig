@@ -5,7 +5,7 @@ This file is **generated and overwritten in full** on every `varvig init`
 and on every varvig upgrade. Edits here will be lost. Put your own agent
 instructions in AGENTS.md instead.
 
-Source: varvig v0.0.0-test · intent schema v1 · surface a2cfa923
+Source: varvig v0.0.0-test · intent schema v1 · surface 595039be
 
 ## What varvig is
 
@@ -68,6 +68,7 @@ promote, force, rewrite, or delete. Promotion is a separate, human-gated step.
   - `--scope` — path prefix the gate confines every read and proposed path to — repeatable, and repeated scopes union
   - `--ttl` — credential lifetime; the gate refuses all calls once expired
   - `--base` — the pinned change the task reads and proposes from
+  - `--checkout` — a materialized working tree the gate observes; varvig_propose with no files then proposes every in-scope change in it, so a forgotten edit is never dropped
 
 ## Recording intent
 

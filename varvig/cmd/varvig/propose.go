@@ -82,38 +82,28 @@ func cmdPropose(args []string) error {
 	_ = idx.Save()
 	d := worktree.Compare(baseStates, work)
 
-	edits, err := selectEdits(d, scopes, paths)
+	edits, err := worktree.SelectEdits(d, scopes.Covers, scopes.String(), paths)
 	if err != nil {
-		return err
+		return fmt.Errorf("propose: %w\n"+
+			"(a change outside scope needs a wider --scope — a boundary is a decision with an author)", err)
 	}
 
 	// Preview (P0.4): show exactly the path set about to be submitted, before it is.
 	if !quiet {
 		fmt.Printf("proposing %d path(s) within scope %s:\n", len(edits), scopes.String())
-		printed := make([]proposeEdit, len(edits))
+		printed := make([]worktree.Edit, len(edits))
 		copy(printed, edits)
-		sort.Slice(printed, func(i, j int) bool { return printed[i].path < printed[j].path })
+		sort.Slice(printed, func(i, j int) bool { return printed[i].Path < printed[j].Path })
 		for _, e := range printed {
 			op := "write"
-			if e.del {
+			if e.Del {
 				op = "delete"
 			}
-			fmt.Printf("  %-7s %s\n", op, e.path)
+			fmt.Printf("  %-7s %s\n", op, e.Path)
 		}
 	}
 
-	// Overlay the selected edits onto the base tree to form the proposed tree.
-	proposed := make(map[string]worktree.FileState, len(baseStates))
-	for p, s := range baseStates {
-		proposed[p] = s
-	}
-	for _, e := range edits {
-		if e.del {
-			delete(proposed, e.path)
-		} else {
-			proposed[e.path] = work[e.path]
-		}
-	}
+	proposed := worktree.Overlay(baseStates, work, edits)
 	newTree, err := worktree.BuildTree(r.Objects, proposed)
 	if err != nil {
 		return fmt.Errorf("propose: build tree: %w", err)
@@ -156,73 +146,6 @@ func cmdPropose(args []string) error {
 	}
 	fmt.Printf("proposed %s (tree %s)\n", changeID.Hex(), newTree.Hex())
 	return nil
-}
-
-// proposeEdit is one path the proposal will write or delete. Renames are split
-// into a delete of the old path and a write of the new.
-type proposeEdit struct {
-	path string
-	del  bool
-}
-
-// selectEdits turns a working-tree diff into the set of edits to propose,
-// applying the §A2 reconciliation: a change outside the declared write set is a
-// refusal (not a truncated proposal); explicit paths narrow the observed set but
-// can never name a path that was not observed; an empty result is a distinct
-// error, never a silent empty success.
-func selectEdits(d worktree.TreeDiff, scopes trust.ScopeSet, paths []string) ([]proposeEdit, error) {
-	var edits []proposeEdit
-	add := func(ps []string, del bool) {
-		for _, p := range ps {
-			edits = append(edits, proposeEdit{p, del})
-		}
-	}
-	add(d.Added, false)
-	add(d.Modified, false)
-	add(d.ModeChanged, false)
-	add(d.Removed, true)
-	for _, rn := range d.Renamed {
-		edits = append(edits, proposeEdit{rn.From, true}, proposeEdit{rn.To, false})
-	}
-
-	var outside []string
-	for _, e := range edits {
-		if !scopes.Covers(e.path) {
-			outside = append(outside, e.path)
-		}
-	}
-	if len(outside) > 0 {
-		sort.Strings(outside)
-		return nil, fmt.Errorf("propose: %d path(s) changed outside the declared scope %s: %s\n"+
-			"widen --scope to include them (a scope boundary is a decision with an author), or revert them",
-			len(outside), scopes.String(), strings.Join(outside, ", "))
-	}
-
-	if len(paths) > 0 {
-		observed := map[string]bool{}
-		for _, e := range edits {
-			observed[e.path] = true
-		}
-		want := map[string]bool{}
-		for _, p := range paths {
-			if !observed[p] {
-				return nil, fmt.Errorf("propose: %q was named but is not among the changed paths; nothing to propose for it", p)
-			}
-			want[p] = true
-		}
-		kept := edits[:0]
-		for _, e := range edits {
-			if want[e.path] {
-				kept = append(kept, e)
-			}
-		}
-		edits = kept
-	}
-
-	if len(edits) == 0 {
-		return nil, fmt.Errorf("propose: nothing to propose — the working tree matches the base within scope %s", scopes.String())
-	}
-	return edits, nil
 }
 
 // proposeTask is the speculation-pool task a CLI (non-gate) proposal is recorded

@@ -12,6 +12,7 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
 )
 
 // The tool surface is small and domain-shaped (MCP spec §4): the ten
@@ -709,6 +710,61 @@ func toolListProposals(g *Gate, _ json.RawMessage) (map[string]any, error) {
 
 // --- propose (write path: proposals, never promotions — §4.2) ---
 
+// proposeFromCheckout is the gate half of the observed-set propose loop (build
+// spec P1.1). It scans the task's sparse checkout, diffs it against the in-scope
+// portion of the base, and returns the overlaid tree plus the paths it touched.
+//
+// The checkout is sparse — it materializes only the grant's scope subtrees — so
+// the base is first narrowed to what the grant covers. Otherwise every path the
+// checkout does not contain would read as a deletion, and the whole proposal
+// would be refused as out-of-scope. With both sides scoped the same way, the diff
+// is exactly the task's own in-scope edits. A change SelectEdits finds outside
+// scope is still a refusal, not a silent truncation.
+func (g *Gate) proposeFromCheckout(baseTree multihash.Multihash) (multihash.Multihash, []string, error) {
+	base, err := worktree.FlattenStates(g.repo.Objects, baseTree)
+	if err != nil {
+		return nil, nil, gerr(codeInternal, "cannot flatten base tree: %v", err)
+	}
+	// The checkout is sparse — it holds only the grant's scope subtrees — so the
+	// diff compares against the in-scope slice of the base. Comparing against the
+	// whole base would read every unmaterialized path as a deletion. The overlay,
+	// though, is applied onto the *full* base, so paths the task never checked out
+	// survive its proposal untouched.
+	scoped := make(map[string]worktree.FileState, len(base))
+	for p, s := range base {
+		if g.grant.Covers(p) {
+			scoped[p] = s
+		}
+	}
+	// A fresh in-memory index: the gate rehashes the checkout on each proposal and
+	// never writes a cache file into the sandboxed working tree.
+	idx := worktree.OpenIndex(g.checkout)
+	work, err := worktree.Scan(g.repo.Objects, g.checkout, idx)
+	if err != nil {
+		return nil, nil, gerr(codeInternal, "cannot scan checkout %q: %v", g.checkout, err)
+	}
+	d := worktree.Compare(scoped, work)
+	edits, err := worktree.SelectEdits(d, g.grant.Covers, g.grant.Scopes.String(), nil)
+	if err != nil {
+		// SelectEdits refuses out-of-scope changes and an empty observed set with a
+		// named message; surface it as invalid_args so the agent reads the reason.
+		return nil, nil, gerr(codeInvalidArgs, "%v", err)
+	}
+	proposed := worktree.Overlay(base, work, edits)
+	touched := make([]string, 0, len(edits))
+	for _, e := range edits {
+		touched = append(touched, e.Path)
+		if !e.Del { // a deleted path has no working blob to fold into the read set
+			g.record(work[e.Path].Hash.Hex())
+		}
+	}
+	newTree, err := worktree.BuildTree(g.repo.Objects, proposed)
+	if err != nil {
+		return nil, nil, gerr(codeInternal, "cannot build tree: %v", err)
+	}
+	return newTree, touched, nil
+}
+
 func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	var a struct {
 		Message   string `json:"message"`
@@ -725,8 +781,10 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	if strings.TrimSpace(a.Message) == "" {
 		return nil, gerr(codeInvalidArgs, "message (the change's intent) is required")
 	}
-	if len(a.Files) == 0 {
-		return nil, gerr(codeInvalidArgs, "propose requires at least one file")
+	if len(a.Files) == 0 && g.checkout == "" {
+		return nil, gerr(codeInvalidArgs,
+			"propose needs either file contents or a working tree to observe — "+
+				"start the gate with --checkout to propose the checkout's in-scope changes")
 	}
 
 	var baseTree multihash.Multihash
@@ -737,34 +795,54 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		}
 		baseTree = bt
 	}
-	files, err := flattenTree(g.repo.Objects, baseTree)
-	if err != nil {
-		return nil, gerr(codeInternal, "cannot flatten base tree: %v", err)
-	}
-	touched := make([]string, 0, len(a.Files))
-	for _, f := range a.Files {
-		path, err := g.resolvePath(f.Path)
+
+	var (
+		newTree multihash.Multihash
+		touched []string
+	)
+	if len(a.Files) == 0 {
+		// Observed-set propose (build spec P1.1): no file contents were sent, so
+		// reconcile the task's checkout against the base and propose every in-scope
+		// change — the same reconciliation `varvig propose` and `diff --name-only`
+		// perform, so a forgotten file is never dropped from a hand-listed set.
+		t, paths, err := g.proposeFromCheckout(baseTree)
 		if err != nil {
-			return nil, err // out_of_scope, naming the scope (§4.2)
+			return nil, err
 		}
-		if path == "" || strings.HasSuffix(path, "/") {
-			return nil, gerr(codeInvalidArgs, "invalid file path %q", f.Path)
-		}
-		blobID, err := g.repo.Objects.Put(object.NewBlob([]byte(f.Content)))
+		newTree, touched = t, paths
+	} else {
+		// Explicit-contents propose: the caller sends each file's new content. This
+		// is the path a harness with no sandboxed checkout uses.
+		files, err := flattenTree(g.repo.Objects, baseTree)
 		if err != nil {
-			return nil, gerr(codeInternal, "cannot store blob: %v", err)
+			return nil, gerr(codeInternal, "cannot flatten base tree: %v", err)
 		}
-		mode := uint32(modeFile)
-		if f.Executable {
-			mode = 0o100755
+		touched = make([]string, 0, len(a.Files))
+		for _, f := range a.Files {
+			path, err := g.resolvePath(f.Path)
+			if err != nil {
+				return nil, err // out_of_scope, naming the scope (§4.2)
+			}
+			if path == "" || strings.HasSuffix(path, "/") {
+				return nil, gerr(codeInvalidArgs, "invalid file path %q", f.Path)
+			}
+			blobID, err := g.repo.Objects.Put(object.NewBlob([]byte(f.Content)))
+			if err != nil {
+				return nil, gerr(codeInternal, "cannot store blob: %v", err)
+			}
+			mode := uint32(modeFile)
+			if f.Executable {
+				mode = 0o100755
+			}
+			files[path] = fileEnt{id: blobID, mode: mode}
+			g.record(blobID.Hex())
+			touched = append(touched, path)
 		}
-		files[path] = fileEnt{id: blobID, mode: mode}
-		g.record(blobID.Hex())
-		touched = append(touched, path)
-	}
-	newTree, err := buildTree(g.repo.Objects, files)
-	if err != nil {
-		return nil, gerr(codeInternal, "cannot build tree: %v", err)
+		t, err := buildTree(g.repo.Objects, files)
+		if err != nil {
+			return nil, gerr(codeInternal, "cannot build tree: %v", err)
+		}
+		newTree = t
 	}
 
 	prov := object.NewProvenance(object.Provenance{

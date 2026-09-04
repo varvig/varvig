@@ -7,10 +7,15 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
 )
 
-func editSet(edits []proposeEdit) map[string]bool {
+func sel(d worktree.TreeDiff, scope string, paths []string) ([]worktree.Edit, error) {
+	s := trust.NewScopeSet(scope)
+	return worktree.SelectEdits(d, s.Covers, s.String(), paths)
+}
+
+func editSet(edits []worktree.Edit) map[string]bool {
 	m := map[string]bool{}
 	for _, e := range edits {
-		m[e.path] = true
+		m[e.Path] = true
 	}
 	return m
 }
@@ -21,9 +26,9 @@ func TestSelectEditsObservesEverythingInScope(t *testing.T) {
 		Modified: []string{"src/auth/login.go"},
 		Removed:  []string{"src/auth/old.go"},
 	}
-	edits, err := selectEdits(d, trust.NewScopeSet("src/auth"), nil)
+	edits, err := sel(d, "src/auth", nil)
 	if err != nil {
-		t.Fatalf("selectEdits: %v", err)
+		t.Fatalf("SelectEdits: %v", err)
 	}
 	got := editSet(edits)
 	for _, p := range []string{"src/auth/new.go", "src/auth/login.go", "src/auth/old.go"} {
@@ -35,46 +40,45 @@ func TestSelectEditsObservesEverythingInScope(t *testing.T) {
 
 func TestSelectEditsRefusesOutOfScope(t *testing.T) {
 	d := worktree.TreeDiff{Modified: []string{"src/auth/login.go", "src/web/index.html"}}
-	if _, err := selectEdits(d, trust.NewScopeSet("src/auth"), nil); err == nil {
+	if _, err := sel(d, "src/auth", nil); err == nil {
 		t.Fatal("a change outside the declared scope must be refused, not silently truncated")
 	}
 }
 
 func TestSelectEditsExplicitMustBeObserved(t *testing.T) {
 	d := worktree.TreeDiff{Modified: []string{"src/auth/login.go"}}
-	if _, err := selectEdits(d, trust.NewScopeSet("/"), []string{"src/auth/never.go"}); err == nil {
+	if _, err := sel(d, "/", []string{"src/auth/never.go"}); err == nil {
 		t.Fatal("an explicit path that did not change must error, not propose nothing for it")
 	}
-	// A valid explicit path narrows the set.
-	edits, err := selectEdits(worktree.TreeDiff{
+	edits, err := sel(worktree.TreeDiff{
 		Modified: []string{"src/auth/login.go", "src/auth/other.go"},
-	}, trust.NewScopeSet("/"), []string{"src/auth/login.go"})
+	}, "/", []string{"src/auth/login.go"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(edits) != 1 || edits[0].path != "src/auth/login.go" {
+	if len(edits) != 1 || edits[0].Path != "src/auth/login.go" {
 		t.Fatalf("explicit narrowing = %+v", edits)
 	}
 }
 
 func TestSelectEditsEmptyIsDistinctError(t *testing.T) {
-	if _, err := selectEdits(worktree.TreeDiff{}, trust.NewScopeSet("/"), nil); err == nil {
+	if _, err := sel(worktree.TreeDiff{}, "/", nil); err == nil {
 		t.Fatal("an empty observed set must be a named error, not a successful empty proposal")
 	}
 }
 
 func TestSelectEditsRenameSplits(t *testing.T) {
 	d := worktree.TreeDiff{Renamed: []worktree.Rename{{From: "a/old.go", To: "a/new.go"}}}
-	edits, err := selectEdits(d, trust.NewScopeSet("/"), nil)
+	edits, err := sel(d, "/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var delOld, addNew bool
 	for _, e := range edits {
-		if e.path == "a/old.go" && e.del {
+		if e.Path == "a/old.go" && e.Del {
 			delOld = true
 		}
-		if e.path == "a/new.go" && !e.del {
+		if e.Path == "a/new.go" && !e.Del {
 			addNew = true
 		}
 	}

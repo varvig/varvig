@@ -160,6 +160,7 @@ func cmdMcp(args []string) error {
 	ttl := time.Hour
 	base := ""
 	connect := ""
+	checkout := ""
 	standalone := false
 	minVersion := os.Getenv("VARVIG_MIN_VERSION")
 	for i := 0; i < len(args); i++ {
@@ -174,6 +175,11 @@ func cmdMcp(args []string) error {
 				return errors.New("mcp: --connect requires a socket path")
 			}
 			connect, i = args[i+1], i+1
+		case "--checkout":
+			if i+1 >= len(args) {
+				return errors.New("mcp: --checkout requires a directory")
+			}
+			checkout, i = args[i+1], i+1
 		case "--standalone":
 			standalone = true
 		case "--scope":
@@ -237,7 +243,9 @@ func cmdMcp(args []string) error {
 	// Relay through the daemon when one is running (the default): mint an
 	// ephemeral task there and bridge stdio to it, so the key stays in the
 	// daemon and the repo stays warm. Stop the task when the client disconnects.
-	if !standalone {
+	// A --checkout binds the gate to a working tree this process can see, which
+	// the remote daemon cannot, so it forces the in-process standalone gate.
+	if !standalone && checkout == "" {
 		sock := controlSocket(r)
 		if resp, derr := daemon.DialControl(sock, daemon.PingRequest()); derr == nil && resp.OK {
 			sresp, err := daemon.DialControl(sock, daemon.StartRequest(scope, ttl.String(), hexOrEmpty(baseID)))
@@ -267,6 +275,10 @@ func cmdMcp(args []string) error {
 
 	gate := mcp.NewGate(r, grant, baseID)
 	gate.SetIdentity(mode, principal)
+	if checkout != "" {
+		gate.SetCheckout(checkout)
+		fmt.Fprintf(os.Stderr, "varvig mcp: observing checkout %s (propose with no files submits its in-scope changes)\n", checkout)
+	}
 	return gate.Serve(stdio{})
 }
 

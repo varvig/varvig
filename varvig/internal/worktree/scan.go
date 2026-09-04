@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -228,6 +229,90 @@ func flattenStates(s *store.Store, treeID multihash.Multihash, prefix string, ou
 		out[rel] = FileState{Hash: e.ID, Mode: e.Mode}
 	}
 	return nil
+}
+
+// Edit is one path a proposal will write or delete. Renames are split into a
+// delete of the old path and a write of the new.
+type Edit struct {
+	Path string
+	Del  bool
+}
+
+// SelectEdits turns a working-tree diff into the edits to propose, applying the
+// build spec's §A2 reconciliation, shared by the CLI and the gate: a change
+// outside what `covers` allows is a refusal (not a truncated proposal); explicit
+// `paths` narrow the observed set but can never name a path that was not
+// observed; an empty result is a distinct error, never a silent empty success.
+// scopeLabel is used only in messages.
+func SelectEdits(d TreeDiff, covers func(string) bool, scopeLabel string, paths []string) ([]Edit, error) {
+	var edits []Edit
+	add := func(ps []string, del bool) {
+		for _, p := range ps {
+			edits = append(edits, Edit{Path: p, Del: del})
+		}
+	}
+	add(d.Added, false)
+	add(d.Modified, false)
+	add(d.ModeChanged, false)
+	add(d.Removed, true)
+	for _, rn := range d.Renamed {
+		edits = append(edits, Edit{Path: rn.From, Del: true}, Edit{Path: rn.To})
+	}
+
+	var outside []string
+	for _, e := range edits {
+		if !covers(e.Path) {
+			outside = append(outside, e.Path)
+		}
+	}
+	if len(outside) > 0 {
+		sort.Strings(outside)
+		return nil, fmt.Errorf("%d path(s) changed outside the declared scope %s: %s",
+			len(outside), scopeLabel, strings.Join(outside, ", "))
+	}
+
+	if len(paths) > 0 {
+		observed := map[string]bool{}
+		for _, e := range edits {
+			observed[e.Path] = true
+		}
+		want := map[string]bool{}
+		for _, p := range paths {
+			if !observed[p] {
+				return nil, fmt.Errorf("%q was named but is not among the changed paths", p)
+			}
+			want[p] = true
+		}
+		kept := edits[:0]
+		for _, e := range edits {
+			if want[e.Path] {
+				kept = append(kept, e)
+			}
+		}
+		edits = kept
+	}
+
+	if len(edits) == 0 {
+		return nil, fmt.Errorf("nothing to propose — the working tree matches the base within scope %s", scopeLabel)
+	}
+	return edits, nil
+}
+
+// Overlay applies edits onto a copy of base, taking the new state for a written
+// path from work — the proposed path→state map to hand to BuildTree.
+func Overlay(base, work map[string]FileState, edits []Edit) map[string]FileState {
+	out := make(map[string]FileState, len(base))
+	for p, s := range base {
+		out[p] = s
+	}
+	for _, e := range edits {
+		if e.Del {
+			delete(out, e.Path)
+		} else {
+			out[e.Path] = work[e.Path]
+		}
+	}
+	return out
 }
 
 // BuildTree writes a flat path→state map back into nested tree objects and

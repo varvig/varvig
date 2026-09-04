@@ -134,6 +134,7 @@ var Commands = []Command{
 			{Name: "--scope", AgentFacing: true, Summary: "path prefix the gate confines every read and proposed path to — repeatable, and repeated scopes union"},
 			{Name: "--ttl", AgentFacing: true, Summary: "credential lifetime; the gate refuses all calls once expired"},
 			{Name: "--base", AgentFacing: true, Summary: "the pinned change the task reads and proposes from"},
+			{Name: "--checkout", AgentFacing: true, Summary: "a materialized working tree the gate observes; varvig_propose with no files then proposes every in-scope change in it, so a forgotten edit is never dropped"},
 		},
 	},
 
