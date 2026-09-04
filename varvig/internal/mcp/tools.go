@@ -921,7 +921,7 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	// split that makes a varvig proposal more than a tree and a commit message
 	// (§1.1); the core persists it, read_change surfaces it, and the read-back below
 	// confirms it landed (C1).
-	res, err := core.Propose(g.repo, core.ProposeParams{
+	res, err := core.Propose(g.repo, g.caps, core.ProposeParams{
 		Base:        g.base,
 		Tree:        newTree,
 		Message:     a.Message,

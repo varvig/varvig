@@ -30,7 +30,7 @@ func TestCommitAdvancesRefSignedWithFulfills(t *testing.T) {
 	}))
 	fulfills, _ := r.Objects.Put(object.NewBlob([]byte("intent revision")))
 
-	res, err := Commit(r, CommitParams{
+	res, err := Commit(r, CLICapabilities(), CommitParams{
 		Ref: ref, ExpectedOld: nil, // unborn
 		Tree: tree, Message: "first", Author: "eng",
 		Fulfills: fulfills, Provenance: provenance.Build("eng"),
@@ -64,7 +64,7 @@ func TestCommitAdvancesRefSignedWithFulfills(t *testing.T) {
 
 	// A second commit with the correct lease advances again.
 	tree2, _ := r.Objects.Put(object.NewTree(nil))
-	if _, err := Commit(r, CommitParams{
+	if _, err := Commit(r, CLICapabilities(), CommitParams{
 		Ref: ref, ExpectedOld: res.Change, Tree: tree2, Message: "second",
 		Author: "eng", Provenance: provenance.Build("eng"), Signer: priv, Now: 200,
 	}); err != nil {
@@ -84,7 +84,7 @@ func TestCommitStaleLeaseConflicts(t *testing.T) {
 	const ref = "refs/heads/main"
 	tree, _ := r.Objects.Put(object.NewTree(nil))
 
-	first, err := Commit(r, CommitParams{
+	first, err := Commit(r, CLICapabilities(), CommitParams{
 		Ref: ref, ExpectedOld: nil, Tree: tree, Message: "first", Author: "a",
 		Provenance: provenance.Build("a"), Signer: priv, Now: 1,
 	})
@@ -92,7 +92,7 @@ func TestCommitStaleLeaseConflicts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A commit that still thinks the ref is unborn must lose the CAS.
-	if _, err := Commit(r, CommitParams{
+	if _, err := Commit(r, CLICapabilities(), CommitParams{
 		Ref: ref, ExpectedOld: nil, Tree: tree, Message: "racing", Author: "b",
 		Provenance: provenance.Build("b"), Signer: priv, Now: 2,
 	}); err == nil {

@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/blocked"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
@@ -83,6 +84,11 @@ type Gate struct {
 	// the gate never touches a filesystem and a proposal must send file contents.
 	checkout string
 
+	// caps is the authority this gate carries (design addendum, U3): the strict
+	// subset of the CLI's capabilities a propose-only task holds. Every core write
+	// verb checks it, so the gate cannot advance a ref even if a code path tried.
+	caps core.CapabilitySet
+
 	// mode and principal describe how this session was resolved (§2.1): "task"
 	// or "session", and who the principal is. Reported by varvig_task_context.
 	mode      string
@@ -97,7 +103,7 @@ type Gate struct {
 // against base (the change the task started from; may be nil for an empty repo).
 func NewGate(r *repo.Repo, g *task.Grant, base multihash.Multihash) *Gate {
 	q := readapi.New(r)
-	return &Gate{repo: r, q: q, rl: newReadLog(q, g.Reads), grant: g, base: base}
+	return &Gate{repo: r, q: q, rl: newReadLog(q, g.Reads), grant: g, base: base, caps: core.GateCapabilities()}
 }
 
 // SetIdentity records the resolved operating mode and principal (§2.1) so

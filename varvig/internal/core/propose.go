@@ -82,7 +82,10 @@ type ProposeResult struct {
 // change, records it in the speculation pool, and reads the provenance back so
 // the caller can confirm what was stored. It is the single write-finalization
 // path both shells use.
-func Propose(r *repo.Repo, p ProposeParams) (ProposeResult, error) {
+func Propose(r *repo.Repo, caps CapabilitySet, p ProposeParams) (ProposeResult, error) {
+	if err := caps.Require(CapPropose); err != nil {
+		return ProposeResult{}, err
+	}
 	var parents []multihash.Multihash
 	if p.Base != nil {
 		parents = append(parents, p.Base)
