@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
 	"syscall"
 	"time"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/daemon"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/mcp"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
@@ -22,7 +22,6 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/task"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
 )
 
 // repoRuntimeDir is where a repo's daemon control socket and per-task sockets
@@ -445,38 +444,19 @@ func taskStart(r *repo.Repo, args []string) error {
 		dir = "./task-" + id
 	}
 
-	// Sparse checkout of the read set: scope equals the checkout equals the API's
-	// visibility (§6.2). Materialize only the scope subtree at its repo-relative
-	// path, so proposed paths line up with what the gate enforces.
+	// Full checkout: the task gets an ordinary varvig repository — a complete
+	// .varvig and the whole base tree — so diff, status, log, commit, and export
+	// all work in it unmodified (design addendum, F1). Only the base ref is
+	// created, so sibling task and ticket refs are not visible (F2). The write set
+	// is what confines the task now; read confinement is no longer by absence.
 	checkoutDesc := "(none — empty repo)"
 	if baseID != nil {
-		q := readapi.New(r)
-		var dests []string
-		// Materialize each declared scope's subtree (build spec P0.5). An
-		// unresolvable scope fails the whole task start rather than silently
-		// dropping one element of the set.
-		for _, sc := range trust.NewScopeSet(scope) {
-			scopePath := trimScope(string(sc))
-			listing, err := q.Tree(baseID, scopePath)
-			if err != nil {
-				return fmt.Errorf("task start: cannot resolve scope %q: %w", sc, err)
-			}
-			subTree, err := multihash.ParseHex(listing.Hash)
-			if err != nil {
-				return err
-			}
-			dest := dir
-			if scopePath != "" {
-				dest = filepath.Join(dir, filepath.FromSlash(scopePath))
-			}
-			if err := worktree.Checkout(r.Objects, subTree, dest); err != nil {
-				return err
-			}
-			dests = append(dests, dest)
+		_, stat, err := core.ProvisionCheckout(r, dir, baseID)
+		if err != nil {
+			return fmt.Errorf("task start: provision checkout: %w", err)
 		}
-		if len(dests) > 0 {
-			checkoutDesc = strings.Join(dests, ", ")
-		}
+		checkoutDesc = fmt.Sprintf("%s (full tree; %d objects %s in %s)",
+			dir, stat.Objects, stat.Method, stat.Duration.Round(time.Millisecond))
 	}
 
 	fmt.Printf("task %s\n", id)
@@ -550,20 +530,6 @@ func unionScope(cur, add string) string {
 		return add
 	}
 	return cur + "," + add
-}
-
-func trimScope(scope string) string {
-	s := scope
-	for len(s) > 0 && s[0] == '/' {
-		s = s[1:]
-	}
-	for len(s) > 0 && s[len(s)-1] == '/' {
-		s = s[:len(s)-1]
-	}
-	if s == "." {
-		return ""
-	}
-	return s
 }
 
 func hexOrNone(m multihash.Multihash) string {
