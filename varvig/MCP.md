@@ -85,6 +85,7 @@ tool is destructive and **there is no promotion tool**.
 | `varvig_read_ticket` | Read intent records (tickets): spec, derived implementation status, named artifacts, discussion; list or detail | ✓ | — |
 | `varvig_list_proposals` | Unpromoted speculative states | ✓ | — |
 | `varvig_propose` | Create objects, propose a state | ✗ | false |
+| `varvig_report_blocked` | Record a blocked-on-scope outcome and route it to scope authority | ✗ | false |
 
 `varvig_read_ticket` is read-only intent intake (tickets §1.2): a ticket is an
 unmaterialized change — intent with no tree — so reading one carries no file
@@ -106,7 +107,7 @@ Each response includes the `base` hash it was resolved against. This pins the
 agent's reads, makes its work reproducible, and is what lets the scheduler detect
 that an attempt was built on a stale base.
 
-### 3.2 `varvig_propose` — the only write
+### 3.2 `varvig_propose` — the primary write
 
 Overlays file contents onto the base tree, signs a speculative change with the
 task's ephemeral key, and records it in the speculation pool (`internal/spec`)
@@ -131,6 +132,30 @@ not echoed from the request — the persisted `intent` (`task_spec`, `context_re
 `destructiveHint: false` is accurate even for a delete: the proposal is a new
 immutable state, and nothing existing is modified or removed until a human
 promotes it (via the CLI, `varvig promote`).
+
+**Observed-set propose (P1.1).** When the gate is started with `--checkout <dir>`
+— a materialized working tree — `varvig_propose` may be called with no `files` at
+all. The gate then reconciles the checkout against the base and proposes *every*
+in-scope change it finds, exactly as `varvig propose` and `diff --name-only` do,
+so a forgotten edit is never dropped from a hand-assembled `files` list. The
+checkout is sparse (only the scope subtrees are materialized), so the diff runs
+against the in-scope slice of the base while the overlay applies onto the full
+base — paths the task never checked out survive its proposal untouched. Without a
+checkout, `files` is required; a change outside scope is refused either way.
+
+### 3.3 `varvig_report_blocked` — the third outcome
+
+Beside a proposal and a failure there is a third task outcome (build spec P1.2):
+the task hit a scope boundary it has no authority to cross and can neither finish
+nor fail cleanly. Rather than emit one failure per refusal or work around the
+boundary, it calls `varvig_report_blocked` once. The gate records a **signed
+report** — the concrete `need`, `why`, and `unmet` requirement, plus **every
+scope boundary the task has already hit** this session — bound as a note to the
+task's intent revision, routed to whoever holds scope authority along the same
+path an approval request travels. It **never widens scope** and never moves a
+ref; widening is a separate decision with an author (`varvig blocked widen`, a
+human/authority CLI action). `varvig_task_context` reports `boundary_hits`, the
+scope-accuracy metric, from the first run.
 
 ## 4. Read logging is provenance
 

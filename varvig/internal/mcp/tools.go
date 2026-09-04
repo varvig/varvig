@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/blocked"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
@@ -155,6 +156,28 @@ var toolList = []map[string]any{
 			},
 		}, []string{"message", "files"}),
 	},
+	{
+		"name":  "varvig_report_blocked",
+		"title": "Report blocked on scope",
+		"description": "Report that this task cannot proceed because it needs something outside its scope. " +
+			"This is the third outcome beside a proposal and a failure: it records the path or capability you need, " +
+			"why, and the requirement you could not meet, together with every scope boundary you have already hit, " +
+			"and routes it to whoever can widen scope. It never widens scope itself and never moves a ref.",
+		// A write (it records a signed report as a note), append-only, and not
+		// idempotent — each call records a distinct report.
+		"annotations": map[string]any{
+			"title":           "Report blocked on scope",
+			"readOnlyHint":    false,
+			"destructiveHint": false,
+			"idempotentHint":  false,
+			"openWorldHint":   false,
+		},
+		"inputSchema": objectSchema(map[string]any{
+			"need":  strProp("the path or capability you need added to your scope"),
+			"why":   strProp("why you need it"),
+			"unmet": strProp("the requirement you could not meet without it"),
+		}, []string{"need", "why"}),
+	},
 }
 
 // --- argument decoding ---
@@ -229,6 +252,7 @@ var toolHandlers = map[string]toolHandler{
 	"varvig_read_ticket":    toolReadTicket,
 	"varvig_list_proposals": toolListProposals,
 	"varvig_propose":        toolPropose,
+	"varvig_report_blocked": toolReportBlocked,
 }
 
 // handleToolsCall validates the credential, dispatches the named tool, and wraps
@@ -273,6 +297,10 @@ func toolTaskContext(g *Gate, _ json.RawMessage) (map[string]any, error) {
 		"base":         g.baseHex(),
 		"propose_only": true,
 		"expires_unix": g.grant.NotAfter,
+		// The scope-accuracy metric (build spec P1.2): how many distinct scope
+		// boundaries this task has hit. Non-zero means the scope may be too narrow
+		// — report it with varvig_report_blocked rather than working around it.
+		"boundary_hits": g.boundaryHits(),
 	}, nil
 }
 
@@ -302,6 +330,7 @@ func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
 			return nil, err
 		}
 		if !in {
+			g.noteBoundaryHit(id.Hex(), t.String()+" resolved outside the task scope")
 			return nil, gerr(codeOutOfScope,
 				"%s %s is outside the task scope %q", t.String(), id.Hex(), g.grant.Scopes)
 		}
@@ -744,6 +773,19 @@ func (g *Gate) proposeFromCheckout(baseTree multihash.Multihash) (multihash.Mult
 		return nil, nil, gerr(codeInternal, "cannot scan checkout %q: %v", g.checkout, err)
 	}
 	d := worktree.Compare(scoped, work)
+	// Any change the checkout carries outside the covered slice is a boundary hit:
+	// record each so a later blocked-on-scope report names the paths the task
+	// could not write (build spec P1.2).
+	for _, e := range append(append(append(append([]string{}, d.Added...), d.Modified...), d.ModeChanged...), d.Removed...) {
+		if !g.grant.Covers(e) {
+			g.noteBoundaryHit(e, "changed in the checkout but outside the task scope")
+		}
+	}
+	for _, rn := range d.Renamed {
+		if !g.grant.Covers(rn.To) {
+			g.noteBoundaryHit(rn.To, "changed in the checkout but outside the task scope")
+		}
+	}
 	edits, err := worktree.SelectEdits(d, g.grant.Covers, g.grant.Scopes.String(), nil)
 	if err != nil {
 		// SelectEdits refuses out-of-scope changes and an empty observed set with a
@@ -913,6 +955,53 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 		"read_set":   g.grant.Reads.Hashes(),
 		"intent":     stored,
 		"promoted":   false, // always: the gate can never promote
+	}, nil
+}
+
+// toolReportBlocked emits the blocked-on-scope outcome (build spec P1.2): the
+// task cannot proceed without something outside its scope, so instead of failing
+// or working around the boundary it records one signed report — carrying every
+// boundary it has already hit plus the concrete thing it needs — bound to its
+// intent revision and routed to whoever can widen scope. It never widens scope
+// and never moves a ref.
+func toolReportBlocked(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Need  string `json:"need"`
+		Why   string `json:"why"`
+		Unmet string `json:"unmet"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(a.Need) == "" || strings.TrimSpace(a.Why) == "" {
+		return nil, gerr(codeInvalidArgs, "need (what you require) and why (why you require it) are both required")
+	}
+	if g.base == nil {
+		return nil, gerr(codeInvalidArgs, "task has no base intent revision to bind a blocked-on-scope report to")
+	}
+	rep := blocked.Report{
+		Intent:    g.base.Hex(),
+		Scope:     g.grant.Scopes.String(),
+		Need:      a.Need,
+		Why:       a.Why,
+		Unmet:     a.Unmet,
+		Hits:      append([]blocked.Hit(nil), g.boundary...),
+		Author:    g.grant.Fingerprint(),
+		Timestamp: g.clock().Unix(),
+	}
+	noteID, err := blocked.Attach(g.repo, g.grant.Signer(), rep)
+	if err != nil {
+		return nil, gerr(codeInternal, "cannot record blocked-on-scope report: %v", err)
+	}
+	return map[string]any{
+		"outcome":       "blocked_on_scope",
+		"report":        noteID.Hex(),
+		"intent":        rep.Intent,
+		"scope":         rep.Scope,
+		"need":          rep.Need,
+		"boundary_hits": len(rep.Hits),
+		"routed":        true,
+		"widened":       false, // always: the task never widens its own scope
 	}, nil
 }
 
