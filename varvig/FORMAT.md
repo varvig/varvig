@@ -152,6 +152,14 @@ provenance). All fields optional; emitted only when set.
 | 7   | task specification (UTF-8)           |
 | 8   | context read (UTF-8)                 |
 | 9   | reasoning / plan (UTF-8)             |
+| 10  | environment id (multihash)           |
+| 11  | task scope (UTF-8)                    |
+
+Tag 11 is the task scope the change was produced under, recorded so the
+scheduler can re-verify a change's self-described scope against its own task
+record at promotion (checkout-scope addendum, F4; AUTH §5). It is optional and
+additive — a change made outside a scoped task leaves it unset — so all existing
+conformance vectors carry no tag 11 and are unaffected.
 
 ### Note (`objectType = 5`)
 

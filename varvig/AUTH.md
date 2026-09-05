@@ -189,9 +189,14 @@ Ed25519 keypair is minted *in the sandbox*; the private key is held only in
 memory and never touches disk. It is granted a scope, a propose-only right, and
 an expiry:
 
-- **Scope is the read set.** The grant's scope is simultaneously the sparse
-  checkout, the gate's visibility, and the capability boundary — one thing
-  expressed three ways (design §1.4).
+- **Scope is the write set.** The grant's scope is the capability boundary a
+  proposal is held to: every path a change touches must fall within it, enforced
+  at proposal. It is no longer the checkout — under the checkout-scope addendum
+  (F1, "full checkouts as default") a task gets the *whole* base tree, not a
+  sparse slice of its read set, so `diff`, `status`, `log`, and `commit` all work
+  in it unmodified. The read set became an *observed, validated* record (the
+  dependency-set hint of §1.4, checked at proposal), not the shape of the
+  checkout. See §5.1.
 - **Propose-only.** A task key can create objects and propose a speculative
   state; it can never move a ref. A non-propose-only grant is refused at mint.
 - **Expiry does the revocation work.** A short TTL means the common case needs
@@ -203,7 +208,11 @@ an expiry:
 varvig task start [--scope S] [--ttl DUR] [--base REF] [dir]
 ```
 
-mints a grant and carves out the scoped sparse checkout of its read set.
+mints a grant and provisions a **full task checkout** at `dir`: an ordinary
+varvig repository with the complete base tree and a `.varvig` of its own, with
+only the base ref present so sibling task and ticket refs are not visible across
+the isolation boundary (F1/F2). It is then *sealed* as a task checkout — see
+§5.1.
 
 **The MCP gate** (`internal/mcp`, auth design §8) is a JSON-RPC 2.0 server over
 stdio, bound to one task credential and holding **no authority of its own** — if
@@ -243,9 +252,12 @@ has it: `SO_PEERCRED` on Linux, `LOCAL_PEERCRED` (struct xucred) on macOS and
 FreeBSD. The read-only server's socket carries the same check; both fall back to
 the 0600 mode alone on platforms without one (Windows, OpenBSD/NetBSD). The key then lives only in the
 daemon's memory for the task's life — never on disk, never on the wire — and is
-used there to sign the task's proposals. A background reaper prunes expired
-grants and closes their sockets; expiry is the revocation mechanism (§6.2), so
-`task stop` (early revocation) is a convenience, not a requirement.
+used there to sign the task's proposals — and, through the control socket's
+`sign` op, its in-checkout commits too (§5.1), so the key signs without ever
+leaving the daemon. A background reaper prunes expired grants and closes their
+sockets; expiry is the revocation mechanism (§6.2), so `task stop` (early
+revocation) is a convenience, not a requirement — and once a task is reaped the
+daemon refuses to sign as it.
 
 The gate speaks JSON-RPC over any stream, so the daemon serves the same gate
 over each connection. **`varvig mcp` is the stdio entry point a harness spawns**,
@@ -267,17 +279,61 @@ varvig mcp --scope S --ttl DUR                       # stdio gate; relays via da
 varvig mcp --connect <task.sock>                     # bridge to a specific task socket
 ```
 
-Without a daemon, `task start` still produces the scoped sparse checkout and
+Without a daemon, `task start` still provisions the full task checkout and
 `varvig mcp` serves a standalone gate that mints its own key — the same
-capability model, just without a shared table across processes. Sockets live
-under a short per-uid runtime dir (the `sun_path` length cap rules out a deep
-`.varvig/` path), keyed by a hash of the repo root so daemon and client agree.
+capability model, just without a shared table across processes. In the
+standalone case the ephemeral key is local, so the checkout is sealed by seeding
+its identity with it directly (§5.1). Sockets live under a short per-uid runtime
+dir (the `sun_path` length cap rules out a deep `.varvig/` path), keyed by a hash
+of the repo root so daemon and client agree.
 
 > **Residual risk (auth design §8.3).** Repository content reaching an agent is
 > untrusted input: a comment in a source file can attempt to redirect the
 > agent's behavior. Scoping limits the blast radius; it does not eliminate the
 > class. This is the argument for keeping read sets narrow and for making
 > promotion genuinely independent of the agent that proposed the change.
+
+### 5.1 Commit in a task checkout (checkout-scope addendum, F4)
+
+A full task checkout is an ordinary repository, so `varvig commit` works in it —
+task-local history, the raw operations beneath a summarized proposal (design
+§1.6). This is permitted, and produces ordinary change objects **authored as the
+task**, with the task's scope stamped into their provenance. Three mechanisms
+make that true and keep it honest:
+
+- **A commit is authored as the task, without the key ever being copied to the
+  checkout.** At `task start` the checkout is *sealed*: it records a checkout-side
+  marker (`{fingerprint, scope, base}`) so the verbs run there know which task
+  they serve, and its signing identity is arranged so a commit is signed by the
+  task key. In the **standalone** path the ephemeral key is local, so the
+  checkout's identity is seeded with it directly. In the **daemon** path the key
+  never leaves the daemon; the marker instead carries the daemon's coordinates
+  and the task's public key, and the checkout signs by **remote signing** — it
+  assembles and signs an ordinary change, but the signature is produced by the
+  daemon's uid-guarded `sign` control op. Either way the change's provenance
+  authority is the task's fingerprint. The core derives that authority from the
+  signing key, never from the shell (a shell cannot claim an authority it does
+  not hold the key for). If the daemon is unreachable, `commit` falls back to the
+  checkout's own identity with a warning — the work is saved, but not as the task.
+
+- **The scheduler re-verifies the self-description it did not mint.** The marker
+  is only a hint; nothing trusts it. When it mints a task the scheduler writes its
+  *own* record (`{fingerprint, scope, base}`) in the source repository, where the
+  sandboxed checkout cannot reach. At promotion, alongside the authority check
+  (the signature matches the claimed authority), the change's self-described
+  `provenance.Scope` is checked against that record: a change that widened its own
+  scope beyond what was granted, or wrote a path outside it, is rejected. Both are
+  integrity checks, so both ignore `--allow-stale`. A change from no recorded task
+  (a human commit, a foreign import) is unaffected.
+
+- **The task-local reflog dies with the checkout; the commit chain survives only
+  if a proposal carries it forward.** The reflog is session-scoped — it recovers
+  an abandoned ref move *inside* the checkout and is not persisted. The commit
+  chain is retained only when a proposal declares it: `varvig propose
+  --carry-chain` parents the proposal on the checkout's HEAD (the chain tip) so
+  the whole chain is in the proposal's reachable closure and retention policy
+  (§1.5) governs it under GC; by default a proposal is one summarized change on
+  the task base and the intermediate chain, referenced by nothing, is reclaimed.
 
 ---
 
