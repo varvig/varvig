@@ -29,8 +29,11 @@
     { "name": "varvig_read_change", "description": "Read a change intent-first: intent, provenance evidence, verification evidence (checks passed / current), then changed paths." },
     { "name": "varvig_read_log", "description": "List change history for a ref or path." },
     { "name": "varvig_read_ticket", "description": "Read intent records (tickets): spec, derived implementation status, named artifacts, and discussion; list or detail. Read-only." },
+    { "name": "varvig_diff", "description": "Show a unified diff within scope: a change against its parent, or a bound working tree against the base. Returns changed paths, per-file stats, and the unified text." },
+    { "name": "varvig_status", "description": "Summarize the changed paths within scope, grouped by add / modify / delete / mode / rename — a change against its parent, or a bound working tree against the base." },
     { "name": "varvig_list_proposals", "description": "List this task's proposed, un-promoted changes." },
-    { "name": "varvig_propose", "description": "Propose a signed, speculative change; never promotes a ref." }
+    { "name": "varvig_propose", "description": "Propose a signed, speculative change; never promotes a ref." },
+    { "name": "varvig_report_blocked", "description": "Report that the task cannot proceed because it needs something outside its scope; routes the blocked-on-scope outcome to scope authority. Append-only, never destructive." }
   ],
   "compatibility": {
     "platforms": ["darwin", "linux", "win32"]
