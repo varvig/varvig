@@ -257,9 +257,11 @@ frame, or on-disk layout (the conformance suite is untouched). See
   the JSON plumbing.
 - **Task credentials and the MCP gate** (`internal/task`, `internal/mcp`, §5, §8)
   — the gate agents talk to, built into the core binary rather than shipped as a
-  client. A task is an ephemeral in-sandbox Ed25519 key, granted a scope (which
-  *is* the read set), propose-only, and an expiry; `task start` mints one and a
-  scoped sparse checkout. `mcp` serves a JSON-RPC gate over stdio bound to that
+  client. A task is an ephemeral in-sandbox Ed25519 key, granted a scope (the
+  write set a proposal is held to), propose-only, and an expiry; `task start`
+  mints one and provisions a **full** task checkout (an ordinary repo of the
+  whole base tree — checkout-scope addendum, AUTH §5), where `commit` works and
+  is authored as the task. `mcp` serves a JSON-RPC gate over stdio bound to that
   credential, holding no authority of its own: coarse domain tools
   (`fetch_tree`, `fetch_blob`, `fetch_change_with_intent`, `fetch_evidence`,
   `list_proposals`, `propose`), scope enforced on every path, a hash in every
@@ -504,7 +506,7 @@ varvig serve --read-only &               # HTTP/JSON over a 0600 unix socket
 curl --unix-socket .varvig/read.sock http://localhost/refs
 
 # task credentials + the MCP gate (agents; see AUTH.md §5, §8):
-varvig task start --scope src --ttl 1h ./task-a   # ephemeral key + scoped sparse checkout
+varvig task start --scope src --ttl 1h ./task-a   # ephemeral key + full task checkout (commit works, authored as the task)
 varvig mcp --scope src --ttl 1h                   # serve the gate over stdio (JSON-RPC 2.0)
 # the agent reads within scope, and every propose lands in the speculation pool,
 # signed by the task key — never a ref promotion:

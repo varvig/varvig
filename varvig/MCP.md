@@ -140,10 +140,11 @@ promotes it (via the CLI, `varvig promote`).
 all. The gate then reconciles the checkout against the base and proposes *every*
 in-scope change it finds, exactly as `varvig propose` and `diff --name-only` do,
 so a forgotten edit is never dropped from a hand-assembled `files` list. The
-checkout is sparse (only the scope subtrees are materialized), so the diff runs
-against the in-scope slice of the base while the overlay applies onto the full
-base — paths the task never checked out survive its proposal untouched. Without a
-checkout, `files` is required; a change outside scope is refused either way.
+checkout is a full base tree (checkout-scope addendum, F1; AUTH §5), so the diff
+runs against the whole base and the scope is applied as a *filter*: a change
+outside the write set is refused, and paths the task did not touch pass through
+its proposal untouched. Without a checkout, `files` is required; a change outside
+scope is refused either way.
 
 ### 3.3 `varvig_report_blocked` — the third outcome
 

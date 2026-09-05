@@ -77,8 +77,12 @@ case. Use a database-like model instead:
 - a scheduler serializes genuinely conflicting work and parallelizes the rest
 - failed transactions retry automatically rather than surfacing to a human
 
-The declared read set doubles as the agent's checkout scope and as a capability
-boundary.
+The declared write set is the capability boundary — a proposal is held to it at
+proposal time. The declared read set is a *dependency hint*: validated against
+what the agent actually read and used for optimistic-concurrency conflict
+detection, not to shape the checkout. (As built, the checkout-scope addendum
+settled this as "full checkouts as default": a task checkout is the whole base
+tree, an ordinary repository, not a sparse slice of the read set. See AUTH §5.)
 
 ### 1.5 Speculation is the default unit of work
 
@@ -125,7 +129,7 @@ Also worth preserving:
 | **Reflog — nothing is ever really deleted** | Git's best safety property. With autonomous agents doing destructive operations at machine speed, cheap universal undo *is* the containment mechanism. Append-only log of every ref move; recovery always possible. |
 | **Atomic compare-and-swap on refs** | The real concurrency primitive underneath `push --force-with-lease`. All of §1.4 ultimately reduces to this. |
 | **Full local replica, full offline operation** | An agent in a network-isolated sandbox must be able to do the entire workflow. Also makes forking whole repo states cheap, which speculation depends on. |
-| **Partial clone / sparse checkout** | Promoted from optimization to central mechanism: a checkout is exactly the declared read set. |
+| **Partial clone / sparse checkout** | Originally promoted to central mechanism ("a checkout is exactly the declared read set"). The checkout-scope addendum reversed this: a task checkout is a **full** ordinary repo (the whole base tree), because a sparse checkout that hides paths recreates the missing-vs-deleted ambiguity and needs eight cooperating mechanisms to be safe. Confinement is now the *write set*, enforced at proposal; the read set is an observed, validated dependency hint. Sparse is retained only as an explicit opt-in. See AUTH §5. |
 | **Cross-repo composition by hash** | Submodules are miserable, but pinning a dependency to an exact immutable version is what makes reproducibility hold across repo boundaries. Keep the primitive, redesign the ergonomics. |
 | **Notes: attach data to an immutable object without changing its hash** | Test results, review verdicts, deploy outcomes, incident links accrete onto a commit over time. Git's implementation is obscure; the primitive is exactly right. |
 | **Format neutrality** | Git is a data structure, not a policy engine. Permissions, review rules, and branch protection layer above. Preserve this or you bake 2026's agent-orchestration assumptions into the storage format. |

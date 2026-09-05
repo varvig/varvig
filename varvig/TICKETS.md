@@ -250,8 +250,11 @@ definition. Refinement — turning a vague human request into a declared transac
 agent-performed work, and it is the single highest-value thing the system does for
 adoption, because it is legible to the human before anything runs.
 
-The declared read set doubles as checkout scope and capability boundary, exactly as in
-§1.4. A ticket's scope *is* its sandbox.
+The declared write set is the capability boundary a proposal is held to, exactly as in
+§1.4; the read set is a validated dependency hint. A ticket's scope is its sandbox — but
+the sandbox is a **full** task checkout (an ordinary repo of the whole base tree), not a
+sparse slice, and confinement is the write set enforced at proposal (checkout-scope
+addendum, AUTH §5), not the shape of the checkout.
 
 *Implemented:* a ticket's declared read/write set is stored as a note in the reserved
 `varvig/scope` namespace (`deps.SetScope`/`GetScope`), keyed by the ticket's intent hash,
