@@ -217,3 +217,63 @@ func equal(a, b []string) bool {
 	}
 	return true
 }
+
+// TestCoverageNamesTheGap is the §5 / GRAPH.md §11.4 property: an affected set
+// over a language no analyzer understands must say so, because an absent edge
+// there is a coverage gap, not a fact about dependencies.
+func TestCoverageNamesTheGap(t *testing.T) {
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := flatTree(t, r, map[string]string{
+		"app.js":   "import './lib.js'\n", // covered by a built-in
+		"lib.js":   "export const x = 1\n",
+		"main.rb":  "require_relative 'other'\n", // no analyzer covers Ruby
+		"README":   "docs\n",                     // no extension at all
+		"other.rb": "\n",
+	})
+	res, err := Affected(r, nil, ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Coverage.Complete() {
+		t.Fatal("Coverage.Complete() = true, but Ruby and an extensionless file are uncovered")
+	}
+	if res.Coverage.Analyzed != 2 {
+		t.Errorf("Coverage.Analyzed = %d, want 2 (the two .js files)", res.Coverage.Analyzed)
+	}
+	if res.Coverage.Unanalyzed != 3 {
+		t.Errorf("Coverage.Unanalyzed = %d, want 3 (.rb x2 and README)", res.Coverage.Unanalyzed)
+	}
+	if !equal(res.Coverage.UnanalyzedExts, []string{"", ".rb"}) {
+		t.Errorf("UnanalyzedExts = %q, want [\"\" \".rb\"]", res.Coverage.UnanalyzedExts)
+	}
+}
+
+// TestCoverageCompleteWhenFullyAnalyzed: the other side of the same property —
+// a tree the built-ins fully understand reports complete coverage, so a caller
+// can trust an absence there.
+func TestCoverageCompleteWhenFullyAnalyzed(t *testing.T) {
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := flatTree(t, r, map[string]string{
+		"a.js": "export const a = 1\n",
+		"b.ts": "export const b = 2\n",
+		"c.go": "package c\n",
+		"d.py": "x = 1\n",
+	})
+	res, err := Affected(r, nil, ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Coverage.Complete() {
+		t.Fatalf("Coverage.Complete() = false for an all-built-in tree; gaps: %q",
+			res.Coverage.UnanalyzedExts)
+	}
+	if res.Coverage.Analyzed != 4 {
+		t.Errorf("Coverage.Analyzed = %d, want 4", res.Coverage.Analyzed)
+	}
+}

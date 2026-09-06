@@ -1275,7 +1275,29 @@ func cmdAffected(args []string) error {
 		}
 		fmt.Printf("  %s %s\n", marker, p)
 	}
+	// Coverage is printed whenever it is incomplete, because an affected set over
+	// a language no analyzer understands looks exactly like one over a fully
+	// analyzed tree (design §5). Saying nothing would let the reader take an
+	// absent dependency for a fact about the code.
+	if !res.Coverage.Complete() {
+		fmt.Printf("coverage: %d of %d files analyzed; no analyzer for %s\n",
+			res.Coverage.Analyzed, res.Coverage.Analyzed+res.Coverage.Unanalyzed,
+			strings.Join(namedTypes(res.Coverage.UnanalyzedExts), ", "))
+	}
 	return nil
+}
+
+// namedTypes renders unanalyzed file extensions for display, giving the
+// extensionless ones a name rather than printing an empty string.
+func namedTypes(exts []string) []string {
+	out := make([]string, 0, len(exts))
+	for _, e := range exts {
+		if e == "" {
+			e = "(no extension)"
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func cmdMerge(args []string) error {

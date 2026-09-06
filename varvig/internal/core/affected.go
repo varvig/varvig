@@ -42,6 +42,32 @@ type AnalyzerRef struct {
 	Module multihash.Multihash
 }
 
+// Coverage says which of the analyzed tree's files an analyzer actually
+// understood. It is not optional decoration: an affected set computed over a
+// language no analyzer covers is indistinguishable, in shape, from one computed
+// over a fully analyzed tree, and a caller that cannot tell them apart will read
+// a coverage gap as an absence of dependency (design §5, GRAPH.md §11.4).
+//
+// It is derived from the analyzer set that actually ran against the tree, never
+// declared, so it cannot drift from what happened.
+type Coverage struct {
+	// Analyzed is the number of files a built-in or registered wasm analyzer
+	// understood.
+	Analyzed int
+	// Unanalyzed is the number of files no analyzer understood. Such a file
+	// contributes only itself when it changes: never a false claim that nothing
+	// depends on it.
+	Unanalyzed int
+	// UnanalyzedExts is the distinct extensions among those files, sorted, so a
+	// caller can name the gap rather than only count it. Files with no extension
+	// are reported as "".
+	UnanalyzedExts []string
+}
+
+// Complete reports whether every file in the tree was understood by an analyzer.
+// A false here is the signal that an absent edge may be a gap rather than a fact.
+func (c Coverage) Complete() bool { return c.Unanalyzed == 0 }
+
 // AffectedResult is the answer to "what does this change affect".
 //
 // Affected is a superset of Changed: it is the transitive closure of the changed
@@ -57,6 +83,10 @@ type AffectedResult struct {
 	// by extension. Empty means no wasm analyzer was registered and only the
 	// built-in extractors ran.
 	Analyzers []AnalyzerRef
+	// Coverage says how much of the tree the analysis actually understood. It
+	// travels with every result because an answer without it cannot be read
+	// safely.
+	Coverage Coverage
 }
 
 // Pulled reports whether p is in the affected set only by dependency — it was
@@ -154,14 +184,52 @@ func Affected(r *repo.Repo, base, new multihash.Multihash) (AffectedResult, erro
 	}
 
 	refs := make([]AnalyzerRef, 0, len(wasm))
+	covered := make(map[string]bool, len(wasm))
 	for _, wa := range wasm {
 		refs = append(refs, AnalyzerRef{Ext: wa.Ext, Module: wa.ID})
+		covered[strings.ToLower(wa.Ext)] = true
 	}
 	return AffectedResult{
 		Changed:   changed,
 		Affected:  graph.Affected(changed),
 		Analyzers: refs,
+		Coverage:  coverageOf(graph.Files, covered),
 	}, nil
+}
+
+// coverageOf counts what the analysis understood. A file is covered if a
+// built-in analyzer handles it or a wasm analyzer is registered for its
+// extension — the two sources package affected consults, so this cannot claim
+// coverage the graph did not have.
+func coverageOf(files map[string]multihash.Multihash, wasmExts map[string]bool) Coverage {
+	var c Coverage
+	gaps := map[string]bool{}
+	for p := range files {
+		if affected.BuiltinCovers(p) || wasmExts[strings.ToLower(extOf(p))] {
+			c.Analyzed++
+			continue
+		}
+		c.Unanalyzed++
+		gaps[strings.ToLower(extOf(p))] = true
+	}
+	c.UnanalyzedExts = make([]string, 0, len(gaps))
+	for e := range gaps {
+		c.UnanalyzedExts = append(c.UnanalyzedExts, e)
+	}
+	sort.Strings(c.UnanalyzedExts)
+	return c
+}
+
+// extOf is the file extension of a repo path, including the dot, or "" when the
+// final path segment has none.
+func extOf(p string) string {
+	if i := strings.LastIndexByte(p, '/'); i >= 0 {
+		p = p[i+1:]
+	}
+	if i := strings.LastIndexByte(p, '.'); i > 0 {
+		return p[i:]
+	}
+	return ""
 }
 
 // FirstParent returns a change's first parent, or nil if it has none (a root

@@ -201,3 +201,103 @@ func hexOrEmpty(m multihash.Multihash) string {
 	}
 	return m.Hex()
 }
+
+// --- affected set (design §1.3) ---
+
+// toolAffected answers "what does this change affect" through the gate. It was
+// CLI-only for its whole life — the shell held all the wiring — so an agent
+// could not ask the one question most likely to keep it from breaking something
+// downstream of its own scope (design addendum, U1).
+//
+// The analysis is core.Affected verbatim; the gate adds three things and nothing
+// else: scope confinement, an honest count of what confinement withheld, and the
+// coverage descriptor that keeps an unanalyzed language from reading as an
+// absence of dependency.
+//
+// Computing the graph reads the whole tree, but the result is not folded into the
+// task's read set. An affected set is derived, rebuildable index content, not
+// authored content the change depends on; recording it as a read would make every
+// task stale on every commit and the read set meaningless.
+func toolAffected(g *Gate, raw json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Change string `json:"change"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
+	id, err := g.resolveChange(a.Change)
+	if err != nil {
+		return nil, err
+	}
+	parent, err := core.FirstParent(g.repo, id)
+	if err != nil {
+		return nil, gerr(codeInvalidArgs, "cannot read %s as a change: %v", id.Hex(), err)
+	}
+	res, err := core.Affected(g.repo, parent, id)
+	if err != nil {
+		return nil, gerr(codeInternal, "cannot compute the affected set: %v", err)
+	}
+
+	changed, changedOut := g.partitionByScope(res.Changed)
+	affected, affectedOut := g.partitionByScope(res.Affected)
+
+	pulled := make([]string, 0, len(affected))
+	for _, p := range affected {
+		if res.Pulled(p) {
+			pulled = append(pulled, p)
+		}
+	}
+
+	return map[string]any{
+		"base":     g.baseHex(),
+		"change":   id.Hex(),
+		"parent":   hexOrEmpty(parent),
+		"changed":  changed,
+		"affected": affected,
+		// Pulled is the half an agent acts on: paths it did not edit that its
+		// edit reaches anyway.
+		"pulled": pulled,
+		// Out-of-scope counts, never paths: a task learns that its change reaches
+		// beyond its scope without learning the layout it may not read. A nonzero
+		// affected count is grounds for report_blocked.
+		"out_of_scope": map[string]any{
+			"changed":  changedOut,
+			"affected": affectedOut,
+		},
+		"coverage": coveragePayload(res.Coverage),
+	}, nil
+}
+
+// partitionByScope splits paths into the ones the task may see and a count of
+// the ones it may not. The count is deliberately not a path list — the whole
+// point of confinement is that the layout outside scope stays unseen — but it is
+// also not silence, because "your change affects things you cannot see" is
+// exactly what a task needs to know (build spec P1.2).
+func (g *Gate) partitionByScope(paths []string) (inScope []string, outOfScope int) {
+	inScope = make([]string, 0, len(paths))
+	for _, p := range paths {
+		if g.grant.Covers(p) && !g.deny.Denied(p) {
+			inScope = append(inScope, p)
+			continue
+		}
+		outOfScope++
+	}
+	return inScope, outOfScope
+}
+
+// coveragePayload renders a coverage descriptor. It is always present in an
+// affected result: a caller must be able to tell "nothing depends on this" from
+// "no analyzer understands this language" (design §5), and an optional field is
+// one an agent will not read.
+func coveragePayload(c core.Coverage) map[string]any {
+	exts := c.UnanalyzedExts
+	if exts == nil {
+		exts = []string{}
+	}
+	return map[string]any{
+		"complete":         c.Complete(),
+		"analyzed_files":   c.Analyzed,
+		"unanalyzed_files": c.Unanalyzed,
+		"unanalyzed_types": exts,
+	}
+}

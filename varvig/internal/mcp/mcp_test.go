@@ -164,13 +164,13 @@ func itoa(i int) string {
 	return string(rune('0' + i)) // ids 0..9 suffice for tests
 }
 
-// advertisedTools is the exact surface the gate exposes: the ten read/propose
-// tools (§4) plus read-only ticket access. Asserting the exact set catches an
+// advertisedTools is the exact surface the gate exposes: the read/propose tools
+// (§4) plus read-only ticket access. Asserting the exact set catches an
 // accidental addition or removal — the submission guard of §9.
 var advertisedTools = []string{
 	"varvig_task_context", "varvig_resolve", "varvig_list_tree", "varvig_read_file",
 	"varvig_find_files", "varvig_search_text", "varvig_read_change", "varvig_read_log",
-	"varvig_diff", "varvig_status",
+	"varvig_diff", "varvig_status", "varvig_affected",
 	"varvig_read_ticket", "varvig_list_proposals", "varvig_propose",
 	"varvig_report_blocked",
 }

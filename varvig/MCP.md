@@ -84,6 +84,7 @@ tool is destructive and **there is no promotion tool**.
 | `varvig_read_log` | Change list for a ref or path | ✓ | — |
 | `varvig_diff` | Unified diff of a change vs its parent, or the bound checkout vs base — scope-confined | ✓ | — |
 | `varvig_status` | Changed paths grouped by add/modify/delete/mode/rename — scope-confined | ✓ | — |
+| `varvig_affected` | What a change affects: changed paths plus transitive dependents — scope-confined, with coverage | ✓ | — |
 | `varvig_read_ticket` | Read intent records (tickets): spec, derived implementation status, named artifacts, discussion; list or detail | ✓ | — |
 | `varvig_list_proposals` | Unpromoted speculative states | ✓ | — |
 | `varvig_propose` | Create objects, propose a state | ✗ | false |

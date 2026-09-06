@@ -130,6 +130,15 @@ var toolList = []map[string]any{
 		}, nil),
 	},
 	{
+		"name":        "varvig_affected",
+		"title":       "What a change affects",
+		"description": "List what a change actually affects: the paths it changed, plus the paths that depend on those transitively through the file-dependency graph. Confined to your scope, with a count (never a list) of affected paths that lie outside it — a nonzero count means your change reaches code you cannot see, which is grounds for report_blocked. Every result carries a coverage descriptor: when it is not complete, an absent dependency may be a language no analyzer understands rather than a fact.",
+		"annotations": readOnlyAnnotations("What a change affects"),
+		"inputSchema": objectSchema(map[string]any{
+			"change": strProp("change hash or ref; omit to use the task's base change"),
+		}, nil),
+	},
+	{
 		"name":        "varvig_read_ticket",
 		"title":       "Read a ticket",
 		"description": "Read the repository's intent records (tickets). With no argument, list the tickets (id + spec). With a ticket id, return that ticket's spec, its derived implementation status (open / stale / implemented) and the commits behind it, any external artifacts it names, and its discussion — paginated with an opaque cursor. Read-only: governance decisions (approve / veto) are human-only and are not exposed here.",
@@ -273,6 +282,7 @@ var toolHandlers = map[string]toolHandler{
 	"varvig_read_log":       toolReadLog,
 	"varvig_diff":           toolDiff,
 	"varvig_status":         toolStatus,
+	"varvig_affected":       toolAffected,
 	"varvig_read_ticket":    toolReadTicket,
 	"varvig_list_proposals": toolListProposals,
 	"varvig_propose":        toolPropose,

@@ -205,6 +205,7 @@ var GateTools = []GateTool{
 	{Name: "varvig_read_log", Summary: "List the change history for a ref or path, within scope."},
 	{Name: "varvig_diff", Summary: "Unified diff of a change vs its parent, or the checkout vs base — scope-confined."},
 	{Name: "varvig_status", Summary: "Changed paths grouped by add/modify/delete/mode/rename — scope-confined."},
+	{Name: "varvig_affected", Summary: "What a change affects: changed paths plus their transitive dependents, scope-confined, with coverage."},
 	{Name: "varvig_read_ticket", Summary: "Read intent records (tickets): spec, derived status, artifacts, discussion."},
 	{Name: "varvig_list_proposals", Summary: "List the speculative, unpromoted changes this task has proposed."},
 	{Name: "varvig_propose", Summary: "Propose a signed, speculative change within scope. Never moves a ref.", Write: true},

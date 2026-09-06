@@ -42,6 +42,10 @@
       "write": false
     },
     {
+      "name": "varvig_affected",
+      "write": false
+    },
+    {
       "name": "varvig_read_ticket",
       "write": false
     },

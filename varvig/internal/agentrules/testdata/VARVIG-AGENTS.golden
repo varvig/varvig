@@ -5,7 +5,7 @@ This file is **generated and overwritten in full** on every `varvig init`
 and on every varvig upgrade. Edits here will be lost. Put your own agent
 instructions in AGENTS.md instead.
 
-Source: varvig v0.0.0-test · intent schema v1 · surface 6bd7b212
+Source: varvig v0.0.0-test · intent schema v1 · surface 973d3cd1
 
 ## What varvig is
 
@@ -85,6 +85,7 @@ the two write tools are append-only and never move a ref.
 - **`varvig_read_log`** (read) — List the change history for a ref or path, within scope.
 - **`varvig_diff`** (read) — Unified diff of a change vs its parent, or the checkout vs base — scope-confined.
 - **`varvig_status`** (read) — Changed paths grouped by add/modify/delete/mode/rename — scope-confined.
+- **`varvig_affected`** (read) — What a change affects: changed paths plus their transitive dependents, scope-confined, with coverage.
 - **`varvig_read_ticket`** (read) — Read intent records (tickets): spec, derived status, artifacts, discussion.
 - **`varvig_list_proposals`** (read) — List the speculative, unpromoted changes this task has proposed.
 - **`varvig_propose`** (write) — Propose a signed, speculative change within scope. Never moves a ref.
