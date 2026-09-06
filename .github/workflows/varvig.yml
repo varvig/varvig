@@ -50,8 +50,9 @@ jobs:
       - name: MCP annotation + scope smoke test
         # Drive the real binary's MCP handshake and assert the directory
         # submission blockers (MCP spec §9): every tool carries a title and the
-        # applicable hints, the surface is exactly the ten varvig_* tools, and no
-        # *promote* tool exists. The gate has no destructive agent-facing tool.
+        # applicable hints, the surface is exactly the varvig_* set the registry
+        # advertises (tools/gate-tools.json), and no *promote* tool exists. The
+        # gate has no destructive agent-facing tool.
         run: python3 tools/mcp-smoke.py ./varvig mcp --standalone
 
   cross-compile:
