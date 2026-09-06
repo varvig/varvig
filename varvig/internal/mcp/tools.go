@@ -9,7 +9,6 @@ import (
 	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
 )
@@ -352,13 +351,13 @@ func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	if err != nil {
 		return nil, gerr(codeNotFound, "cannot resolve %q (scope %q)", a.Ref, g.grant.Scopes)
 	}
-	o, err := g.repo.Objects.Get(id)
+	kind, err := core.ObjectKind(g.repo, id)
 	if err != nil {
 		return nil, gerr(codeNotFound, "resolved %q to %s but it is not stored", a.Ref, id.Hex())
 	}
 	// Enforce scope on object reachability, not only path strings (§9.4): a
 	// blob/tree resolved directly must lie within the task's scope subtree.
-	if k := o.Type().String(); k == "blob" || k == "tree" {
+	if k := kind; k == core.KindBlob || k == core.KindTree {
 		in, err := g.inScopeObject(id)
 		if err != nil {
 			return nil, err
@@ -369,7 +368,7 @@ func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
 				"%s %s is outside the task scope %q", k, id.Hex(), g.grant.Scopes)
 		}
 	}
-	return map[string]any{"ref": a.Ref, "hash": id.Hex(), "type": o.Type().String()}, nil
+	return map[string]any{"ref": a.Ref, "hash": id.Hex(), "type": kind}, nil
 }
 
 func toolListTree(g *Gate, raw json.RawMessage) (map[string]any, error) {
@@ -882,7 +881,7 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 
 	var baseTree multihash.Multihash
 	if g.base != nil {
-		bt, err := treeOfChange(g.repo, g.base)
+		bt, err := core.TreeOf(g.repo, g.base)
 		if err != nil {
 			return nil, gerr(codeNotFound, "cannot read base tree: %v", err)
 		}
@@ -1101,21 +1100,6 @@ func (g *Gate) resolveChange(arg string) (multihash.Multihash, error) {
 	id, err := g.rl.Resolve(arg)
 	if err != nil {
 		return nil, gerr(codeNotFound, "cannot resolve change %q", arg)
-	}
-	return id, nil
-}
-
-func treeOfChange(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, error) {
-	o, err := r.Objects.Get(id)
-	if err != nil {
-		return nil, err
-	}
-	if core.IsChange(o) {
-		c, err := o.AsChange()
-		if err != nil {
-			return nil, err
-		}
-		return c.Tree, nil
 	}
 	return id, nil
 }

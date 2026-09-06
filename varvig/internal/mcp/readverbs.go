@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
@@ -31,23 +32,16 @@ func (g *Gate) diffSidesGate(changeArg string) (baseTree, newTree multihash.Mult
 		if e != nil {
 			return nil, nil, nil, nil, e
 		}
-		obj, e := g.repo.Objects.Get(id)
-		if e != nil {
-			return nil, nil, nil, nil, gerr(codeNotFound, "cannot read change %s", id.Hex())
-		}
-		c, e := obj.AsChange()
-		if e != nil {
+		newTree, baseTree, e = core.ChangeTrees(g.repo, id)
+		if errors.Is(e, core.ErrNotAChange) {
 			return nil, nil, nil, nil, gerr(codeInvalidArgs, "%s is not a change", id.Hex())
 		}
-		newTree = c.Tree
-		if len(c.Parents) > 0 {
-			if baseTree, e = treeOfChange(g.repo, c.Parents[0]); e != nil {
-				return nil, nil, nil, nil, gerr(codeInternal, "cannot read parent tree: %v", e)
-			}
+		if e != nil {
+			return nil, nil, nil, nil, gerr(codeNotFound, "cannot read change %s: %v", id.Hex(), e)
 		}
 	case g.checkout != "":
 		if g.base != nil {
-			if baseTree, err = treeOfChange(g.repo, g.base); err != nil {
+			if baseTree, err = core.TreeOf(g.repo, g.base); err != nil {
 				return nil, nil, nil, nil, gerr(codeInternal, "cannot read base tree: %v", err)
 			}
 		}
@@ -106,11 +100,10 @@ func (g *Gate) blobReader(states map[string]worktree.FileState) core.BytesFn {
 		if !ok || s.Hash == nil {
 			return nil, false, nil
 		}
-		obj, err := g.repo.Objects.Get(s.Hash)
+		c, ok, err := core.BlobBytes(g.repo, s.Hash)
 		if err != nil {
 			return nil, false, err
 		}
-		c, ok := obj.BlobContent()
 		if ok {
 			g.record(s.Hash.Hex())
 		}
