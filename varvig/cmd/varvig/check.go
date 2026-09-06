@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/check"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 )
 
@@ -58,7 +59,7 @@ func cmdCheck(args []string) error {
 	if err != nil {
 		return fmt.Errorf("check: cannot resolve %q: %w", ref, err)
 	}
-	treeID, err := treeOf(r, changeID)
+	treeID, err := core.TreeOf(r, changeID)
 	if err != nil {
 		return fmt.Errorf("check: %q is not a change with a tree: %w", ref, err)
 	}
@@ -125,7 +126,7 @@ func checkList(r *repo.Repo, ref string) error {
 	if err != nil {
 		return fmt.Errorf("check list: cannot resolve %q: %w", ref, err)
 	}
-	treeID, err := treeOf(r, changeID)
+	treeID, err := core.TreeOf(r, changeID)
 	if err != nil {
 		return fmt.Errorf("check list: %q is not a change with a tree: %w", ref, err)
 	}

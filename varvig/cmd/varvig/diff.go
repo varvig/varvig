@@ -132,7 +132,7 @@ func baseTree(r *repo.Repo) (multihash.Multihash, error) {
 	if err != nil {
 		return nil, nil
 	}
-	return treeOf(r, head)
+	return core.TreeOf(r, head)
 }
 
 func resolveTree(r *repo.Repo, arg string) (multihash.Multihash, error) {
@@ -140,7 +140,7 @@ func resolveTree(r *repo.Repo, arg string) (multihash.Multihash, error) {
 	if err != nil {
 		return nil, fmt.Errorf("diff: cannot resolve %q: %w", arg, err)
 	}
-	return treeOf(r, id)
+	return core.TreeOf(r, id)
 }
 
 // blobBytes reads a stored blob's content; ok=false when the hash is nil.

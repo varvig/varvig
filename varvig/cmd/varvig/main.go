@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/affected"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/conformance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
@@ -1234,78 +1233,44 @@ func cmdAffected(args []string) error {
 	if err != nil {
 		return err
 	}
-	var baseTree, newTree multihash.Multihash
+	var base, newRev multihash.Multihash
 	switch len(args) {
 	case 0:
 		// Default: what the tip change affected relative to its first parent.
-		headRef, herr := r.Head()
-		if herr != nil {
-			return herr
-		}
-		head, herr := r.Refs.Resolve(headRef)
-		if herr != nil {
-			return herr
-		}
-		newTree, err = treeOf(r, head)
+		headRef, err := r.Head()
 		if err != nil {
 			return err
 		}
-		obj, err := r.Objects.Get(head)
-		if err != nil {
+		if newRev, err = r.Refs.Resolve(headRef); err != nil {
 			return err
 		}
-		if c, err := obj.AsChange(); err == nil && len(c.Parents) > 0 {
-			if baseTree, err = treeOf(r, c.Parents[0]); err != nil {
-				return err
-			}
+		if base, err = core.FirstParent(r, newRev); err != nil {
+			return err
 		}
 	case 2:
-		base, err := resolve(r, args[0])
-		if err != nil {
+		if base, err = resolve(r, args[0]); err != nil {
 			return err
 		}
-		newRev, err := resolve(r, args[1])
-		if err != nil {
-			return err
-		}
-		if baseTree, err = treeOf(r, base); err != nil {
-			return err
-		}
-		if newTree, err = treeOf(r, newRev); err != nil {
+		if newRev, err = resolve(r, args[1]); err != nil {
 			return err
 		}
 	default:
 		return errors.New("usage: varvig affected [<base> <new>]")
 	}
 
-	diff, err := affected.DiffTrees(r.Objects, baseTree, newTree)
+	res, err := core.Affected(r, base, newRev)
 	if err != nil {
 		return err
 	}
-	changed := diff.Changed()
 
-	cache, err := affected.NewDiskCache(filepath.Join(r.GitDir(), "index", "deps"))
-	if err != nil {
-		return err
-	}
-	wasm, err := wasmAnalyzers(r)
-	if err != nil {
-		return err
-	}
-	graph, err := affected.BuildGraph(r.Objects, newTree, affected.Options{Cache: cache, Wasm: wasm})
-	if err != nil {
-		return err
-	}
-	impacted := graph.Affected(changed)
-
-	fmt.Printf("changed (%d):\n", len(changed))
-	for _, p := range changed {
+	fmt.Printf("changed (%d):\n", len(res.Changed))
+	for _, p := range res.Changed {
 		fmt.Printf("  %s\n", p)
 	}
-	fmt.Printf("affected (%d):\n", len(impacted))
-	for _, p := range impacted {
+	fmt.Printf("affected (%d):\n", len(res.Affected))
+	for _, p := range res.Affected {
 		marker := " "
-		if !contains(changed, p) {
+		if res.Pulled(p) {
 			marker = "+" // pulled in transitively via the dependency graph
 		}
 		fmt.Printf("  %s %s\n", marker, p)
@@ -1578,64 +1543,6 @@ func shortOrNone(m multihash.Multihash) string {
 		return "(none)"
 	}
 	return m.Hex()[4:16]
-}
-
-// wasmAnalyzers builds language analyzers from hook-manifest entries named
-// "analyze:<ext>" (design §3.3). Each binds a file extension to a wasm module
-// that runs in the same sandbox as hooks.
-func wasmAnalyzers(r *repo.Repo) ([]affected.WasmAnalyzer, error) {
-	cfg, err := hook.LoadManifest(r)
-	if err != nil {
-		return nil, err
-	}
-	runner := func(ctx context.Context, module, input []byte) ([]byte, error) {
-		res, err := hook.Run(ctx, module, input)
-		if err != nil {
-			return nil, err
-		}
-		if !res.Allowed() {
-			return nil, fmt.Errorf("analyzer exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
-		}
-		return res.Stdout, nil
-	}
-	var out []affected.WasmAnalyzer
-	for _, e := range cfg.Entries {
-		ext, ok := strings.CutPrefix(e.Event, "analyze:")
-		if !ok {
-			continue
-		}
-		obj, err := r.Objects.Get(e.Module)
-		if err != nil {
-			return nil, err
-		}
-		mod, _ := obj.BlobContent()
-		out = append(out, affected.WasmAnalyzer{Ext: ext, Module: mod, ID: e.Module, Run: runner})
-	}
-	return out, nil
-}
-
-func treeOf(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, error) {
-	obj, err := r.Objects.Get(id)
-	if err != nil {
-		return nil, err
-	}
-	if core.IsChange(obj) {
-		c, err := obj.AsChange()
-		if err != nil {
-			return nil, err
-		}
-		return c.Tree, nil
-	}
-	return id, nil
-}
-
-func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 
 // resolve interprets a string as a ref name or, failing that, an object id.
