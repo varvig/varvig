@@ -25,6 +25,15 @@ const (
 	// separated at refs/varvig/tickets/<id>/spec.
 	TicketsPrefix = "refs/varvig/tickets/"
 
+	// NodesPrefix is the root of context-graph identity-node refs:
+	// refs/varvig/nodes/<id>. An identity node is a thing with a life across
+	// renames — a symbol, a file across time — and it uses the same construction
+	// as a ticket (GRAPH.md §3.1): identity is a ref moved by compare-and-swap,
+	// state is an append-only chain of immutable revisions. What a revision's
+	// state *means* is the producer's business; the core stores it and never
+	// reads it, exactly as it never reads an edge type.
+	NodesPrefix = "refs/varvig/nodes/"
+
 	// PolicyRef points to the blob id of the repository's promotion-policy wasm
 	// module (tickets §2.5). A policy is a content-addressed object, versioned
 	// alongside the code it guards; the ref names the module in force.

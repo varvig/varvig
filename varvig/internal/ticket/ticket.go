@@ -5,6 +5,10 @@
 // mutation appends an immutable revision, undo is the reflog, and replication is
 // ordinary ref sync.
 //
+// The construction itself lives in package idchain, which the context graph's
+// identity nodes share (GRAPH.md §3.1). What stays here is what is specific to a
+// ticket: the namespace, and reading a revision's state as a spec.
+//
 // A ticket revision is an *unmaterialized* change (D1): intent with no tree,
 // carrying the spec, provenance, authorship, and a signature. The ticket id is
 // the genesis revision's hash — stable forever, because the genesis revision is
@@ -17,9 +21,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/idchain"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 )
@@ -43,14 +46,7 @@ func New(r *repo.Repo, spec string, priv ed25519.PrivateKey, author string, now 
 	if spec == "" {
 		return nil, fmt.Errorf("ticket: a spec is required")
 	}
-	rev, err := buildRevision(r, spec, nil, priv, author, now)
-	if err != nil {
-		return nil, err
-	}
-	if err := r.Refs.Create(Ref(rev), rev, author, "ticket new"); err != nil {
-		return nil, err
-	}
-	return rev, nil
+	return idchain.New(r, reserved.TicketsPrefix, spec, priv, author, now)
 }
 
 // Revise appends a new intent revision (parent = the current head) and moves the
@@ -61,19 +57,7 @@ func Revise(r *repo.Repo, id multihash.Multihash, spec string, priv ed25519.Priv
 	if spec == "" {
 		return nil, fmt.Errorf("ticket: a spec is required")
 	}
-	name := Ref(id)
-	head, err := r.Refs.Resolve(name)
-	if err != nil {
-		return nil, fmt.Errorf("ticket: %s: %w", id.Hex(), err)
-	}
-	rev, err := buildRevision(r, spec, []multihash.Multihash{head}, priv, author, now)
-	if err != nil {
-		return nil, err
-	}
-	if err := r.Refs.CompareAndSwap(name, head, rev, author, "ticket revise"); err != nil {
-		return nil, err
-	}
-	return rev, nil
+	return idchain.Revise(r, reserved.TicketsPrefix, id, spec, priv, author, now)
 }
 
 // Head returns the current intent revision of a ticket.
@@ -135,25 +119,4 @@ func infoFor(r *repo.Repo, id, head multihash.Multihash) (Info, error) {
 		return Info{}, fmt.Errorf("ticket: head %s is not a change: %w", head.Hex(), err)
 	}
 	return Info{ID: id, Head: head, Spec: c.Message, Materialized: c.Materialized()}, nil
-}
-
-// buildRevision creates a signed, unmaterialized change carrying the spec and
-// provenance, and stores it. No tree: a ticket is intent without a
-// materialization (D1).
-func buildRevision(r *repo.Repo, spec string, parents []multihash.Multihash, priv ed25519.PrivateKey, author string, now int64) (multihash.Multihash, error) {
-	provID, err := r.Objects.Put(object.NewProvenance(provenance.Build(author)))
-	if err != nil {
-		return nil, err
-	}
-	change := object.NewChange(object.Change{
-		Parents:    parents,
-		Message:    spec,
-		Timestamp:  now,
-		Author:     author,
-		Provenance: provID,
-	})
-	if err := provenance.Sign(change, priv); err != nil {
-		return nil, err
-	}
-	return r.Objects.Put(change)
 }
