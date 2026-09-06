@@ -12,6 +12,7 @@ package edge
 // exists to guarantee, and the compiler enforces it for every caller.
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/graphnode"
@@ -71,6 +72,46 @@ func Put(r *repo.Repo, e StoredEdge, author string, now int64) (multihash.Multih
 		return nil, err
 	}
 	return notes.New(r).Add(reserved.NoteEdge, anchor, payload, author, now)
+}
+
+// PutOnce writes an edge unless one identical to it is already recorded on the
+// same anchor, and reports whether it wrote. It is the echo-suppression
+// primitive: a connector that re-reads unchanged foreign state and re-imports it
+// produces no new note, so a round trip that changed nothing leaves no trace.
+//
+// Identity is the encoded record, byte for byte. That is exact rather than
+// approximate — two edges are the same edge when every field agrees, including
+// provenance and the tree they were observed under — and it needs no watermark
+// of its own, because the store already holds what was last written.
+//
+// A note chain that grew one entry per poll would be the failure this prevents:
+// unbounded, and indistinguishable from an edge genuinely re-observed.
+func PutOnce(r *repo.Repo, e StoredEdge, author string, now int64) (id multihash.Multihash, written bool, err error) {
+	if e.Retention() == graphnode.Collectable {
+		return nil, false, ErrCollectableUnsupported
+	}
+	anchor, err := Anchor(e)
+	if err != nil {
+		return nil, false, err
+	}
+	payload, err := Encode(e)
+	if err != nil {
+		return nil, false, err
+	}
+	chain, err := notes.New(r).List(reserved.NoteEdge, anchor)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, n := range chain {
+		if bytes.Equal(n.Note.Payload, payload) {
+			return n.ID, false, nil
+		}
+	}
+	id, err = notes.New(r).Add(reserved.NoteEdge, anchor, payload, author, now)
+	if err != nil {
+		return nil, false, err
+	}
+	return id, true, nil
 }
 
 // Entry is a stored edge together with the id of the note carrying it. The note
