@@ -2,3 +2,8 @@
 # the repo root, alongside the varvig/ module) and the release workflow uploads
 # them as artifacts; they are never committed.
 /dist/
+
+# Python bytecode cache — running tools/mcp-smoke.py (or py_compile) writes it
+# beside the script; never committed.
+__pycache__/
+*.pyc

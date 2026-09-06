@@ -11,6 +11,13 @@ tool carries a human-readable `title` and the applicable `readOnlyHint` /
 `destructiveHint` behavioral hints. A missing title or hint is a hard failure —
 catching it here is far cheaper than catching it in directory review.
 
+The exact tool set, and each tool's write/read expectation, are NOT hardcoded
+here: they are read from `gate-tools.json` beside this script. That oracle is
+generated from the one Go registry the gate is drift-tested against
+(agentrules.GateTools), so the exact-set assertion below cannot fall behind a
+gate-tool addition. This script and its oracle are copied verbatim from core into
+the varvig/plugins package, keeping the plugin's check registry-sourced too.
+
 The gate needs a repository in its working directory, so the script initializes
 a throwaway repo and runs the binary there. It exits non-zero on any failure.
 """
@@ -26,6 +33,28 @@ import threading
 def fail(msg):
     print(f"mcp-smoke: FAIL: {msg}", file=sys.stderr)
     sys.exit(1)
+
+
+def load_oracle():
+    """Read the registry-generated tool oracle sitting beside this script.
+
+    Returns a {name: write} mapping. The file is generated from
+    agentrules.GateTools (see gate-tools.json's _comment); a missing or empty
+    oracle is a hard failure, not a silently weakened check.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "gate-tools.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except OSError as e:
+        fail(f"cannot read the gate-tools oracle ({path}): {e}")
+    except ValueError as e:
+        fail(f"gate-tools oracle ({path}) is not valid JSON: {e}")
+    entries = doc.get("tools")
+    if not entries:
+        fail(f"gate-tools oracle ({path}) lists no tools")
+    return {t["name"]: bool(t["write"]) for t in entries}
 
 
 def main():
@@ -98,6 +127,10 @@ def main():
         if not tools:
             fail("tools/list returned no tools")
 
+        # The oracle is the registry's view of the surface: which tools must
+        # exist and which of them are (append-only) writers.
+        oracle_write = load_oracle()
+
         problems = []
         for t in tools:
             name = t.get("name", "<unnamed>")
@@ -118,18 +151,21 @@ def main():
             if "promote" in name:
                 problems.append(f"{name}: a *promote* tool must not exist — "
                                 "the gate can never promote")
+            # Read-only status must match the registry: a write tool is not
+            # read-only, and every read tool is. Ties the gate's hints to the
+            # single source rather than trusting the gate to be self-consistent.
+            if name in oracle_write:
+                want_ro = not oracle_write[name]
+                if ann.get("readOnlyHint") != want_ro:
+                    problems.append(
+                        f"{name}: readOnlyHint={ann.get('readOnlyHint')} but the "
+                        f"registry expects {want_ro} (write={oracle_write[name]})")
 
         got = sorted(t.get("name", "?") for t in tools)
-        # The exact advertised surface — read/propose plus ticket reads and the
-        # blocked-on-scope report. Asserting the exact set catches an accidental
-        # addition or removal (§9); keep it in step with the gate.
-        want = sorted([
-            "varvig_task_context", "varvig_resolve", "varvig_list_tree",
-            "varvig_read_file", "varvig_find_files", "varvig_search_text",
-            "varvig_read_change", "varvig_read_log", "varvig_read_ticket",
-            "varvig_diff", "varvig_status", "varvig_list_proposals",
-            "varvig_propose", "varvig_report_blocked",
-        ])
+        # The exact advertised surface, taken from the registry-generated oracle:
+        # asserting the exact set catches an accidental addition or removal (§9)
+        # without a hand-maintained list here that could fall behind the gate.
+        want = sorted(oracle_write)
         if got != want:
             problems.append(f"tool set is {got}, want exactly {want}")
 
@@ -138,7 +174,8 @@ def main():
                  "\n  ".join(problems))
 
         print(f"mcp-smoke: OK — {len(tools)} tools, all carry title + hints, "
-              f"no promotion tool ({', '.join(got)})")
+              f"read-only hints match the registry, no promotion tool "
+              f"({', '.join(got)})")
     finally:
         try:
             proc.stdin.close()

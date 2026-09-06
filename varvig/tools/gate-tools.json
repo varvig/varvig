@@ -1,0 +1,61 @@
+{
+  "_comment": "Generated from agentrules.GateTools — do not edit. Regenerate: go test ./internal/agentrules -run Oracle -update.",
+  "tools": [
+    {
+      "name": "varvig_task_context",
+      "write": false
+    },
+    {
+      "name": "varvig_resolve",
+      "write": false
+    },
+    {
+      "name": "varvig_list_tree",
+      "write": false
+    },
+    {
+      "name": "varvig_read_file",
+      "write": false
+    },
+    {
+      "name": "varvig_find_files",
+      "write": false
+    },
+    {
+      "name": "varvig_search_text",
+      "write": false
+    },
+    {
+      "name": "varvig_read_change",
+      "write": false
+    },
+    {
+      "name": "varvig_read_log",
+      "write": false
+    },
+    {
+      "name": "varvig_diff",
+      "write": false
+    },
+    {
+      "name": "varvig_status",
+      "write": false
+    },
+    {
+      "name": "varvig_read_ticket",
+      "write": false
+    },
+    {
+      "name": "varvig_list_proposals",
+      "write": false
+    },
+    {
+      "name": "varvig_propose",
+      "write": true
+    },
+    {
+      "name": "varvig_report_blocked",
+      "write": true
+    }
+  ]
+}
