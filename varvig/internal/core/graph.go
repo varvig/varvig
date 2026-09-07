@@ -101,6 +101,17 @@ func DerivedEdges(r *repo.Repo, treeOrChange multihash.Multihash) (DerivedEdgesR
 	}, nil
 }
 
+// TreeFiles is every file in a tree as path -> content id. It is the resolution
+// table a query needs: a path is not a node, so turning one into an endpoint —
+// or into the anchor a stored edge hangs on — goes through here.
+func TreeFiles(r *repo.Repo, treeOrChange multihash.Multihash) (map[string]multihash.Multihash, error) {
+	tree, err := TreeOf(r, treeOrChange)
+	if err != nil {
+		return nil, err
+	}
+	return affected.FlattenTree(r.Objects, tree)
+}
+
 // derivedFileEdge builds one edge. The endpoints are the files' content hashes —
 // immutable, so nothing can change underneath the edge — and the paths ride
 // along as the resolution under this tree.

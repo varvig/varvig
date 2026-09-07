@@ -217,7 +217,7 @@ func coverageOf(files map[string]multihash.Multihash, wasmExts map[string]bool) 
 	var c Coverage
 	gaps := map[string]bool{}
 	for p := range files {
-		if affected.BuiltinCovers(p) || wasmExts[lowerExt(p)] {
+		if covered(p, wasmExts) {
 			c.Analyzed++
 			continue
 		}
@@ -230,6 +230,30 @@ func coverageOf(files map[string]multihash.Multihash, wasmExts map[string]bool) 
 	}
 	sort.Strings(c.UnanalyzedExts)
 	return c
+}
+
+// covered is the single definition of "an analyzer understands this file": a
+// built-in extractor handles it, or an analyzer is registered for its extension.
+// Both the coverage counts and the per-path question below go through it, so a
+// query cannot disagree with the coverage descriptor it ships alongside.
+func covered(path string, analyzerExts map[string]bool) bool {
+	return affected.BuiltinCovers(path) || analyzerExts[lowerExt(path)]
+}
+
+// PathCovered reports whether an analyzer understands one file, given the
+// analyzer set a result was produced with.
+//
+// It is exported because it is what turns a coverage descriptor into a
+// per-file answer, and that is what lets a caller tell "nothing depends on this"
+// apart from "no analyzer read this" (§5, GRAPH.md §11.4). Deriving it from the
+// analyzer set rather than from a declaration is what keeps it from drifting
+// away from what actually ran.
+func PathCovered(analyzers []AnalyzerRef, path string) bool {
+	exts := make(map[string]bool, len(analyzers))
+	for _, a := range analyzers {
+		exts[strings.ToLower(a.Ext)] = true
+	}
+	return covered(path, exts)
 }
 
 // extOf is the file extension of a repo path, including the dot, or "" when the
