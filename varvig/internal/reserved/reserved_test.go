@@ -1,6 +1,7 @@
 package reserved
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
@@ -72,5 +73,64 @@ func TestReservedNamespacesCopy(t *testing.T) {
 	ns[0] = "tampered"
 	if NoteNamespaces()[0] == "tampered" {
 		t.Fatal("NoteNamespaces returned a shared, mutable slice")
+	}
+}
+
+func TestIsFactoryRef(t *testing.T) {
+	cases := map[string]bool{
+		"refs/factory/cells/mini-a/capabilities": true,
+		"refs/attempts/mini-a/abc/1":             true,
+		"refs/claims/mini-a/abc":                 true,
+		"refs/envelopes/overseer-a":              true,
+		"refs/leases/mini-a/7063622d666162":      true,
+		"refs/reservations/mini-a/deadbeef":      true,
+		"refs/heads/main":                        false,
+		"refs/varvig/tickets/abc":                false,
+		"refs/pins/aabb/0000000000000000/1e20ff": false,
+		// A name that merely begins with the same letters is not nested under
+		// the namespace: refs/factories/ is somebody else's.
+		"refs/factories/other": false,
+		"refs/leased/mini-a":   false,
+	}
+	for name, want := range cases {
+		if got := IsFactoryRef(name); got != want {
+			t.Errorf("IsFactoryRef(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// TestFactoryNamespacesAreDistinctFromTheCore proves the reservation does not
+// overlap the core's own space. Factory is another layer, so its names sit
+// beside refs/varvig/ rather than inside it — and a core ref must never be
+// mistaken for a Factory one, or an audit asking "what is governance?" would
+// get the wrong answer.
+func TestFactoryNamespacesAreDistinctFromTheCore(t *testing.T) {
+	for _, p := range FactoryPrefixes() {
+		if strings.HasPrefix(p, "refs/varvig/") {
+			t.Errorf("factory namespace %q is nested in the core's own space", p)
+		}
+		if !strings.HasPrefix(p, "refs/") || !strings.HasSuffix(p, "/") {
+			t.Errorf("factory namespace %q is not a refs/ prefix ending in a slash", p)
+		}
+	}
+	if IsFactoryRef(TicketsPrefix + "abc") {
+		t.Error("a ticket ref was reported as a Factory ref")
+	}
+	if IsTicketRef(EnvelopesPrefix + "overseer-a") {
+		t.Error("a Factory ref was reported as a ticket ref")
+	}
+}
+
+// TestFactoryPrefixesAreACopy keeps the reservation immutable from outside, the
+// same property NoteNamespaces has: a caller that mutates what it is handed must
+// not be able to rewrite what the repository reserved.
+func TestFactoryPrefixesAreACopy(t *testing.T) {
+	got := FactoryPrefixes()
+	if len(got) == 0 {
+		t.Fatal("no factory prefixes reserved")
+	}
+	got[0] = "refs/tampered/"
+	if FactoryPrefixes()[0] == "refs/tampered/" {
+		t.Error("FactoryPrefixes returned the reservation itself, not a copy")
 	}
 }

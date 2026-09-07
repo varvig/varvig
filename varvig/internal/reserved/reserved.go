@@ -37,6 +37,65 @@ const (
 	PrincipalsRef = "refs/varvig/principals"
 )
 
+// Ref namespaces reserved for the Factory layer (Design Notes VIII).
+//
+// Factory is a peer, not part of the core: it holds no core code path and the
+// core populates none of these. They are reserved here for the same reason the
+// governance names are — spelling is the thing that cannot be fixed after first
+// run. A cell built today and a core built later must agree on where a lease
+// lives without either pattern-guessing, and an audit asking "what has this
+// repository committed to spend?" should be able to name the namespace rather
+// than infer it.
+//
+// Reserving them costs nothing at runtime and changes no frozen format, exactly
+// as for the names above. Nothing in the core reads or writes them, and an
+// older binary that has never heard of them still lists, syncs and leaves them
+// intact.
+//
+// They are deliberately **not** nested under refs/varvig/, which is the core's
+// own space. These are another layer's.
+const (
+	// FactoryPrefix is the root of a cell's own published state — today its
+	// capabilities object at refs/factory/cells/<cell-id>/capabilities.
+	FactoryPrefix = "refs/factory/"
+
+	// AttemptsPrefix holds one immutable ref per attempt, at
+	// refs/attempts/<cell-id>/<task-id>/<n>. An attempt ref is created once and
+	// never moved: that immutability is what lets two partitioned cells attempt
+	// the same task and have both attempts survive reconnect.
+	AttemptsPrefix = "refs/attempts/"
+
+	// ClaimsPrefix holds advisory, expiring claims at
+	// refs/claims/<cell-id>/<task-id>. Advisory is the whole design: a claim
+	// never excludes another cell, it only says "I am working on this", and
+	// across a partition it says nothing at all.
+	ClaimsPrefix = "refs/claims/"
+
+	// EnvelopesPrefix holds an overseer's spend ceilings at
+	// refs/envelopes/<overseer-id>. An envelope is a *shared* ceiling across the
+	// cells under that overseer, so it cannot be enforced from a stale view —
+	// which is why leases exist alongside it.
+	EnvelopesPrefix = "refs/envelopes/"
+
+	// LeasesPrefix holds exclusive spend allocations at
+	// refs/leases/<cell-id>/<capability>. Because no other cell can spend a
+	// lease, a stale one is safe to act on — that is what lets a disconnected
+	// cell keep working.
+	LeasesPrefix = "refs/leases/"
+
+	// ReservationsPrefix holds the durable record of one effectful action at
+	// refs/reservations/<cell-id>/<idempotency-key>. The ref is created
+	// compare-and-swap, and winning that swap is what grants the right to act:
+	// it is the mechanism that stops an irreversible action happening twice.
+	ReservationsPrefix = "refs/reservations/"
+)
+
+// factoryPrefixes is the fixed set of Factory ref namespaces.
+var factoryPrefixes = []string{
+	FactoryPrefix, AttemptsPrefix, ClaimsPrefix,
+	EnvelopesPrefix, LeasesPrefix, ReservationsPrefix,
+}
+
 // Reserved note namespaces. A note namespace N lives at refs/notes/N/<target>;
 // these are the N values (tickets §1.3). Signed decisions, foreign tracker
 // bindings, and cached scoring output all accrete onto immutable objects as
@@ -114,4 +173,25 @@ func IsReservedNoteNamespace(ns string) bool {
 // slice is a copy; callers may not mutate the reservation.
 func NoteNamespaces() []string {
 	return append([]string(nil), reservedNoteNamespaces...)
+}
+
+// IsFactoryRef reports whether name is nested under one of the Factory ref
+// namespaces.
+//
+// It answers a question, and grants nothing: these names are reserved so a later
+// layer attaches to the same spelling, not so the core polices them. Nothing
+// here refuses a write, and the core neither reads nor writes these refs.
+func IsFactoryRef(name string) bool {
+	for _, p := range factoryPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// FactoryPrefixes returns the reserved Factory ref namespaces. The returned
+// slice is a copy; callers may not mutate the reservation.
+func FactoryPrefixes() []string {
+	return append([]string(nil), factoryPrefixes...)
 }
