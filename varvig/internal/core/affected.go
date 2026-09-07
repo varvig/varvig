@@ -170,31 +170,43 @@ func Affected(r *repo.Repo, base, new multihash.Multihash) (AffectedResult, erro
 	}
 	changed := diff.Changed()
 
-	cache, err := affected.NewDiskCache(filepath.Join(IndexDir(r), "deps"))
-	if err != nil {
-		return AffectedResult{}, err
-	}
-	wasm, err := Analyzers(r)
-	if err != nil {
-		return AffectedResult{}, err
-	}
-	graph, err := affected.BuildGraph(r.Objects, newTree, affected.Options{Cache: cache, Wasm: wasm})
+	graph, wasm, err := buildGraph(r, newTree)
 	if err != nil {
 		return AffectedResult{}, err
 	}
 
-	refs := make([]AnalyzerRef, 0, len(wasm))
-	covered := make(map[string]bool, len(wasm))
-	for _, wa := range wasm {
-		refs = append(refs, AnalyzerRef{Ext: wa.Ext, Module: wa.ID})
-		covered[strings.ToLower(wa.Ext)] = true
-	}
 	return AffectedResult{
 		Changed:   changed,
 		Affected:  graph.Affected(changed),
-		Analyzers: refs,
-		Coverage:  coverageOf(graph.Files, covered),
+		Analyzers: analyzerRefs(wasm),
+		Coverage:  coverageOf(graph.Files, analyzerExts(wasm)),
 	}, nil
+}
+
+// analyzerRefs and analyzerExts derive the two views of an analyzer set that
+// every caller needs: what to report, and what counts as covered. They live
+// here so the affected surface and the graph surface cannot disagree about
+// either — and so the extension set is built in exactly one place.
+func analyzerRefs(wasm []affected.WasmAnalyzer) []AnalyzerRef {
+	out := make([]AnalyzerRef, 0, len(wasm))
+	for _, wa := range wasm {
+		out = append(out, AnalyzerRef{Ext: wa.Ext, Module: wa.ID})
+	}
+	return out
+}
+
+// analyzerExts is the set of extensions the registered analyzers cover.
+//
+// wa.Ext is already an extension (".rb"), so it is lowercased directly and
+// never routed through lowerExt, which expects a path. A refactor that conflated
+// the two mapped every analyzer to the empty string and silently dropped it out
+// of coverage; TestCoverageCountsRegisteredAnalyzer pins the distinction.
+func analyzerExts(wasm []affected.WasmAnalyzer) map[string]bool {
+	out := make(map[string]bool, len(wasm))
+	for _, wa := range wasm {
+		out[strings.ToLower(wa.Ext)] = true
+	}
+	return out
 }
 
 // coverageOf counts what the analysis understood. A file is covered if a
@@ -205,12 +217,12 @@ func coverageOf(files map[string]multihash.Multihash, wasmExts map[string]bool) 
 	var c Coverage
 	gaps := map[string]bool{}
 	for p := range files {
-		if affected.BuiltinCovers(p) || wasmExts[strings.ToLower(extOf(p))] {
+		if affected.BuiltinCovers(p) || wasmExts[lowerExt(p)] {
 			c.Analyzed++
 			continue
 		}
 		c.Unanalyzed++
-		gaps[strings.ToLower(extOf(p))] = true
+		gaps[lowerExt(p)] = true
 	}
 	c.UnanalyzedExts = make([]string, 0, len(gaps))
 	for e := range gaps {
@@ -231,6 +243,37 @@ func extOf(p string) string {
 	}
 	return ""
 }
+
+// buildGraph is the one place the dependency index is built, so the affected-set
+// surface and the graph surface cannot end up reading different indices. That is
+// G4's "one index, two query surfaces" made structural: there is one function,
+// and both callers go through it.
+//
+// The specifier cache under IndexDir makes it incremental across runs, and every
+// component that determined an answer is in each entry's key (package affected),
+// so a stale entry is never trusted.
+func buildGraph(r *repo.Repo, tree multihash.Multihash) (*affected.Graph, []affected.WasmAnalyzer, error) {
+	cache, err := affected.NewDiskCache(filepath.Join(IndexDir(r), "deps"))
+	if err != nil {
+		return nil, nil, err
+	}
+	wasm, err := Analyzers(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	graph, err := affected.BuildGraph(r.Objects, tree, affected.Options{Cache: cache, Wasm: wasm})
+	if err != nil {
+		return nil, nil, err
+	}
+	return graph, wasm, nil
+}
+
+// lowerExt is a *path's* extension, lowercased, for case-insensitive comparison
+// against an analyzer's declared extension. It takes a path, not an extension:
+// extOf(".rb") is "" — a dotfile has no extension — so passing an already-bare
+// extension through here would silently map every analyzer to the empty string
+// and drop it out of coverage.
+func lowerExt(path string) string { return strings.ToLower(extOf(path)) }
 
 // FirstParent returns a change's first parent, or nil if it has none (a root
 // change) or if id is not a change at all. It is what "this change against what

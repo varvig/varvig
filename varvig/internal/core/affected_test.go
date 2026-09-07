@@ -2,8 +2,11 @@ package core
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/dividebyzero/claude-experiments/varvig/internal/hook"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
@@ -276,4 +279,117 @@ func TestCoverageCompleteWhenFullyAnalyzed(t *testing.T) {
 	if res.Coverage.Analyzed != 4 {
 		t.Errorf("Coverage.Analyzed = %d, want 4", res.Coverage.Analyzed)
 	}
+}
+
+// TestCoverageCountsRegisteredAnalyzer pins the seam between an analyzer's
+// declared extension and a file's extension, end to end through a real
+// registered wasm analyzer.
+//
+// It exists because a refactor briefly routed the analyzer's ".rb" through
+// lowerExt, where extOf(".rb") is "" — a dotfile has no extension — so every
+// registered analyzer mapped to the empty string and stopped counting toward
+// coverage. Nothing in the suite noticed: the coverage tests all used built-in
+// languages, and a unit test of coverageOf alone would not have caught it either,
+// because the bug was in the caller that builds the extension set.
+func TestCoverageCountsRegisteredAnalyzer(t *testing.T) {
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := buildRubyAnalyzer(t)
+	if _, err := hook.SetHook(r, "analyze:.rb", mod, "jan"); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := flatTree(t, r, map[string]string{
+		"a.rb": "require_relative 'b'\n",
+		"b.rb": "\n",
+	})
+
+	res, err := Affected(r, nil, ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Analyzers) != 1 || res.Analyzers[0].Ext != ".rb" {
+		t.Fatalf("Analyzers = %+v, want one for .rb", res.Analyzers)
+	}
+	if !res.Coverage.Complete() {
+		t.Errorf("a registered .rb analyzer did not count toward coverage; gaps: %q",
+			res.Coverage.UnanalyzedExts)
+	}
+	if res.Coverage.Analyzed != 2 {
+		t.Errorf("Coverage.Analyzed = %d, want 2", res.Coverage.Analyzed)
+	}
+
+	// The analyzer actually ran: a.rb's dependency on b.rb was discovered by it,
+	// not by any built-in.
+	edges, err := DerivedEdges(r, ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range edges.Edges {
+		if e.SourcePath() == "a.rb" && e.TargetPath() == "b.rb" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the registered analyzer produced no edge; edges = %d", len(edges.Edges))
+	}
+}
+
+// buildRubyAnalyzer compiles a tiny wasip1 analyzer that emits each
+// require_relative target, mirroring the fixture in package affected. It is a
+// real module run in the real sandbox, so this test exercises the whole path:
+// hook manifest, analyzer resolution, wasm host, cache key, coverage.
+func buildRubyAnalyzer(t *testing.T) []byte {
+	t.Helper()
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain unavailable")
+	}
+	const src = `package main
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"io"
+	"os"
+	"regexp"
+)
+
+type in struct {
+	Path    string ` + "`json:\"path\"`" + `
+	Content string ` + "`json:\"content\"`" + `
+}
+
+func main() {
+	b, _ := io.ReadAll(os.Stdin)
+	var i in
+	json.Unmarshal(b, &i)
+	c, _ := base64.StdEncoding.DecodeString(i.Content)
+	re := regexp.MustCompile(` + "`" + `require_relative\s+['"]([^'"]+)['"]` + "`" + `)
+	for _, m := range re.FindAllStringSubmatch(string(c), -1) {
+		os.Stdout.WriteString("./" + m[1] + ".rb\n")
+	}
+}
+`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module a\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "m.wasm")
+	cmd := exec.Command("go", "build", "-o", out, ".")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("cannot build wasm fixture: %v\n%s", err, b)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

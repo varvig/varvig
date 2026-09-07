@@ -2,8 +2,10 @@ package affected
 
 import (
 	"context"
+	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 )
@@ -101,9 +103,11 @@ func specifiersFor(objs ObjectStore, p string, blobID multihash.Multihash, cache
 	ext := strings.ToLower(pathExt(p))
 	wa := wasmByExt[ext]
 
-	key := blobID
+	// Every component that determined the answer is in the key: the content, the
+	// wasm module if one ran, and the extractor identity either way.
+	key := combinedKey(blobID, extractorID())
 	if wa != nil {
-		key = combinedKey(blobID, wa.ID)
+		key = combinedKey(blobID, wa.ID, extractorID())
 	}
 	if cache != nil {
 		if enc, ok := cache.Get(key); ok {
@@ -185,10 +189,58 @@ func decodeSpecs(enc []string) []Specifier {
 	return out
 }
 
-func combinedKey(blobID, moduleID multihash.Multihash) multihash.Multihash {
-	buf := append(append([]byte(nil), blobID...), moduleID...)
+// combinedKey derives a cache key from a blob and everything else that
+// determined the answer. Every component must be in the key: an entry keyed by
+// less than what produced it is a stale answer waiting to be trusted.
+func combinedKey(parts ...multihash.Multihash) multihash.Multihash {
+	var buf []byte
+	for _, p := range parts {
+		buf = append(buf, p...)
+	}
 	k, _ := multihash.Sum(multihash.BLAKE3, buf)
 	return k
+}
+
+// extractorID identifies the built-in extractors that produced a cache entry,
+// and the wasm host that ran a module for one.
+//
+// Without it the index has a hole that no amount of care closes: a built-in
+// analyzed file is keyed by its content alone, so a varvig upgrade that improves
+// an extractor keeps returning the old extractor's answers off disk, silently
+// and forever. A version constant someone remembers to bump is the same hole
+// with a longer fuse — GRAPH.md §11 is explicit that a risk mitigated by
+// vigilance is not mitigated — so the identity is the running binary's own hash,
+// which nobody has to maintain.
+//
+// The cost is that a varvig upgrade invalidates the built-in half of every
+// cache. That is the right trade: the index is a disposable cache (§4.3),
+// rebuilding it is incremental and cheap, and the alternative is wrong answers.
+// Superseded entries are not evicted, so an upgraded repository carries dead
+// index files until the index is deleted; it is a cache, and deleting it is
+// always safe.
+var extractorID = sync.OnceValue(func() multihash.Multihash {
+	exe, err := os.Executable()
+	if err != nil {
+		return unknownExtractor()
+	}
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		return unknownExtractor()
+	}
+	id, err := multihash.Sum(multihash.BLAKE3, data)
+	if err != nil {
+		return unknownExtractor()
+	}
+	return id
+})
+
+// unknownExtractor is used when the binary cannot be hashed. It is a distinct
+// constant rather than nil so that "we could not identify the extractors" never
+// silently collides with a real identity — those entries simply never match a
+// hashed run's.
+func unknownExtractor() multihash.Multihash {
+	id, _ := multihash.Sum(multihash.BLAKE3, []byte("varvig:extractor:unidentified"))
+	return id
 }
 
 func pathExt(p string) string {
