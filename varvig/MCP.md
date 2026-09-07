@@ -85,6 +85,8 @@ tool is destructive and **there is no promotion tool**.
 | `varvig_diff` | Unified diff of a change vs its parent, or the bound checkout vs base — scope-confined | ✓ | — |
 | `varvig_status` | Changed paths grouped by add/modify/delete/mode/rename — scope-confined | ✓ | — |
 | `varvig_affected` | What a change affects: changed paths plus transitive dependents — scope-confined, with coverage | ✓ | — |
+| `varvig_graph` | Context graph for one file: dependencies or dependents, partitioned by provenance class, with coverage | ✓ | — |
+| `varvig_graph_edge` | Whether a dependency edge holds: present, absent under coverage, or unknown | ✓ | — |
 | `varvig_read_ticket` | Read intent records (tickets): spec, derived implementation status, named artifacts, discussion; list or detail | ✓ | — |
 | `varvig_list_proposals` | Unpromoted speculative states | ✓ | — |
 | `varvig_propose` | Create objects, propose a state | ✗ | false |

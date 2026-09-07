@@ -138,6 +138,28 @@ var toolList = []map[string]any{
 		}, nil),
 	},
 	{
+		"name":        "varvig_graph",
+		"title":       "What a file depends on",
+		"description": "Query the context graph for one file: what it depends on, or what depends on it. Results are partitioned by provenance class — derived edges are recomputable from content and are the only class that may gate a merge outcome; imported edges are a foreign system's word; asserted edges are somebody's claim and may inform your planning but never a merge. Confined to your scope, with a count of derived edges withheld. Every result carries a coverage descriptor: when it is not complete, an absent dependency may be a language no analyzer understands rather than a fact about the code.",
+		"annotations": readOnlyAnnotations("What a file depends on"),
+		"inputSchema": objectSchema(map[string]any{
+			"path":      strProp("repo-relative file path to query, within your scope"),
+			"direction": strProp(`"dependencies" (what this file depends on, the default) or "dependents" (what depends on it)`),
+			"change":    strProp("change hash or ref whose tree to query; omit to use the task's base"),
+		}, []string{"path"}),
+	},
+	{
+		"name":        "varvig_graph_edge",
+		"title":       "Whether a dependency holds",
+		"description": "Ask whether a dependency edge holds between two files. The answer is three-valued and the distinction matters: \"present\" means an analyzer observed it; \"absent_under_coverage\" means an analyzer read both files and there is no such edge, which is a fact about the code; \"unknown_outside_coverage\" means no analyzer covers one of the files, so nothing has looked — that is a fact about the tooling and it is not evidence of absence. Do not treat unknown as no.",
+		"annotations": readOnlyAnnotations("Whether a dependency holds"),
+		"inputSchema": objectSchema(map[string]any{
+			"from":   strProp("repo-relative path the edge would start from, within your scope"),
+			"to":     strProp("repo-relative path the edge would point to, within your scope"),
+			"change": strProp("change hash or ref whose tree to query; omit to use the task's base"),
+		}, []string{"from", "to"}),
+	},
+	{
 		"name":        "varvig_read_ticket",
 		"title":       "Read a ticket",
 		"description": "Read the repository's intent records (tickets). With no argument, list the tickets (id + spec). With a ticket id, return that ticket's spec, its derived implementation status (open / stale / implemented) and the commits behind it, any external artifacts it names, and its discussion — paginated with an opaque cursor. Read-only: governance decisions (approve / veto) are human-only and are not exposed here.",
@@ -282,6 +304,8 @@ var toolHandlers = map[string]toolHandler{
 	"varvig_diff":           toolDiff,
 	"varvig_status":         toolStatus,
 	"varvig_affected":       toolAffected,
+	"varvig_graph":          toolGraph,
+	"varvig_graph_edge":     toolGraphEdge,
 	"varvig_read_ticket":    toolReadTicket,
 	"varvig_list_proposals": toolListProposals,
 	"varvig_propose":        toolPropose,

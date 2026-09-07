@@ -103,6 +103,11 @@ var Commands = []Command{
 		Usage:   "varvig affected [<base> <new>]",
 	},
 	{
+		Name: "graph", AgentFacing: true,
+		Summary: "Query the context graph: what a file depends on, what depends on it, or whether one dependency holds. Answers are partitioned by provenance class — only derived edges are recomputable, and only they may gate a merge — and every answer carries coverage. `graph edge` is three-valued: an unknown means no analyzer covers the file, which is not the same as no dependency.",
+		Usage:   "varvig graph deps|rdeps <path> [<rev>] | varvig graph edge <from> <to> [<rev>]",
+	},
+	{
 		Name: "diff", AgentFacing: true,
 		Summary: "Show your working tree against the base as a unified textual diff — the local, independent view of your own change, before you propose it. This is the second feedback channel: read your change here, do not rely on a check happening to catch a mistake.",
 		Usage:   "varvig diff [--name-only|--stat] [<tree-a> <tree-b>]",
@@ -206,6 +211,8 @@ var GateTools = []GateTool{
 	{Name: "varvig_diff", Summary: "Unified diff of a change vs its parent, or the checkout vs base — scope-confined."},
 	{Name: "varvig_status", Summary: "Changed paths grouped by add/modify/delete/mode/rename — scope-confined."},
 	{Name: "varvig_affected", Summary: "What a change affects: changed paths plus their transitive dependents, scope-confined, with coverage."},
+	{Name: "varvig_graph", Summary: "Context graph for one file: dependencies or dependents, partitioned by provenance class, with coverage."},
+	{Name: "varvig_graph_edge", Summary: "Whether a dependency edge holds: present, absent under coverage, or unknown outside coverage."},
 	{Name: "varvig_read_ticket", Summary: "Read intent records (tickets): spec, derived status, artifacts, discussion."},
 	{Name: "varvig_list_proposals", Summary: "List the speculative, unpromoted changes this task has proposed."},
 	{Name: "varvig_propose", Summary: "Propose a signed, speculative change within scope. Never moves a ref.", Write: true},

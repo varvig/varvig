@@ -46,6 +46,14 @@
       "write": false
     },
     {
+      "name": "varvig_graph",
+      "write": false
+    },
+    {
+      "name": "varvig_graph_edge",
+      "write": false
+    },
+    {
       "name": "varvig_read_ticket",
       "write": false
     },

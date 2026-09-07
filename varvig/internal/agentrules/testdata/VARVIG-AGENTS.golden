@@ -5,7 +5,7 @@ This file is **generated and overwritten in full** on every `varvig init`
 and on every varvig upgrade. Edits here will be lost. Put your own agent
 instructions in AGENTS.md instead.
 
-Source: varvig v0.0.0-test · intent schema v1 · surface 973d3cd1
+Source: varvig v0.0.0-test · intent schema v1 · surface 6b5e6404
 
 ## What varvig is
 
@@ -52,6 +52,8 @@ promote, force, rewrite, or delete. Promotion is a separate, human-gated step.
   - usage: `varvig verify [ref|id]`
 - **`affected`** — Show which files a change touched and, transitively, which files depend on them. Check this before proposing.
   - usage: `varvig affected [<base> <new>]`
+- **`graph`** — Query the context graph: what a file depends on, what depends on it, or whether one dependency holds. Answers are partitioned by provenance class — only derived edges are recomputable, and only they may gate a merge — and every answer carries coverage. `graph edge` is three-valued: an unknown means no analyzer covers the file, which is not the same as no dependency.
+  - usage: `varvig graph deps|rdeps <path> [<rev>] | varvig graph edge <from> <to> [<rev>]`
 - **`diff`** — Show your working tree against the base as a unified textual diff — the local, independent view of your own change, before you propose it. This is the second feedback channel: read your change here, do not rely on a check happening to catch a mistake.
   - usage: `varvig diff [--name-only|--stat] [<tree-a> <tree-b>]`
   - `--name-only` — list only the changed paths — the set a proposal observes
@@ -86,6 +88,8 @@ the two write tools are append-only and never move a ref.
 - **`varvig_diff`** (read) — Unified diff of a change vs its parent, or the checkout vs base — scope-confined.
 - **`varvig_status`** (read) — Changed paths grouped by add/modify/delete/mode/rename — scope-confined.
 - **`varvig_affected`** (read) — What a change affects: changed paths plus their transitive dependents, scope-confined, with coverage.
+- **`varvig_graph`** (read) — Context graph for one file: dependencies or dependents, partitioned by provenance class, with coverage.
+- **`varvig_graph_edge`** (read) — Whether a dependency edge holds: present, absent under coverage, or unknown outside coverage.
 - **`varvig_read_ticket`** (read) — Read intent records (tickets): spec, derived status, artifacts, discussion.
 - **`varvig_list_proposals`** (read) — List the speculative, unpromoted changes this task has proposed.
 - **`varvig_propose`** (write) — Propose a signed, speculative change within scope. Never moves a ref.

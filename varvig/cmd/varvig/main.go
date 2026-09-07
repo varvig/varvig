@@ -73,6 +73,7 @@ var commands = map[string]func([]string) error{
 	"bridge":      cmdBridge,
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
+	"graph":       cmdGraph,
 	"merge":       cmdMerge,
 	"spec":        cmdSpec,
 	"gc":          cmdGc,
@@ -212,6 +213,12 @@ usage:
   varvig hook list                      list configured hooks
   varvig hook run <event> [file]        run an event's hooks with input (or stdin)
   varvig affected [<base> <new>]        show files changed and their dependents
+  varvig graph deps|rdeps <path> [<rev>]
+                                        what a file depends on, or what depends
+                                        on it — partitioned by provenance class,
+                                        with coverage
+  varvig graph edge <from> <to> [<rev>] whether a dependency edge holds: present,
+                                        absent under coverage, or unknown
   varvig merge <ref|id>                 three-way merge another change into HEAD
   varvig spec add <task> <ref|id>       record a speculation candidate
   varvig spec list <task>               list a task's candidates and scores
