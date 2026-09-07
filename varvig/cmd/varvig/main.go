@@ -74,6 +74,7 @@ var commands = map[string]func([]string) error{
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
 	"graph":       cmdGraph,
+	"assert":      cmdAssert,
 	"merge":       cmdMerge,
 	"spec":        cmdSpec,
 	"gc":          cmdGc,
@@ -219,6 +220,13 @@ usage:
                                         with coverage
   varvig graph edge <from> <to> [<rev>] whether a dependency edge holds: present,
                                         absent under coverage, or unknown
+  varvig assert add <type> --from X --to Y --strength S
+                                        record a claim the execution layer
+                                        believes; never gates a merge
+  varvig assert promote <edge-id> --strength S
+                                        sign an attestation naming the edge hash
+  varvig assert list <anchor>           edges on an object, with provenance and
+                                        promotion status
   varvig merge <ref|id>                 three-way merge another change into HEAD
   varvig spec add <task> <ref|id>       record a speculation candidate
   varvig spec list <task>               list a task's candidates and scores

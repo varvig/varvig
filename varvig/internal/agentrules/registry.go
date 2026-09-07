@@ -103,6 +103,11 @@ var Commands = []Command{
 		Usage:   "varvig affected [<base> <new>]",
 	},
 	{
+		Name: "assert", AgentFacing: true,
+		Summary: "Record a claim about the code the analyzers cannot derive — that two modules are coupled, that a ticket duplicates another — and promote one to durable knowledge. An assertion carries who said it and, for an inference, which model; it never gates a merge, so a wrong one costs wasted work rather than a bad merge. There are no confidence scores: provenance answers that question in a way a number cannot.",
+		Usage:   "varvig assert add <type> --from X --to Y --strength S | varvig assert promote <edge-id> --strength S | varvig assert list <anchor>",
+	},
+	{
 		Name: "graph", AgentFacing: true,
 		Summary: "Query the context graph: what a file depends on, what depends on it, or whether one dependency holds. Answers are partitioned by provenance class — only derived edges are recomputable, and only they may gate a merge — and every answer carries coverage. `graph edge` is three-valued: an unknown means no analyzer covers the file, which is not the same as no dependency.",
 		Usage:   "varvig graph deps|rdeps <path> [<rev>] | varvig graph edge <from> <to> [<rev>]",

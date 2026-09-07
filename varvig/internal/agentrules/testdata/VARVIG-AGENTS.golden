@@ -5,7 +5,7 @@ This file is **generated and overwritten in full** on every `varvig init`
 and on every varvig upgrade. Edits here will be lost. Put your own agent
 instructions in AGENTS.md instead.
 
-Source: varvig v0.0.0-test · intent schema v1 · surface 6b5e6404
+Source: varvig v0.0.0-test · intent schema v1 · surface 18d536be
 
 ## What varvig is
 
@@ -52,6 +52,8 @@ promote, force, rewrite, or delete. Promotion is a separate, human-gated step.
   - usage: `varvig verify [ref|id]`
 - **`affected`** — Show which files a change touched and, transitively, which files depend on them. Check this before proposing.
   - usage: `varvig affected [<base> <new>]`
+- **`assert`** — Record a claim about the code the analyzers cannot derive — that two modules are coupled, that a ticket duplicates another — and promote one to durable knowledge. An assertion carries who said it and, for an inference, which model; it never gates a merge, so a wrong one costs wasted work rather than a bad merge. There are no confidence scores: provenance answers that question in a way a number cannot.
+  - usage: `varvig assert add <type> --from X --to Y --strength S | varvig assert promote <edge-id> --strength S | varvig assert list <anchor>`
 - **`graph`** — Query the context graph: what a file depends on, what depends on it, or whether one dependency holds. Answers are partitioned by provenance class — only derived edges are recomputable, and only they may gate a merge — and every answer carries coverage. `graph edge` is three-valued: an unknown means no analyzer covers the file, which is not the same as no dependency.
   - usage: `varvig graph deps|rdeps <path> [<rev>] | varvig graph edge <from> <to> [<rev>]`
 - **`diff`** — Show your working tree against the base as a unified textual diff — the local, independent view of your own change, before you propose it. This is the second feedback channel: read your change here, do not rely on a check happening to catch a mistake.
