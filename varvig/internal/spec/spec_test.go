@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/edge"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/graphnode"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
@@ -212,5 +214,92 @@ func TestPromoteWithPolicyAllRefused(t *testing.T) {
 	// The ref must not have moved.
 	if _, err := r.Refs.Resolve("refs/heads/main"); err == nil {
 		t.Fatal("ref advanced despite all candidates being refused")
+	}
+}
+
+// TestPruneWithEdgesForgetsCollectableEdges is the "by construction" half of
+// GRAPH.md §11.5: discarding a speculation candidate deletes the edges about it
+// in the same operation, so there is no window in which they outlive their
+// subject and no sweep that has to remember them.
+func TestPruneWithEdgesForgetsCollectableEdges(t *testing.T) {
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := Open(r.GitDir())
+
+	// Two candidates, each carrying an edge about the attempt.
+	var states []multihash.Multihash
+	for i, body := range []string{"attempt one", "attempt two"} {
+		id, err := r.Objects.Put(object.NewBlob([]byte(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.Add("t1", id, int64(100+i)); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.SetScore("t1", id, float64(10-i)); err != nil {
+			t.Fatal(err)
+		}
+		states = append(states, id)
+		eph, err := graphnode.Ephemeral(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		far, err := graphnode.External("agent", "belief/1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, err := edge.New(edge.Spec{
+			Source: eph, Target: far, Type: "agent:couples-with", ObservedUnder: id,
+			Provenance: edge.Provenance{
+				Class: edge.Asserted, Principal: "planner", Strength: object.StrengthDelegated,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := edge.Put(r, e, "planner", 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	total, err := edge.CountAllEphemeral(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 {
+		t.Fatalf("stored %d collectable edges, want 2", total)
+	}
+
+	// Keep the best one; the other is discarded along with its edge.
+	removed, err := pool.PruneWithEdges(r, "t1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 {
+		t.Fatalf("pruned %d candidates, want 1", len(removed))
+	}
+	if n, err := edge.CountEphemeral(r, removed[0]); err != nil {
+		t.Fatal(err)
+	} else if n != 0 {
+		t.Errorf("the discarded candidate still carries %d edges", n)
+	}
+
+	// The surviving candidate keeps its edge: retention follows the endpoint,
+	// not the sweep's mood.
+	survivor := states[0]
+	if removed[0].Equal(survivor) {
+		survivor = states[1]
+	}
+	if n, err := edge.CountEphemeral(r, survivor); err != nil {
+		t.Fatal(err)
+	} else if n != 1 {
+		t.Errorf("the surviving candidate lost its edge: %d remain", n)
+	}
+	if total, err := edge.CountAllEphemeral(r); err != nil {
+		t.Fatal(err)
+	} else if total != 1 {
+		t.Errorf("total collectable edges = %d, want 1", total)
 	}
 }

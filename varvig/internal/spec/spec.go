@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dividebyzero/claude-experiments/varvig/internal/edge"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
 )
@@ -154,6 +155,29 @@ func (p *Pool) Prune(task string, keepTopK int) ([]multihash.Multihash, error) {
 			return nil, err
 		}
 		removed = append(removed, e.Change)
+	}
+	return removed, nil
+}
+
+// PruneWithEdges is Prune plus the collectable edges of every state it dropped.
+//
+// It exists because retention has to be true by construction rather than by a
+// later sweep (GRAPH.md §11.5): an edge about a discarded attempt is deleted in
+// the same operation that discards the attempt, so there is no window in which
+// it outlives its subject and nothing to remember afterward. Callers that
+// discard candidates should prefer it to Prune.
+//
+// The repo is needed only to locate the local edge directory; nothing here
+// touches the object store, because a collectable edge was never an object.
+func (p *Pool) PruneWithEdges(r *repo.Repo, task string, keepTopK int) ([]multihash.Multihash, error) {
+	removed, err := p.Prune(task, keepTopK)
+	if err != nil {
+		return nil, err
+	}
+	for _, change := range removed {
+		if err := edge.ForgetState(r, change); err != nil {
+			return removed, err
+		}
 	}
 	return removed, nil
 }

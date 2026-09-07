@@ -1443,7 +1443,10 @@ func cmdSpec(args []string) error {
 		if err != nil {
 			return err
 		}
-		removed, err := pool.Prune(task, k)
+		// PruneWithEdges, not Prune: a discarded attempt's collectable edges go
+		// with it in the same operation, so nothing outlives its subject
+		// (GRAPH.md §11.5).
+		removed, err := pool.PruneWithEdges(r, task, k)
 		if err != nil {
 			return err
 		}

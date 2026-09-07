@@ -35,9 +35,6 @@ var ErrNoAnchor = fmt.Errorf("edge: neither endpoint is a varvig object")
 // collection machinery that would make this safe is not built, so the write
 // fails loudly here rather than succeeding and leaking. A3's preference: a named
 // error at the moment of excess beats a store that degrades invisibly.
-var ErrCollectableUnsupported = fmt.Errorf(
-	"edge: an edge to an ephemeral endpoint cannot be stored yet; its collection with that endpoint is unimplemented")
-
 // Anchor returns the object an edge attaches to: the source when it is
 // content-addressed, otherwise the target. An identity node anchors on the
 // revision it resolved to, which is what binds the edge to what it meant at the
@@ -49,35 +46,37 @@ func Anchor(e StoredEdge) (multihash.Multihash, error) {
 			return v.ID(), nil
 		case graphnode.IdentityNode:
 			return v.Revision(), nil
+		case graphnode.EphemeralNode:
+			// An ephemeral endpoint anchors too: it is the retention unit the
+			// edge is filed under, and filing it anywhere else would be the
+			// thing that outlives it.
+			return v.ID(), nil
 		}
 	}
 	return nil, ErrNoAnchor
 }
 
-// Put writes an edge as a note on its anchor and returns the note's id.
+// Put writes an edge and returns its id.
+//
+// Where it goes is decided by the edge's retention, which is computed from
+// endpoint class and which a writer cannot set (GRAPH.md §11.5). A durable edge
+// becomes a note, which replicates and pins its anchor. A collectable one — an
+// edge touching an ephemeral endpoint — goes beside the speculation pool
+// instead, so it is deleted with the state it describes rather than keeping that
+// state alive. See ephemeral.go for why a note cannot do that job.
 //
 // It accepts StoredEdge and nothing else. A derived edge has no route here: not
 // through an overload, not through a conversion, not through a Spec — the type
 // is simply not admissible, and a caller that tries fails to compile.
 func Put(r *repo.Repo, e StoredEdge, author string, now int64) (multihash.Multihash, error) {
-	if e.Retention() == graphnode.Collectable {
-		return nil, ErrCollectableUnsupported
-	}
-	anchor, err := Anchor(e)
-	if err != nil {
-		return nil, err
-	}
-	payload, err := Encode(e)
-	if err != nil {
-		return nil, err
-	}
-	return notes.New(r).Add(reserved.NoteEdge, anchor, payload, author, now)
+	id, _, err := PutOnce(r, e, author, now)
+	return id, err
 }
 
-// PutOnce writes an edge unless one identical to it is already recorded on the
-// same anchor, and reports whether it wrote. It is the echo-suppression
+// PutOnce writes an edge unless one identical to it is already recorded against
+// the same anchor, and reports whether it wrote. It is the echo-suppression
 // primitive: a connector that re-reads unchanged foreign state and re-imports it
-// produces no new note, so a round trip that changed nothing leaves no trace.
+// produces no new record, so a round trip that changed nothing leaves no trace.
 //
 // Identity is the encoded record, byte for byte. That is exact rather than
 // approximate — two edges are the same edge when every field agrees, including
@@ -87,12 +86,12 @@ func Put(r *repo.Repo, e StoredEdge, author string, now int64) (multihash.Multih
 // A note chain that grew one entry per poll would be the failure this prevents:
 // unbounded, and indistinguishable from an edge genuinely re-observed.
 func PutOnce(r *repo.Repo, e StoredEdge, author string, now int64) (id multihash.Multihash, written bool, err error) {
-	if e.Retention() == graphnode.Collectable {
-		return nil, false, ErrCollectableUnsupported
-	}
 	anchor, err := Anchor(e)
 	if err != nil {
 		return nil, false, err
+	}
+	if e.Retention() == graphnode.Collectable {
+		return putEphemeral(r, e, anchor)
 	}
 	payload, err := Encode(e)
 	if err != nil {
@@ -122,10 +121,13 @@ type Entry struct {
 	Edge StoredEdge
 }
 
-// List returns every edge anchored on an object, newest first. A note whose
-// payload this binary cannot decode is reported rather than skipped: silently
-// dropping an edge would make a coverage gap indistinguishable from an absence
-// of edges, which is the failure §5 exists to prevent.
+// List returns every edge recorded against an anchor, newest note first.
+//
+// It reads both backends, so a caller does not have to know or care which one an
+// edge landed in — the fork is a retention decision, not a query distinction. A
+// record whose payload this binary cannot decode is reported rather than
+// skipped: silently dropping an edge would make a coverage gap indistinguishable
+// from an absence of edges, which is the failure §5 exists to prevent.
 func List(r *repo.Repo, anchor multihash.Multihash) ([]Entry, error) {
 	chain, err := notes.New(r).List(reserved.NoteEdge, anchor)
 	if err != nil {
@@ -139,5 +141,9 @@ func List(r *repo.Repo, anchor multihash.Multihash) ([]Entry, error) {
 		}
 		out = append(out, Entry{Note: n.ID, Edge: e})
 	}
-	return out, nil
+	eph, err := listEphemeral(r, anchor)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, eph...), nil
 }

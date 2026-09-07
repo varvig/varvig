@@ -3,12 +3,15 @@ package edge
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/graphnode"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
 	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 )
 
 func h(t *testing.T, s string) multihash.Multihash {
@@ -207,8 +210,7 @@ func TestConstructionRefusesMalformedEdges(t *testing.T) {
 }
 
 // TestRetentionFollowsEndpointClass: an ephemeral endpoint makes the edge
-// collectable, computed from the node and not settable by the writer. Storing
-// one is refused loudly rather than leaking the state it should die with.
+// collectable, computed from the node and not settable by the writer.
 func TestRetentionFollowsEndpointClass(t *testing.T) {
 	eph, err := graphnode.Ephemeral(h(t, "speculation"))
 	if err != nil {
@@ -223,13 +225,11 @@ func TestRetentionFollowsEndpointClass(t *testing.T) {
 	if e.Retention() != graphnode.Collectable {
 		t.Fatal("an edge to an ephemeral endpoint must be collectable")
 	}
-
-	r, err := repo.Init(t.TempDir())
-	if err != nil {
+	// And a durable one stays durable.
+	if d, err := New(importedSpec(t)); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := Put(r, e, "jan", 100); err == nil {
-		t.Error("storing a collectable edge must fail loudly, not leak the endpoint it pins")
+	} else if d.Retention() != graphnode.Durable {
+		t.Error("an edge between durable endpoints must be durable")
 	}
 }
 
@@ -289,5 +289,186 @@ func TestAnchorRequiresAVarvigEndpoint(t *testing.T) {
 	}
 	if _, err := Anchor(e); err == nil {
 		t.Error("an edge between two foreign systems has nothing here to attach to")
+	}
+}
+
+// ephemeralEdge builds a collectable edge attached to a speculation state.
+func ephemeralEdge(t *testing.T, r *repo.Repo, state multihash.Multihash, typ string) StoredEdge {
+	t.Helper()
+	eph, err := graphnode.Ephemeral(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	far, err := graphnode.External("agent", "belief/"+typ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := New(Spec{
+		Source: eph, Target: far, Type: typ, ObservedUnder: state,
+		Provenance: Provenance{
+			Class: Asserted, Principal: "planner", Strength: object.StrengthDelegated,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// TestACollectableEdgeIsNeverANote is the structural half of §11.5: a note pins
+// its target and its ref is a GC root and its ref move is reflogged, so an
+// ephemeral-anchored note would keep alive the very state it should die with.
+// It must not become a note at all.
+func TestACollectableEdgeIsNeverANote(t *testing.T) {
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := h(t, "attempt-1")
+	e := ephemeralEdge(t, r, state, "agent:couples-with")
+	if _, err := Put(r, e, "planner", 100); err != nil {
+		t.Fatalf("a collectable edge must be storable: %v", err)
+	}
+
+	// Nothing in the note namespace, and therefore no ref and no reflog entry
+	// that could pin the state.
+	refs, err := r.Refs.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range refs {
+		if strings.Contains(name, reserved.NoteEdge) {
+			t.Errorf("a collectable edge created an edge note ref: %s", name)
+		}
+	}
+	// It is readable all the same: the fork is a retention decision, not a
+	// query distinction.
+	got, err := List(r, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Edge.Type() != "agent:couples-with" {
+		t.Fatalf("the collectable edge is not readable back: %+v", got)
+	}
+}
+
+// TestEdgeCountReturnsToBaselineExactly is §11.5's standing invariant: create N
+// speculation states with edges, discard them, and the count must return to
+// baseline exactly — not approximately, and without a sweep having to remember
+// anything.
+func TestEdgeCountReturnsToBaselineExactly(t *testing.T) {
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := CountAllEphemeral(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline != 0 {
+		t.Fatalf("baseline is %d, want 0", baseline)
+	}
+
+	// A durable edge, which must survive the discard untouched.
+	durable, err := New(importedSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Put(r, durable, "conn", 50); err != nil {
+		t.Fatal(err)
+	}
+	durableAnchor, err := Anchor(durable)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const states, perState = 20, 5
+	var made []multihash.Multihash
+	for i := 0; i < states; i++ {
+		state := h(t, "attempt-"+string(rune('a'+i)))
+		made = append(made, state)
+		for j := 0; j < perState; j++ {
+			e := ephemeralEdge(t, r, state, "agent:belief-"+string(rune('a'+j)))
+			if _, err := Put(r, e, "planner", int64(100+i)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	total, err := CountAllEphemeral(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != states*perState {
+		t.Fatalf("stored %d collectable edges, want %d", total, states*perState)
+	}
+
+	// Discard every state, as a prune would.
+	for _, state := range made {
+		if err := ForgetState(r, state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, err := CountAllEphemeral(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != baseline {
+		t.Errorf("after discarding every state the count is %d, want the baseline %d", after, baseline)
+	}
+
+	// The durable edge is untouched: retention is per endpoint class, so
+	// discarding attempts cannot collect real knowledge.
+	stillThere, err := List(r, durableAnchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stillThere) != 1 {
+		t.Errorf("the durable edge did not survive the discard: %d found", len(stillThere))
+	}
+
+	// Discarding twice is not an error.
+	if err := ForgetState(r, made[0]); err != nil {
+		t.Errorf("ForgetState must be idempotent: %v", err)
+	}
+}
+
+// TestPerStateEdgeBudgetFailsLoudlyAndNamesTheCount: §1.5 expects thousands of
+// speculation states, and §8 names edge retention as how that buries the store.
+// Excess must fail at the moment it happens, naming the count, rather than
+// degrading the store invisibly.
+func TestPerStateEdgeBudgetFailsLoudlyAndNamesTheCount(t *testing.T) {
+	r, err := repo.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := MaxPerState
+	MaxPerState = 3
+	defer func() { MaxPerState = old }()
+
+	state := h(t, "busy-attempt")
+	for i := 0; i < MaxPerState; i++ {
+		e := ephemeralEdge(t, r, state, "agent:belief-"+string(rune('a'+i)))
+		if _, err := Put(r, e, "planner", 100); err != nil {
+			t.Fatalf("edge %d within budget was refused: %v", i, err)
+		}
+	}
+	over := ephemeralEdge(t, r, state, "agent:belief-over")
+	_, err = Put(r, over, "planner", 100)
+	if err == nil {
+		t.Fatal("exceeding the per-state budget must fail")
+	}
+	if !errors.Is(err, ErrStateEdgeBudget) {
+		t.Errorf("error = %v, want ErrStateEdgeBudget", err)
+	}
+	if !strings.Contains(err.Error(), "3") {
+		t.Errorf("the error must name the count: %v", err)
+	}
+	// Re-writing an edge already recorded is not a new edge and must not trip
+	// the budget — otherwise a retry would fail once the budget is reached.
+	first := ephemeralEdge(t, r, state, "agent:belief-a")
+	if _, written, err := PutOnce(r, first, "planner", 100); err != nil {
+		t.Errorf("re-recording an existing edge must not trip the budget: %v", err)
+	} else if written {
+		t.Error("re-recording an existing collectable edge reported a write")
 	}
 }
