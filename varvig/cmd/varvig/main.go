@@ -974,29 +974,31 @@ func cmdFetch(args []string) error {
 	if err != nil {
 		return err
 	}
-	tip, err := refTip(client, "refs/heads/"+branch)
-	if err != nil {
-		return err
-	}
+	return fetchFromPeer(client, r, branch, args[0])
+}
+
+// fetchFromPeer pulls the head and every replicating namespace from a dialled
+// peer, attempting each independently (federation §6).
+//
+// A peer that does not carry this branch at all still has tickets, evidence and
+// authority state worth having, and refusing to look was how a cell working a
+// branch its peer had never heard of learned nothing from it.
+func fetchFromPeer(client *p2p.Client, r *repo.Repo, branch, addr string) error {
 	tracking := "refs/remotes/origin/" + branch
-	var have []multihash.Multihash
-	if cur, err := r.Refs.Resolve(tracking); err == nil {
-		have = append(have, cur)
-	}
-	if err := client.Fetch(r.Objects, []multihash.Multihash{tip}, have); err != nil {
-		return err
-	}
-	cur, _ := r.Refs.Resolve(tracking)
-	if err := r.Refs.CompareAndSwap(tracking, cur, tip, "fetch", "fetch "+args[0]); err != nil {
-		return err
+	var failures []string
+
+	if err := fetchHead(client, r, branch, tracking, addr); err != nil {
+		failures = append(failures, "head: "+err.Error())
 	}
 	if err := syncNotes(client, r, false); err != nil {
-		return err
+		failures = append(failures, err.Error())
 	}
 	if err := syncReservedRefs(client, r, false); err != nil {
-		return err
+		failures = append(failures, err.Error())
 	}
-	fmt.Printf("fetched %s into %s\n", tip.Hex(), tracking)
+	if len(failures) > 0 {
+		return errors.New(strings.Join(failures, "; "))
+	}
 	return nil
 }
 
@@ -1012,21 +1014,12 @@ func cmdPush(args []string) error {
 	if err != nil {
 		return err
 	}
-	name := "refs/heads/" + branch
-	local, err := r.Refs.Resolve(name)
-	if err != nil {
-		return fmt.Errorf("nothing to push: %w", err)
-	}
-	// The lease is what we last observed the remote to be — the remote-tracking
-	// ref — NOT a fresh query. If the peer has moved since, the CAS is rejected
-	// rather than silently overwriting the peer's work (force-with-lease, §2).
-	// Enforcing that the new tip descends from the lease is left to the merge
-	// step; for now the lease alone guards against unseen concurrent changes.
-	tracking := "refs/remotes/origin/" + branch
-	var old multihash.Multihash
-	if cur, err := r.Refs.Resolve(tracking); err == nil {
-		old = cur
-	}
+	// The lease pushToPeer uses is what we last observed the remote to be — the
+	// remote-tracking ref — NOT a fresh query. If the peer has moved since, the
+	// CAS is rejected rather than silently overwriting the peer's work
+	// (force-with-lease, §2). Enforcing that the new tip descends from the lease
+	// is left to the merge step; for now the lease alone guards against unseen
+	// concurrent changes.
 	conn, err := net.Dial("tcp", args[0])
 	if err != nil {
 		return err
@@ -1036,20 +1029,77 @@ func cmdPush(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := client.Push(r.Objects, name, old, local); err != nil {
+	return pushToPeer(client, r, branch, args[0])
+}
+
+// fetchHead brings the branch tip and its closure across and advances the
+// remote-tracking ref. It is separate so its several failure points collapse to
+// one error for the caller to record alongside the namespace results.
+func fetchHead(client *p2p.Client, r *repo.Repo, branch, tracking, addr string) error {
+	tip, err := refTip(client, "refs/heads/"+branch)
+	if err != nil {
 		return err
 	}
-	// Advance our record of the remote to what we just pushed.
-	prev, _ := r.Refs.Resolve(tracking)
-	_ = r.Refs.CompareAndSwap(tracking, prev, local, "push", "update tracking after push")
+	var have []multihash.Multihash
+	if cur, err := r.Refs.Resolve(tracking); err == nil {
+		have = append(have, cur)
+	}
+	if err := client.Fetch(r.Objects, []multihash.Multihash{tip}, have); err != nil {
+		return err
+	}
+	cur, _ := r.Refs.Resolve(tracking)
+	if err := r.Refs.CompareAndSwap(tracking, cur, tip, "fetch", "fetch "+addr); err != nil {
+		return err
+	}
+	fmt.Printf("fetched %s into %s\n", tip.Hex(), tracking)
+	return nil
+}
+
+// pushToPeer sends the head and every replicating namespace to a dialled peer,
+// attempting each independently.
+//
+// The independence is the point. The head moves under a force-with-lease
+// against one tracking ref, so in a mesh where peers legitimately differ on the
+// branch it is *normal* for that compare-and-swap to be refused. Returning
+// there — as this did — meant a peer whose branch had moved received no notes
+// and no reserved refs either: a settled lease is the only record that money
+// was spent, and it was being withheld from a peer over an unrelated
+// disagreement about code (federation §6).
+//
+// Every failure is still reported. Independent does not mean quiet.
+func pushToPeer(client *p2p.Client, r *repo.Repo, branch, addr string) error {
+	name := "refs/heads/" + branch
+	tracking := "refs/remotes/origin/" + branch
+	var failures []string
+
+	local, err := r.Refs.Resolve(name)
+	switch {
+	case err != nil:
+		failures = append(failures, "head: nothing to push: "+err.Error())
+	default:
+		var old multihash.Multihash
+		if cur, rerr := r.Refs.Resolve(tracking); rerr == nil {
+			old = cur
+		}
+		if perr := client.Push(r.Objects, name, old, local); perr != nil {
+			failures = append(failures, "head: "+perr.Error())
+		} else {
+			// Advance our record of the remote to what we just pushed.
+			prev, _ := r.Refs.Resolve(tracking)
+			_ = r.Refs.CompareAndSwap(tracking, prev, local, "push", "update tracking after push")
+			fmt.Printf("pushed %s to %s (%s)\n", local.Hex(), addr, name)
+		}
+	}
 	// Notes replicate by default (federation §4): push our notes alongside.
 	if err := syncNotes(client, r, true); err != nil {
-		return err
+		failures = append(failures, err.Error())
 	}
 	if err := syncReservedRefs(client, r, true); err != nil {
-		return err
+		failures = append(failures, err.Error())
 	}
-	fmt.Printf("pushed %s to %s (%s)\n", local.Hex(), args[0], name)
+	if len(failures) > 0 {
+		return errors.New(strings.Join(failures, "; "))
+	}
 	return nil
 }
 
