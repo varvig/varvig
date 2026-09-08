@@ -17,6 +17,7 @@ families.
 | 4 | Pin protocol + capability bits | `internal/wire`, `internal/p2p/pin.go` |
 | 5 | Reserved ref namespaces replicate by default (loud, divergence reported) | `internal/p2p/refsync.go`, `cmd/varvig/refs_sync.go`, `internal/reserved` |
 | 6 | Head and namespace sync are independent — one failing does not skip the others | `cmd/varvig/main.go` (`pushToPeer`, `fetchFromPeer`, `fetchHead`) |
+| 7 | Remote-tracking refs are per peer, so a push leases against the peer it is pushing to | `cmd/varvig/tracking.go` |
 
 ### 1. External artifact reference (§1)
 
@@ -180,13 +181,39 @@ precondition for namespaces that have their own. `pushToPeer` and
 `fetchFromPeer` now collect failures and attempt everything, so what a peer
 receives no longer depends on whether it happens to agree about the code.
 
-**Still a limitation, deliberately not fixed here.** There is one tracking ref
-per branch, not one per peer, so the head's lease is whatever the last-fetched
-peer had. With several peers at most one can accept a head push; the rest are
-refused. That is safe — a rejection, never an overwrite — and now harmless to
-everything except the head, since the reserved namespaces do not use that lease.
-Per-peer tracking refs (`refs/remotes/<peer>/<branch>`) are what would make
-multi-peer head pushes work directly rather than through relay.
+### 7. Remote-tracking refs are per peer
+
+A push sends its remote-tracking value as a compare-and-swap lease: *advance the
+branch only if it is still where I last saw it* (force-with-lease, §2). With a
+single `refs/remotes/origin/<branch>` that value was whichever peer was fetched
+from last, so a push to any **other** peer carried a lease describing somebody
+else's repository.
+
+The consequence in a mesh: at most one peer could accept a head push, and which
+one depended on fetch order. It failed safely — a refused compare-and-swap,
+never an overwrite — but safe is not working. A factory whose members
+legitimately differ on the branch could only converge by relay through whichever
+peer happened to be last.
+
+Tracking refs are now `refs/remotes/<peer>/<branch>`, so the lease describes the
+repository being pushed to. Fetching from one peer no longer rewrites what is
+known of another, and every peer in a set can accept a push in the same pass.
+
+**The peer segment.** An address becomes exactly one path segment, encoded
+injectively so two peers never share a record — sharing one is the bug this
+change removes, and it would come straight back through a lossy encoding.
+Everything outside `[A-Za-z0-9._-]` is percent-encoded, `%` included. That covers
+`:`, which is legal in a ref name but not in a filename on Windows, one of the
+platforms this binary is built for: `127.0.0.1:9418` becomes
+`127.0.0.1%3A9418`, still recognisable in `varvig show-ref`.
+
+**Migration.** A repository cloned before this change has only the legacy
+`refs/remotes/origin/<branch>`, which is consulted when a per-peer record is
+absent so the first push after an upgrade is not refused for want of one. The
+per-peer ref is written from then on. `clone` still writes
+`refs/remotes/origin/<branch>` as a record of where the clone came from — it is
+familiar and it is what a reader looks for first — but it is no longer a lease
+and never decides whether a branch may move.
 
 ### Wire capability bits (§3.4)
 
@@ -221,6 +248,9 @@ determinism, evidence class comparison, pin lifecycle + quota, pin
 non-escalation, loud notes-sync failure, reserved-ref replication (both
 directions, catalogue confinement, divergence reported without clobbering,
 fast-forward through ancestry, no capability required), head/namespace sync
-independence in both directions, and partition semantics are covered
+independence in both directions, per-peer tracking refs (including a push to one
+peer after fetching another, the lease still guarding that peer's own movement,
+the legacy-clone migration, and the segment encoding being safe and injective),
+and partition semantics are covered
 across `internal/object`, `internal/gc`, and `internal/p2p` tests. See spec §7
 for the intent behind each.
