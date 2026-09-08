@@ -55,7 +55,7 @@ func (s *Store) appendLog(name string, oldval, newval multihash.Multihash, actor
 // message carries the reason. The append takes the ref lock so it cannot race
 // a concurrent CompareAndSwap.
 func (s *Store) AppendLog(name string, old, newval multihash.Multihash, actor, msg string) error {
-	if err := validName(name); err != nil {
+	if err := ValidName(name); err != nil {
 		return err
 	}
 	unlock, err := s.lock()
@@ -76,7 +76,7 @@ func formatLogLine(e LogEntry) string {
 // ReadLog returns the reflog entries for a ref, oldest first. A ref with no
 // log yields an empty slice, not an error.
 func (s *Store) ReadLog(name string) ([]LogEntry, error) {
-	if err := validName(name); err != nil {
+	if err := ValidName(name); err != nil {
 		return nil, err
 	}
 	f, err := os.Open(s.logPath(name))
@@ -114,7 +114,7 @@ func (s *Store) ReadLog(name string) ([]LogEntry, error) {
 //
 // The mutation takes the ref lock so it cannot race with a concurrent append.
 func (s *Store) ExpireLog(name string, keepMax int, cutoffNS int64) (int, error) {
-	if err := validName(name); err != nil {
+	if err := ValidName(name); err != nil {
 		return 0, err
 	}
 	unlock, err := s.lock()

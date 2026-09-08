@@ -53,7 +53,7 @@ func (s *Store) SetClock(now func() time.Time) { s.now = now }
 
 // Resolve returns the current value of a ref, or ErrNotExist.
 func (s *Store) Resolve(name string) (multihash.Multihash, error) {
-	if err := validName(name); err != nil {
+	if err := ValidName(name); err != nil {
 		return nil, err
 	}
 	return s.readRef(name)
@@ -79,7 +79,7 @@ func (s *Store) readRef(name string) (multihash.Multihash, error) {
 // oldval. A nil oldval requires the ref to be absent (creation); a nil newval
 // deletes the ref. Every successful swap appends a reflog entry.
 func (s *Store) CompareAndSwap(name string, oldval, newval multihash.Multihash, actor, msg string) error {
-	if err := validName(name); err != nil {
+	if err := ValidName(name); err != nil {
 		return err
 	}
 	unlock, err := s.lock()
@@ -210,9 +210,14 @@ func (s *Store) writeRef(name string, val multihash.Multihash) error {
 	return os.Rename(tmpName, p)
 }
 
-// validName restricts ref names to slash-separated non-empty segments,
+// ValidName restricts ref names to slash-separated non-empty segments,
 // rejecting traversal and control characters so names map safely to paths.
-func validName(name string) error {
+//
+// It is exported because a ref name can arrive from outside this process — a
+// peer's LISTREFS advertisement becomes a path in our ref store — and a caller
+// at that boundary should be able to refuse a name before it acts on it, rather
+// than discovering it three layers down mid-operation.
+func ValidName(name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: empty", ErrInvalidName)
 	}

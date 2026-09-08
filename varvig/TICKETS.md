@@ -47,7 +47,7 @@ object is written under the frozen format.
 |---|---|---|
 | **D1** — nullable tree / explicit unmaterialized discriminator | **implemented** | `internal/object/change.go` (`Change.Materialized`, `ErrUnmaterialized`); frozen vector `change/unmaterialized` in the conformance suite; checkout guard in `cmd/varvig` |
 | **D2** — unknown *object kinds* round-trip | **already held** | `object.Decode`/`Encode` preserve any type tag; `TestOpaqueUnknownType`, conformance `opaque/unknown-type` |
-| **D3** — notes replicate by default; a peer that cannot fetch them fails loudly | **already held** | notes are refs under `refs/notes/`; `p2p` lists them and `hasClosure` refuses an incomplete closure |
+| **D3** — notes replicate by default; a peer that cannot fetch them fails loudly | **implemented** | notes are refs under `refs/notes/`; `p2p` lists them and `hasClosure` refuses an incomplete closure. The same argument covers ticket *identity*, which is also a ref (§1.2): `refs/varvig/tickets/*` replicates by default too (`internal/p2p/refsync.go`, federation §5) — until that landed, a clone arrived with the branch and none of the peer's tickets |
 | **D4** — a note is a GC root that pins its target | **already held** | `object.Links` for a note includes its target; note refs are GC roots (`internal/gc`) |
 | **D5** — wasm host ABI feature-bit negotiated, never version-numbered | **pending** | wire capability bits exist (`internal/wire`); host-ABI negotiation for policy modules is future work |
 | **D6** — reserve the ref and note namespaces | **implemented** | `internal/reserved`; notes now accept the hierarchical `varvig/attest` form |
