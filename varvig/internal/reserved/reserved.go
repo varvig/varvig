@@ -37,6 +37,99 @@ const (
 	PrincipalsRef = "refs/varvig/principals"
 )
 
+// PinsPrefix is the ref namespace cross-peer retention pins live under
+// (federation §3): refs/pins/<hex peer>/<16-hex not_after>/<hash>, whose value
+// is the pinned object.
+//
+// It is reserved here for a stronger reason than the Factory names below: this
+// one carries *behaviour*. GC's root walk matches this prefix to decide what is
+// not a root — an expired pin stops pinning — and the p2p pin handlers
+// enumerate one peer's pins by it. A name the core acts on, agreed across
+// peers, belongs in the catalogue of names.
+//
+// internal/pin owns the encoding and takes its Prefix from here, so there is
+// one spelling rather than two that can drift.
+const PinsPrefix = "refs/pins/"
+
+// Ref namespaces reserved for the Factory layer (Design Notes VIII).
+//
+// Factory is a peer, not part of the core: it holds no core code path and the
+// core populates none of these. They are reserved for the same reason the
+// governance names are — spelling is the thing that cannot be fixed after first
+// run. A cell built today and a core built later must agree on where a lease
+// lives without either pattern-guessing, and an audit asking "what has this
+// repository committed to spend?" should be able to name the namespace rather
+// than infer it from a pattern.
+//
+// Reserving them costs nothing at runtime and changes no frozen format, exactly
+// as for the names above. Nothing in the core reads or writes them, and an older
+// binary that has never heard of them still lists, syncs and leaves them intact.
+//
+// # Why one root, and not six top-level names
+//
+// Every one of these nests under refs/factory/, because the *shapes* are generic
+// and the *semantics* are not. Any multi-worker system wants something called a
+// claim; Factory's claim is advisory, expiring, never exclusive, and says
+// nothing at all across a partition — and a system that reasonably made claims
+// exclusive would be writing a different meaning under the same name, which no
+// reader could tell apart.
+//
+// That collision has already happened once inside this project: internal/spec
+// calls its candidates "attempt-states", stored as files under .varvig/spec/,
+// while Factory's attempts are refs with different immutability rules. Two
+// concepts, one word. refs/factory/attempts/ at least says whose.
+//
+// What makes these semantics reusable is the contract being written down, not
+// the prefix being shared: another layer implementing leases under its own root
+// has benefited, while one writing into this root with its own lease model has
+// created a hazard.
+const (
+	// FactoryPrefix is the root every Factory ref nests under.
+	FactoryPrefix = "refs/factory/"
+
+	// CellsPrefix holds a cell's own published state — today its capabilities
+	// object at refs/factory/cells/<cell-id>/capabilities.
+	CellsPrefix = FactoryPrefix + "cells/"
+
+	// AttemptsPrefix holds one immutable ref per attempt, at
+	// refs/factory/attempts/<cell-id>/<task-id>/<n>. An attempt ref is created
+	// once and never moved: that immutability is what lets two partitioned cells
+	// attempt the same task and have both attempts survive reconnect.
+	AttemptsPrefix = FactoryPrefix + "attempts/"
+
+	// ClaimsPrefix holds advisory, expiring claims at
+	// refs/factory/claims/<cell-id>/<task-id>. Advisory is the whole design: a
+	// claim never excludes another cell, it only says "I am working on this",
+	// and across a partition it says nothing at all.
+	ClaimsPrefix = FactoryPrefix + "claims/"
+
+	// EnvelopesPrefix holds an overseer's spend ceilings at
+	// refs/factory/envelopes/<overseer-id>. An envelope is a *shared* ceiling
+	// across the cells under that overseer, so it cannot be enforced from a
+	// stale view — which is why leases exist alongside it.
+	EnvelopesPrefix = FactoryPrefix + "envelopes/"
+
+	// LeasesPrefix holds exclusive spend allocations at
+	// refs/factory/leases/<cell-id>/<capability>. Because no other cell can
+	// spend a lease, a stale one is safe to act on — that is what lets a
+	// disconnected cell keep working.
+	LeasesPrefix = FactoryPrefix + "leases/"
+
+	// ReservationsPrefix holds the durable record of one effectful action at
+	// refs/factory/reservations/<cell-id>/<idempotency-key>. The ref is created
+	// compare-and-swap, and winning that swap is what grants the right to act:
+	// it is the mechanism that stops an irreversible action happening twice.
+	ReservationsPrefix = FactoryPrefix + "reservations/"
+)
+
+// factoryPrefixes is the fixed set of Factory ref namespaces. IsFactoryRef needs
+// only the root; these are catalogued so the spelling of each concern is fixed
+// too, and so a later layer can enumerate them.
+var factoryPrefixes = []string{
+	FactoryPrefix, CellsPrefix, AttemptsPrefix, ClaimsPrefix,
+	EnvelopesPrefix, LeasesPrefix, ReservationsPrefix,
+}
+
 // Reserved note namespaces. A note namespace N lives at refs/notes/N/<target>;
 // these are the N values (tickets §1.3). Signed decisions, foreign tracker
 // bindings, and cached scoring output all accrete onto immutable objects as
@@ -114,4 +207,31 @@ func IsReservedNoteNamespace(ns string) bool {
 // slice is a copy; callers may not mutate the reservation.
 func NoteNamespaces() []string {
 	return append([]string(nil), reservedNoteNamespaces...)
+}
+
+// IsFactoryRef reports whether name belongs to the Factory layer.
+//
+// One prefix suffices because every Factory namespace nests under the same root
+// — which is the point of nesting them.
+//
+// It answers a question, and grants nothing: these names are reserved so a later
+// layer attaches to the same spelling, not so the core polices them. Nothing
+// here refuses a write, and the core neither reads nor writes these refs.
+func IsFactoryRef(name string) bool {
+	return strings.HasPrefix(name, FactoryPrefix)
+}
+
+// IsPinRef reports whether name is in the pin namespace.
+//
+// internal/pin has the same predicate and the encoding to go with it; this one
+// exists so a caller that only needs to classify a ref can do so without
+// depending on the federation layer.
+func IsPinRef(name string) bool {
+	return strings.HasPrefix(name, PinsPrefix)
+}
+
+// FactoryPrefixes returns the reserved Factory ref namespaces. The returned
+// slice is a copy; callers may not mutate the reservation.
+func FactoryPrefixes() []string {
+	return append([]string(nil), factoryPrefixes...)
 }

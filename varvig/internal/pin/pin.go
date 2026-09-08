@@ -18,10 +18,15 @@ import (
 	"strings"
 
 	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
 )
 
 // Prefix is the ref namespace all pins live under.
-const Prefix = "refs/pins/"
+//
+// It comes from the reservation rather than being spelled again here: GC's root
+// walk and the p2p handlers both act on this name, so two constants that could
+// drift apart is exactly what the reserved catalogue exists to prevent.
+const Prefix = reserved.PinsPrefix
 
 // MaxPerPeer bounds how many live pins one peer may hold, so a peer can never
 // exhaust another's disk by pinning (§3: quota'd, refusal is a normal response).
