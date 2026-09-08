@@ -78,23 +78,56 @@ func TestReservedNamespacesCopy(t *testing.T) {
 
 func TestIsFactoryRef(t *testing.T) {
 	cases := map[string]bool{
-		"refs/factory/cells/mini-a/capabilities": true,
-		"refs/attempts/mini-a/abc/1":             true,
-		"refs/claims/mini-a/abc":                 true,
-		"refs/envelopes/overseer-a":              true,
-		"refs/leases/mini-a/7063622d666162":      true,
-		"refs/reservations/mini-a/deadbeef":      true,
-		"refs/heads/main":                        false,
-		"refs/varvig/tickets/abc":                false,
-		"refs/pins/aabb/0000000000000000/1e20ff": false,
+		"refs/factory/cells/mini-a/capabilities":    true,
+		"refs/factory/attempts/mini-a/abc/1":        true,
+		"refs/factory/claims/mini-a/abc":            true,
+		"refs/factory/envelopes/overseer-a":         true,
+		"refs/factory/leases/mini-a/7063622d666162": true,
+		"refs/factory/reservations/mini-a/deadbeef": true,
+		"refs/heads/main":                           false,
+		"refs/varvig/tickets/abc":                   false,
+		"refs/pins/aabb/0000000000000000/1e20ff":    false,
+		// The flat names Factory used before nesting. They are somebody else's
+		// now, and must not be claimed by this predicate.
+		"refs/attempts/mini-a/abc/1":  false,
+		"refs/leases/mini-a/abc":      false,
+		"refs/reservations/mini-a/ab": false,
 		// A name that merely begins with the same letters is not nested under
 		// the namespace: refs/factories/ is somebody else's.
 		"refs/factories/other": false,
-		"refs/leased/mini-a":   false,
 	}
 	for name, want := range cases {
 		if got := IsFactoryRef(name); got != want {
 			t.Errorf("IsFactoryRef(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestIsPinRef(t *testing.T) {
+	cases := map[string]bool{
+		"refs/pins/aabb/0000000000000000/1e20ff": true,
+		"refs/pins/":                             true,
+		"refs/heads/main":                        false,
+		"refs/factory/leases/mini-a/abc":         false,
+		"refs/pinned/x":                          false,
+	}
+	for name, want := range cases {
+		if got := IsPinRef(name); got != want {
+			t.Errorf("IsPinRef(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// TestEveryFactoryNamespaceNestsUnderOneRoot is the property the nesting exists
+// for: one prefix classifies the whole layer, so a reader never has to know the
+// list, and a Factory concern added later cannot land outside it by accident.
+func TestEveryFactoryNamespaceNestsUnderOneRoot(t *testing.T) {
+	for _, p := range FactoryPrefixes() {
+		if !strings.HasPrefix(p, FactoryPrefix) {
+			t.Errorf("factory namespace %q does not nest under %q", p, FactoryPrefix)
+		}
+		if !IsFactoryRef(p) {
+			t.Errorf("IsFactoryRef(%q) is false for a reserved factory namespace", p)
 		}
 	}
 }
@@ -118,6 +151,14 @@ func TestFactoryNamespacesAreDistinctFromTheCore(t *testing.T) {
 	}
 	if IsTicketRef(EnvelopesPrefix + "overseer-a") {
 		t.Error("a Factory ref was reported as a ticket ref")
+	}
+	// Pins are the core's own, and stay top-level: GC and the p2p handlers act
+	// on that name, so it cannot move under another layer's root.
+	if IsFactoryRef(PinsPrefix + "aabb/0000000000000000/1e20ff") {
+		t.Error("a pin ref was reported as a Factory ref")
+	}
+	if strings.HasPrefix(PinsPrefix, FactoryPrefix) {
+		t.Error("the pin namespace was nested under the Factory root")
 	}
 }
 
