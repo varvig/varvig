@@ -175,3 +175,68 @@ func TestFactoryPrefixesAreACopy(t *testing.T) {
 		t.Error("FactoryPrefixes returned the reservation itself, not a copy")
 	}
 }
+
+// TestReplicationCatalogueCoversEveryLayerBuiltOnARef asserts the two namespaces
+// whose *identity* is a ref replicate. A ticket ref that does not travel means
+// each peer has a private queue; a lease ref that does not travel means a cell
+// cannot see what it may spend.
+func TestReplicationCatalogueCoversEveryLayerBuiltOnARef(t *testing.T) {
+	for _, name := range []string{
+		TicketsPrefix + "1e20aa",
+		TicketsPrefix + "1e20aa/spec",
+		FactoryPrefix + "anything",
+		LeasesPrefix + "mini-a/deploy",
+		EnvelopesPrefix + "overseer-1",
+		ReservationsPrefix + "mini-a/key1",
+		ClaimsPrefix + "mini-a/task-1",
+		AttemptsPrefix + "mini-a/task-1/1",
+		CellsPrefix + "mini-a/capabilities",
+	} {
+		if !IsReplicatedRef(name) {
+			t.Errorf("%s must replicate between peers", name)
+		}
+	}
+}
+
+// TestReplicationExclusionsAreDeliberate pins the boundary. Each of these is
+// excluded for its own reason — authority-bearing singleton, another peer's
+// retention obligation, or a namespace with its own sync path — and widening the
+// catalogue by accident is exactly what this test exists to catch.
+func TestReplicationExclusionsAreDeliberate(t *testing.T) {
+	for _, name := range []string{
+		PolicyRef,
+		PrincipalsRef,
+		PinsPrefix + "aabb/0000000000000001/deadbeef",
+		"refs/heads/main",
+		"refs/remotes/origin/main",
+		"refs/notes/varvig/attest/1e20aa",
+		"refs/myteam/scratch",
+	} {
+		if IsReplicatedRef(name) {
+			t.Errorf("%s is outside the replication catalogue and must not replicate by default", name)
+		}
+	}
+}
+
+// TestReplicatedPrefixesAreACopy: the reservation is not the caller's to edit.
+func TestReplicatedPrefixesAreACopy(t *testing.T) {
+	got := ReplicatedPrefixes()
+	if len(got) == 0 {
+		t.Fatal("the catalogue is empty")
+	}
+	got[0] = "refs/tampered/"
+	if ReplicatedPrefixes()[0] == "refs/tampered/" {
+		t.Error("mutating the returned slice changed the reservation")
+	}
+}
+
+// TestEveryReplicatedPrefixIsReserved: replication is a property of reserved
+// names. A prefix nobody reserved has no agreed spelling, so replicating it
+// would be moving refs by pattern-guess.
+func TestEveryReplicatedPrefixIsReserved(t *testing.T) {
+	for _, p := range ReplicatedPrefixes() {
+		if !IsTicketRef(p) && !IsFactoryRef(p) {
+			t.Errorf("%s replicates but is not one of the reserved ref namespaces", p)
+		}
+	}
+}

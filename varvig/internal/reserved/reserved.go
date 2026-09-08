@@ -130,6 +130,62 @@ var factoryPrefixes = []string{
 	EnvelopesPrefix, LeasesPrefix, ReservationsPrefix,
 }
 
+// replicatedPrefixes is the set of reserved ref namespaces that replicate
+// between peers by default.
+//
+// # Why these replicate at all
+//
+// Notes replicate by default because git's opposite default is, in the words of
+// tickets D3, "the most dangerous default in the design": approvals that
+// silently fail to propagate. The identical argument covers every namespace
+// here. A ticket's *identity* is a ref (tickets §1.2), so a federation whose
+// peers cannot see each other's ticket refs has no shared work queue — it has N
+// private ones that happen to share a branch. A Factory lease is a ref, so a
+// cell that cannot see the lease issued to it cannot spend, and an overseer that
+// cannot see a cell's reservations cannot tell what has been ordered.
+//
+// # Why not the rest
+//
+// The exclusions are deliberate, and each is a different reason:
+//
+//   - PolicyRef and PrincipalsRef are authority-bearing singletons — the
+//     promotion-policy module and the org chart. Adopting a peer's is a
+//     governance decision, not a transport one: on a first fetch there is no
+//     local value to conflict with, so automatic replication would let any peer
+//     we dial install who may approve. Whoever adopts one does it deliberately.
+//   - PinsPrefix is one peer's retention state, maintained by the PIN verbs and
+//     read by GC's root walk. Copying another peer's pins would import their
+//     retention obligations onto our disk — the exact thing the per-peer quota
+//     exists to bound.
+//   - refs/heads/ stays on the existing explicit-branch path: a head is what you
+//     check out and push with a lease, and silently pulling every peer's heads
+//     into ours is a different feature nobody asked for.
+//   - refs/remotes/ is local bookkeeping about a peer and means nothing to it.
+//
+// The list is prefixes rather than exact names so a namespace can grow without
+// a transport change — which is the point of nesting each layer under one root.
+var replicatedPrefixes = []string{TicketsPrefix, FactoryPrefix}
+
+// IsReplicatedRef reports whether name is in a reserved namespace that
+// replicates between peers by default.
+//
+// It classifies; it grants nothing. A peer decides what it accepts with its own
+// ref-update hooks, which run on every pushed ref regardless of namespace.
+func IsReplicatedRef(name string) bool {
+	for _, p := range replicatedPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// ReplicatedPrefixes returns the reserved ref namespaces that replicate by
+// default. The returned slice is a copy; callers may not mutate the reservation.
+func ReplicatedPrefixes() []string {
+	return append([]string(nil), replicatedPrefixes...)
+}
+
 // Reserved note namespaces. A note namespace N lives at refs/notes/N/<target>;
 // these are the N values (tickets §1.3). Signed decisions, foreign tracker
 // bindings, and cached scoring output all accrete onto immutable objects as

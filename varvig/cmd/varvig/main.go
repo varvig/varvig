@@ -943,6 +943,12 @@ func cmdClone(args []string) error {
 	if err := syncNotes(client, r, false); err != nil {
 		return err
 	}
+	// The reserved ref namespaces replicate with the branch for the same reason
+	// (tickets D3): a clone that arrives with the code but none of the peer's
+	// tickets or Factory state is a clone of a private queue.
+	if err := syncReservedRefs(client, r, false); err != nil {
+		return err
+	}
 	fmt.Printf("cloned %s (branch %s) into %s at %s\n", addr, branch, dir, tip.Hex())
 	return nil
 }
@@ -985,6 +991,9 @@ func cmdFetch(args []string) error {
 		return err
 	}
 	if err := syncNotes(client, r, false); err != nil {
+		return err
+	}
+	if err := syncReservedRefs(client, r, false); err != nil {
 		return err
 	}
 	fmt.Printf("fetched %s into %s\n", tip.Hex(), tracking)
@@ -1035,6 +1044,9 @@ func cmdPush(args []string) error {
 	_ = r.Refs.CompareAndSwap(tracking, prev, local, "push", "update tracking after push")
 	// Notes replicate by default (federation §4): push our notes alongside.
 	if err := syncNotes(client, r, true); err != nil {
+		return err
+	}
+	if err := syncReservedRefs(client, r, true); err != nil {
 		return err
 	}
 	fmt.Printf("pushed %s to %s (%s)\n", local.Hex(), args[0], name)

@@ -15,6 +15,7 @@ families.
 | 2 | Environment descriptor object + evidence field | `internal/object/environment.go`, `provenance.go` |
 | 3 | Notes replicate by default (loud, per-namespace opt-out) | `internal/p2p/notes.go`, `cmd/varvig/notes_sync.go` |
 | 4 | Pin protocol + capability bits | `internal/wire`, `internal/p2p/pin.go` |
+| 5 | Reserved ref namespaces replicate by default (loud, divergence reported) | `internal/p2p/refsync.go`, `cmd/varvig/refs_sync.go`, `internal/reserved` |
 
 ### 1. External artifact reference (§1)
 
@@ -71,6 +72,85 @@ peer can never exhaust another's disk and a requester learns it must hold the
 state itself. A PIN only ever writes under `refs/pins/<peer>/` — it can never
 move a head, so it grants disk, not promotion.
 
+### 5. Reserved ref namespaces replicate by default (§4, tickets D3)
+
+`clone`/`fetch`/`push` now also replicate the reserved ref namespaces —
+`refs/varvig/tickets/*` and `refs/factory/*` — for the same reason notes do.
+
+This closed a real gap rather than adding a feature. `LISTREFS` has always
+advertised every ref, and `servePush` has always accepted any ref name, so the
+transport could carry these refs from the start; the **client never asked for
+them**. The observable symptom: a peer holding a ticket got a clone that
+contained the branch and no tickets. Since a ticket's *identity* is a ref
+(tickets §1.2), that is not a federation with a shared work queue — it is N
+private queues that happen to share a branch. The same held for every Factory
+lease, envelope and reservation.
+
+Because the gap was client-side, the fix needs **no new wire verb and no new
+capability bit**: it works against peers built before it existed, in both
+directions. Gating it on a negotiated token would only have broken that.
+
+**The conflict rule is deliberately weak.** A head has parents and a note has a
+`Parent`, so both have an ancestry to fast-forward along. These refs mostly do
+not — a lease, an envelope and a reservation are canonical blobs with no links —
+so there is no ordering available, and inventing one would mean the core
+learning what a lease means, which is the thing reserving a namespace exists to
+avoid. The rule is therefore structural only:
+
+| Situation | Result |
+|---|---|
+| the peer has it, we do not | take it |
+| both hold the same id | nothing to do |
+| one id reaches the other through `object.Links` | the reaching side supersedes |
+| anything else | **diverged**: touch neither side, report it |
+
+Reachability generalises the notes `Parent` walk to the links every object
+already exposes, so a ticket's intent chain still fast-forwards while a Factory
+blob falls through to the last row. Where the core cannot tell, it refuses and
+says so.
+
+**Divergence is a report, not a failure.** Notes abort on a divergent chain
+because two peers writing one note chain differently is a fault. Here it is
+ordinary: two cells racing the same claim ref is the claim mechanism working, and
+aborting would let one contested claim stop every lease and ticket from
+replicating. So divergence is collected per ref and printed, and the layer that
+knows what the ref means resolves it. A failure to *transfer* a ref between two
+peers is still a loud error, never a silent partial — the notes discipline
+unchanged.
+
+**A ref name from the network is a path.** These names arrive over the wire and
+are written into the ref store, so they are validated at that boundary rather
+than left to fail deeper down: one malformed advertisement must not abort
+replication of everything alongside it. A varvig peer cannot produce one —
+`serveListRefs` resolves each name before advertising it and `Resolve`
+validates — so a refusal says something about the peer, and is reported as
+such.
+
+**Deletion never propagates**, in either direction. The protocol cannot
+distinguish "deleted there" from "never existed there", and guessing deletion
+would drop a reservation record — whose absence reads as "nothing was ordered",
+the one wrong answer for an irreversible action.
+
+**What does not replicate**, and why each is excluded (`internal/reserved`):
+
+- `refs/varvig/policy` and `refs/varvig/principals` — authority-bearing
+  singletons. Adopting a peer's promotion-policy module or org chart is a
+  governance decision, not a transport one: on a first fetch there is no local
+  value to conflict with, so automatic replication would let any peer we dial
+  install who may approve.
+- `refs/pins/*` — one peer's retention state. Copying it would import their
+  retention obligations onto our disk, which is what the per-peer quota exists
+  to bound.
+- `refs/heads/*` — stays on the existing explicit-branch path with its
+  tracking-ref lease.
+- `refs/remotes/*` — local bookkeeping about a peer, meaningless to it.
+
+There is no per-namespace opt-out file, unlike notes: everything replicated here
+is reserved, and notes already established that a reserved namespace may not be
+opted out of replication. A knob the code then refuses to honour is worse than no
+knob. A peer decides what it *accepts* with its ref-update hooks, which run on
+every pushed ref regardless of namespace.
+
 ### Wire capability bits (§3.4)
 
 Three negotiated tokens, never a version integer: `artifact-ref`, `pin`,
@@ -101,6 +181,9 @@ Two behaviours the spec asked us to confirm rather than assume:
 
 Reachability through `artifact-ref`, mixed-version write gate, environment hash
 determinism, evidence class comparison, pin lifecycle + quota, pin
-non-escalation, loud notes-sync failure, and partition semantics are covered
+non-escalation, loud notes-sync failure, reserved-ref replication (both
+directions, catalogue confinement, divergence reported without clobbering,
+fast-forward through ancestry, no capability required), and partition semantics
+are covered
 across `internal/object`, `internal/gc`, and `internal/p2p` tests. See spec §7
 for the intent behind each.
