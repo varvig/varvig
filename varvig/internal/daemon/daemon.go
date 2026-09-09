@@ -36,12 +36,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/mcp"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/peercred"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/task"
+	"github.com/varvig/varvig/varvig/internal/mcp"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/peercred"
+	"github.com/varvig/varvig/varvig/internal/readapi"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/task"
 )
 
 // TaskInfo is the daemon's description of a live task, returned to `task start`

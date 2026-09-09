@@ -6,9 +6,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/provenance"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // TestGateIsStrictSubset asserts the capability containment directly, not through

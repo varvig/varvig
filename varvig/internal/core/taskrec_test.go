@@ -5,9 +5,9 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // proposeTouching builds a tree containing exactly the given paths and proposes

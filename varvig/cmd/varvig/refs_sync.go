@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/p2p"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/p2p"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // syncReservedRefs replicates the reserved ref namespaces after a head sync, in

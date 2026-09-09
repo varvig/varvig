@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 func hashOf(t *testing.T, s string) multihash.Multihash {

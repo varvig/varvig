@@ -1,8 +1,8 @@
 package readapi
 
 import (
-	"github.com/dividebyzero/claude-experiments/varvig/internal/check"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/check"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // Verification evidence (build spec P1.3) is recorded by `varvig check` as a note

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/blocked"
+	"github.com/varvig/varvig/varvig/internal/blocked"
 )
 
 // TestReportBlockedAggregatesBoundaryHits: several out-of-scope reads accumulate

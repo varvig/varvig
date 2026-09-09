@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/task"
+	"github.com/varvig/varvig/varvig/internal/task"
 	"time"
 )
 

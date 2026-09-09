@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
+	"github.com/varvig/varvig/varvig/internal/notes"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/reserved"
 )
 
 // seedWithNotes returns a server carrying two notes on its tip change: one in a

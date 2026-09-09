@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/wire"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/refs"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/reserved"
+	"github.com/varvig/varvig/varvig/internal/wire"
 )
 
 // Notes replicate by default (federation §4): cross-peer evidence sharing

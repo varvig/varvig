@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/hook"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/hook"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // rubyAnalyzerSrc is a wasm analyzer for a Ruby-like language: it reads the

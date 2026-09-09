@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // fixtureSrc is a single WASI hook whose behavior branches on its stdin, so one

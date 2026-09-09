@@ -23,9 +23,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/sshkey"
+	"github.com/varvig/varvig/varvig/internal/identity"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/sshkey"
 )
 
 // schemeEd25519 is the signature scheme tag stored first in the signature blob,

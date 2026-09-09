@@ -1,4 +1,4 @@
-module github.com/dividebyzero/claude-experiments/varvig
+module github.com/varvig/varvig/varvig
 
 go 1.24
 

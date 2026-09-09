@@ -3,7 +3,7 @@ package mcp
 import (
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/agentrules"
+	"github.com/varvig/varvig/varvig/internal/agentrules"
 )
 
 // TestGateSurfaceMatchesRegistry is the U2 anti-drift test: the gate's live

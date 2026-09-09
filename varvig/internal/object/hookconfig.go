@@ -3,7 +3,7 @@ package object
 import (
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // HookEntry binds an event name to a wasm module (a blob object). The module is

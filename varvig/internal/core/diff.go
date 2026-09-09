@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/textdiff"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/textdiff"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // This is the read side of the shared core: the diff and status computations both

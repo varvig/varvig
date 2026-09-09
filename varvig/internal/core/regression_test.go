@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/trust"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // These are the code-level assertions of the checkout-scope regression suite

@@ -3,11 +3,11 @@ package score
 import (
 	"sort"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/bridge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/deps"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/bridge"
+	"github.com/varvig/varvig/varvig/internal/deps"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // ExtractFeatures computes a ticket's features from repository state (tickets

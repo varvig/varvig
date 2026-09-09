@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/refs"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // TestAPushToOnePeerDoesNotLeaseAgainstAnother is the bug this file exists for.

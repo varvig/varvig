@@ -3,9 +3,9 @@ package mcp
 import (
 	"encoding/json"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/core"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // This file makes the diff and status read verbs reachable through the gate

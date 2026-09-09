@@ -21,8 +21,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // Entry is one speculation candidate.

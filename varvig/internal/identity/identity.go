@@ -22,7 +22,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/sshkey"
+	"github.com/varvig/varvig/varvig/internal/sshkey"
 )
 
 // Source names where an identity's key was found, for display in `whoami`.

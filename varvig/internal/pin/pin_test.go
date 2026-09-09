@@ -3,9 +3,9 @@ package pin
 import (
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
+	"github.com/varvig/varvig/varvig/internal/reserved"
 )
 
 // TestPrefixComesFromTheReservation is the guard for the thing that made this

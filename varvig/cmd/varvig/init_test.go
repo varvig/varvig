@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/agentrules"
+	"github.com/varvig/varvig/varvig/internal/agentrules"
 )
 
 // TestRegistryCoversCLI is the anti-drift link between the real dispatch table

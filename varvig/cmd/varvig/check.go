@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/check"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/check"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // cmdCheck runs the repository's declared verification commands over a proposal's

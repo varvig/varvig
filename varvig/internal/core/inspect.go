@@ -3,7 +3,7 @@ package core
 import (
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/object"
 )
 
 // ErrUnmaterialized is re-exported so a shell can recognize an unmaterialized

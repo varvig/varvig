@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/p2p"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/wire"
+	"github.com/varvig/varvig/varvig/internal/p2p"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/wire"
 )
 
 // notesOptOutFile is a tracked, per-repo list of note namespaces to exclude

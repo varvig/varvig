@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/core"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/provenance"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/trust"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // cmdPropose records a speculative change from the working tree (build spec

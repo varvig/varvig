@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 func testSignerKey(t *testing.T) (ed25519.PrivateKey, ed25519.PublicKey) {
