@@ -74,43 +74,21 @@ func (c Class) String() string {
 	return "unknown"
 }
 
+// There is deliberately no Merged() and no flat, unpartitioned listing.
+//
+// An earlier draft of this file had one, on the reasoning that a caller wanting
+// a single list would otherwise build a worse one by hand. But the builder
+// instructions are explicit — report the caller, do not add the API, the
+// partition is the mitigation — and no caller ever needed it. An unused API that
+// exists to be convenient is exactly how the distinction between a reproducible
+// fact and an agent's claim gets flattened later. Add it when a real caller
+// appears, and report that caller.
+
 // Reproducible reports whether an edge of this class can be recomputed by any
 // peer from content alone. Only a reproducible edge may gate a merge outcome
 // (§11.3), and this is the predicate that says so — named, so a consumer that
 // requires derived input asks a question rather than comparing a constant.
 func (c Class) Reproducible() bool { return c == ClassDerived }
-
-// Classified is one edge in a merged listing, still carrying its class. Merging
-// does not erase provenance: it is the mixing that is dangerous, so a merged
-// entry that lost its class would defeat the point of partitioning.
-type Classified struct {
-	Class Class
-	// Derived is set when Class is ClassDerived; Stored otherwise. Exactly one
-	// is meaningful, which is why the class travels with them.
-	Derived edge.DerivedEdge
-	Stored  edge.StoredEdge
-}
-
-// Merged flattens the partitions, and requires being asked.
-//
-// It exists because some callers genuinely want one list — a display, an
-// export — and refusing outright would push them into building it themselves,
-// worse. What it does not do is hide the distinction: every entry names its
-// class, so a consumer that wanted derived edges and got an assertion can still
-// tell, and a consumer that never looks had to write Merged() to get here.
-func (r Result) Merged() []Classified {
-	out := make([]Classified, 0, len(r.derived)+len(r.imported)+len(r.asserted))
-	for _, e := range r.derived {
-		out = append(out, Classified{Class: ClassDerived, Derived: e})
-	}
-	for _, e := range r.imported {
-		out = append(out, Classified{Class: ClassImported, Stored: e.Edge})
-	}
-	for _, e := range r.asserted {
-		out = append(out, Classified{Class: ClassAsserted, Stored: e.Edge})
-	}
-	return out
-}
 
 // GatingEdges returns only the edges permitted to change a merge outcome: the
 // derived ones.

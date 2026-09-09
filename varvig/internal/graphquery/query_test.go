@@ -215,23 +215,13 @@ func TestResultsArePartitionedByClass(t *testing.T) {
 		t.Errorf("GatingEdges() = %d, want just the derived edge", len(res.GatingEdges()))
 	}
 
-	// Merging keeps the classes.
-	merged := res.Merged()
-	if len(merged) != 2 {
-		t.Fatalf("Merged() = %d entries, want 2", len(merged))
-	}
-	seen := map[Class]bool{}
-	for _, m := range merged {
-		if m.Class == 0 {
-			t.Error("a merged entry lost its provenance class")
-		}
-		seen[m.Class] = true
-	}
-	if !seen[ClassDerived] || !seen[ClassImported] {
-		t.Errorf("merged classes = %v, want both derived and imported", seen)
-	}
 	// Reproducibility is the gating predicate, and only derived satisfies it.
-	if !ClassDerived.Reproducible() || ClassImported.Reproducible() || ClassAsserted.Reproducible() {
+	// There is no flat listing to check: the partition above is the whole API,
+	// which is what keeps a claim from being read as a reproducible fact.
+	if !ClassDerived.Reproducible() {
+		t.Error("a derived edge must be reproducible")
+	}
+	if ClassImported.Reproducible() || ClassAsserted.Reproducible() {
 		t.Error("only a derived edge is reproducible by a peer")
 	}
 }

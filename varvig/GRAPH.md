@@ -207,11 +207,16 @@ overlapping facts from the same analyzer modules. One index with two query surfa
 stores. Building them separately guarantees they disagree.
 
 **It cannot precede reliable provenance.** The graph is a confident-answer machine built on
-provenance. The system currently drops the `reasoning` field silently and returns other
-agents' changes with `isError: false`. Building an inference-shaped layer over that
-reproduces C2's failure at a larger blast radius: plausible answers with no way to detect
-they are wrong. Worse, edges written during the unreliable period carry provenance that
-cannot be retroactively trusted, and there is no way to distinguish them later.
+provenance. When this was written the system dropped the `reasoning` field silently and
+returned other agents' changes with `isError: false`. Building an inference-shaped layer over
+that would have reproduced C2's failure at a larger blast radius: plausible answers with no
+way to detect they are wrong. Worse, edges written during the unreliable period would carry
+provenance that could not be retroactively trusted, with no way to distinguish them later.
+
+*Status: satisfied.* Tier C landed before this design was implemented — `reasoning` is
+persisted and confirmed back from storage, and an unmodelled input field is refused rather
+than dropped (`internal/mcp/tierc_test.go`). The gate in the builder instructions §0.2 is
+met; this section records why it existed.
 
 Tier C first. The graph gets better inputs for free once intent is actually stored.
 
