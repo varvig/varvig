@@ -35,7 +35,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // Type identifies an object kind. The set is registry-extensible: an unknown

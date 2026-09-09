@@ -17,11 +17,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/provenance"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/reserved"
 )
 
 // Ref returns the ticket ref name for a ticket id.

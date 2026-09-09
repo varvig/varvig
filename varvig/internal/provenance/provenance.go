@@ -18,8 +18,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
 )
 
 // Signature scheme identifiers, stored as the first field of the signature blob.

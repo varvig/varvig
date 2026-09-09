@@ -17,8 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/store"
+	"github.com/varvig/varvig/varvig/internal/refs"
+	"github.com/varvig/varvig/varvig/internal/store"
 )
 
 // Dir is the repository metadata directory name.

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/pin"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/pin"
 )
 
 const peerID = "peer-A"

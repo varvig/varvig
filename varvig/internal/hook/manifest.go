@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/refs"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // Ref is where the hook manifest lives. It points at a HookConfig object, whose

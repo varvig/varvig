@@ -27,9 +27,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/sshkey"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
+	"github.com/varvig/varvig/varvig/internal/identity"
+	"github.com/varvig/varvig/varvig/internal/sshkey"
+	"github.com/varvig/varvig/varvig/internal/trust"
 )
 
 // Grant is a scoped, expiring capability for one task. The ephemeral private key

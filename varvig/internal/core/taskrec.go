@@ -6,10 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/trust"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // The task record is the scheduler's own record of a task (design addendum, F4):

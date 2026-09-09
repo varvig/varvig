@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/store"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/wire"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/store"
+	"github.com/varvig/varvig/varvig/internal/wire"
 )
 
 // seedServer builds a repo with two changes:

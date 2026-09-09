@@ -27,8 +27,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/sshkey"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/sshkey"
 )
 
 // magic frames a canonical payload. A distinct family tag keeps ref updates

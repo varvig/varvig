@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/readapi"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // subtreeHash resolves a repo-relative subtree of the fixture's base to its tree

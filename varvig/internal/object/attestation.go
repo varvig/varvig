@@ -3,7 +3,7 @@ package object
 import (
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // Decision is the kind of governance decision an attestation records

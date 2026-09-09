@@ -5,8 +5,8 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/provenance"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 func newRepo(t *testing.T) *repo.Repo {

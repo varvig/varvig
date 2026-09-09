@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
+	"github.com/varvig/varvig/varvig/internal/identity"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/trust"
 )
 
 // cmdTrust inspects the repository trust store (.varvig.d/allowed_keys). It reads the

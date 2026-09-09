@@ -23,10 +23,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/gitobj"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/gitobj"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // GitCommitBody is the interop field tag that stores an imported commit's exact

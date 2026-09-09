@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/object"
 )
 
 func TestInitAndOpen(t *testing.T) {

@@ -36,7 +36,7 @@ func TestGateHasNoObjectStoreAccess(t *testing.T) {
 		for _, imp := range af.Imports {
 			p := strings.Trim(imp.Path.Value, `"`)
 			for bad, why := range forbidden {
-				if p == "github.com/dividebyzero/claude-experiments/varvig/"+bad {
+				if p == "github.com/varvig/varvig/varvig/"+bad {
 					t.Errorf("%s imports %s — the gate must not %s; route it through internal/core", f, p, why)
 				}
 			}

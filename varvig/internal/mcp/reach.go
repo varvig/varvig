@@ -3,8 +3,8 @@ package mcp
 import (
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/core"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // Scope must be enforced on object reachability, not only on path strings (MCP

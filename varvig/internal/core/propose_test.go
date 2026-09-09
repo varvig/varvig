@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/provenance"
+	"github.com/varvig/varvig/varvig/internal/readapi"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // TestProposeFinalization pins the single write-finalization contract both shells

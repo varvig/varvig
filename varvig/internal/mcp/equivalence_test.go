@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/core"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // The checkout-scope regression suite asserts that `diff` and `status` called

@@ -16,14 +16,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/daemon"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/mcp"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/task"
+	"github.com/varvig/varvig/varvig/internal/core"
+	"github.com/varvig/varvig/varvig/internal/daemon"
+	"github.com/varvig/varvig/varvig/internal/mcp"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/readapi"
+	"github.com/varvig/varvig/varvig/internal/refs"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/task"
 )
 
 // repoRuntimeDir is where a repo's daemon control socket and per-task sockets

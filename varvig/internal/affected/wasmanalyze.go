@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // wasmInput is the JSON a wasm analyzer receives on stdin.

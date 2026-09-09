@@ -6,14 +6,14 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/principal"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/ticket"
+	"github.com/varvig/varvig/varvig/internal/attest"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/notes"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/principal"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/reserved"
+	"github.com/varvig/varvig/varvig/internal/ticket"
 )
 
 func newRepo(t *testing.T) *repo.Repo {

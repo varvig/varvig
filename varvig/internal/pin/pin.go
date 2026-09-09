@@ -17,8 +17,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/reserved"
 )
 
 // Prefix is the ref namespace all pins live under.
