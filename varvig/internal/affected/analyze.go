@@ -140,6 +140,21 @@ func goImports(c []byte) []Specifier {
 	return out
 }
 
+// BuiltinCovers reports whether a built-in analyzer understands p's language.
+// It is what lets a caller tell "no dependency" apart from "nothing read this
+// file" (design §5): a file no analyzer covers contributes only itself when it
+// changes, and an answer that does not say so is claiming a safety it cannot
+// deliver. A wasm analyzer registered for the extension covers it too; that is
+// the caller's set to check, since only the caller knows which are in force.
+func BuiltinCovers(p string) bool {
+	for _, a := range analyzers {
+		if a.match(p) {
+			return true
+		}
+	}
+	return false
+}
+
 // extractBuiltin returns the specifiers for a file using the first matching
 // built-in analyzer, or nil if none handles its type (textual fallback).
 func extractBuiltin(p string, content []byte) []Specifier {

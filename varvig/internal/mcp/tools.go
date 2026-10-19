@@ -9,7 +9,6 @@ import (
 	"github.com/varvig/varvig/varvig/internal/core"
 	"github.com/varvig/varvig/varvig/internal/multihash"
 	"github.com/varvig/varvig/varvig/internal/readapi"
-	"github.com/varvig/varvig/varvig/internal/repo"
 	"github.com/varvig/varvig/varvig/internal/reserved"
 	"github.com/varvig/varvig/varvig/internal/worktree"
 )
@@ -128,6 +127,37 @@ var toolList = []map[string]any{
 		"inputSchema": objectSchema(map[string]any{
 			"change": strProp("change hash or ref; omit to summarize the bound working tree against the base"),
 		}, nil),
+	},
+	{
+		"name":        "varvig_affected",
+		"title":       "What a change affects",
+		"description": "List what a change actually affects: the paths it changed, plus the paths that depend on those transitively through the file-dependency graph. Confined to your scope, with a count (never a list) of affected paths that lie outside it — a nonzero count means your change reaches code you cannot see, which is grounds for report_blocked. Every result carries a coverage descriptor: when it is not complete, an absent dependency may be a language no analyzer understands rather than a fact.",
+		"annotations": readOnlyAnnotations("What a change affects"),
+		"inputSchema": objectSchema(map[string]any{
+			"change": strProp("change hash or ref; omit to use the task's base change"),
+		}, nil),
+	},
+	{
+		"name":        "varvig_graph",
+		"title":       "What a file depends on",
+		"description": "Query the context graph for one file: what it depends on, or what depends on it. Results are partitioned by provenance class — derived edges are recomputable from content and are the only class that may gate a merge outcome; imported edges are a foreign system's word; asserted edges are somebody's claim and may inform your planning but never a merge. Confined to your scope, with a count of derived edges withheld. Every result carries a coverage descriptor: when it is not complete, an absent dependency may be a language no analyzer understands rather than a fact about the code.",
+		"annotations": readOnlyAnnotations("What a file depends on"),
+		"inputSchema": objectSchema(map[string]any{
+			"path":      strProp("repo-relative file path to query, within your scope"),
+			"direction": strProp(`"dependencies" (what this file depends on, the default) or "dependents" (what depends on it)`),
+			"change":    strProp("change hash or ref whose tree to query; omit to use the task's base"),
+		}, []string{"path"}),
+	},
+	{
+		"name":        "varvig_graph_edge",
+		"title":       "Whether a dependency holds",
+		"description": "Ask whether a dependency edge holds between two files. The answer is three-valued and the distinction matters: \"present\" means an analyzer observed it; \"absent_under_coverage\" means an analyzer read both files and there is no such edge, which is a fact about the code; \"unknown_outside_coverage\" means no analyzer covers one of the files, so nothing has looked — that is a fact about the tooling and it is not evidence of absence. Do not treat unknown as no.",
+		"annotations": readOnlyAnnotations("Whether a dependency holds"),
+		"inputSchema": objectSchema(map[string]any{
+			"from":   strProp("repo-relative path the edge would start from, within your scope"),
+			"to":     strProp("repo-relative path the edge would point to, within your scope"),
+			"change": strProp("change hash or ref whose tree to query; omit to use the task's base"),
+		}, []string{"from", "to"}),
 	},
 	{
 		"name":        "varvig_read_ticket",
@@ -273,6 +303,9 @@ var toolHandlers = map[string]toolHandler{
 	"varvig_read_log":       toolReadLog,
 	"varvig_diff":           toolDiff,
 	"varvig_status":         toolStatus,
+	"varvig_affected":       toolAffected,
+	"varvig_graph":          toolGraph,
+	"varvig_graph_edge":     toolGraphEdge,
 	"varvig_read_ticket":    toolReadTicket,
 	"varvig_list_proposals": toolListProposals,
 	"varvig_propose":        toolPropose,
@@ -342,13 +375,13 @@ func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
 	if err != nil {
 		return nil, gerr(codeNotFound, "cannot resolve %q (scope %q)", a.Ref, g.grant.Scopes)
 	}
-	o, err := g.repo.Objects.Get(id)
+	kind, err := core.ObjectKind(g.repo, id)
 	if err != nil {
 		return nil, gerr(codeNotFound, "resolved %q to %s but it is not stored", a.Ref, id.Hex())
 	}
 	// Enforce scope on object reachability, not only path strings (§9.4): a
 	// blob/tree resolved directly must lie within the task's scope subtree.
-	if k := o.Type().String(); k == "blob" || k == "tree" {
+	if k := kind; k == core.KindBlob || k == core.KindTree {
 		in, err := g.inScopeObject(id)
 		if err != nil {
 			return nil, err
@@ -359,7 +392,7 @@ func toolResolve(g *Gate, raw json.RawMessage) (map[string]any, error) {
 				"%s %s is outside the task scope %q", k, id.Hex(), g.grant.Scopes)
 		}
 	}
-	return map[string]any{"ref": a.Ref, "hash": id.Hex(), "type": o.Type().String()}, nil
+	return map[string]any{"ref": a.Ref, "hash": id.Hex(), "type": kind}, nil
 }
 
 func toolListTree(g *Gate, raw json.RawMessage) (map[string]any, error) {
@@ -872,7 +905,7 @@ func toolPropose(g *Gate, raw json.RawMessage) (map[string]any, error) {
 
 	var baseTree multihash.Multihash
 	if g.base != nil {
-		bt, err := treeOfChange(g.repo, g.base)
+		bt, err := core.TreeOf(g.repo, g.base)
 		if err != nil {
 			return nil, gerr(codeNotFound, "cannot read base tree: %v", err)
 		}
@@ -1091,21 +1124,6 @@ func (g *Gate) resolveChange(arg string) (multihash.Multihash, error) {
 	id, err := g.rl.Resolve(arg)
 	if err != nil {
 		return nil, gerr(codeNotFound, "cannot resolve change %q", arg)
-	}
-	return id, nil
-}
-
-func treeOfChange(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, error) {
-	o, err := r.Objects.Get(id)
-	if err != nil {
-		return nil, err
-	}
-	if core.IsChange(o) {
-		c, err := o.AsChange()
-		if err != nil {
-			return nil, err
-		}
-		return c.Tree, nil
 	}
 	return id, nil
 }

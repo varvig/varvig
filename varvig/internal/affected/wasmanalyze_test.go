@@ -125,7 +125,9 @@ func TestWasmAnalyzerCacheKeyedByModule(t *testing.T) {
 	}
 	wa := WasmAnalyzer{Ext: ".rb", Module: module, ID: id, Run: run}
 
-	// First build populates the cache under the combined (blob, module) key.
+	// First build populates the cache under the combined key: the blob, the
+	// module, and the extractor identity (the running binary, which is also the
+	// wasm host).
 	if _, err := BuildGraph(r.Objects, tree, Options{Cache: cache, Wasm: []WasmAnalyzer{wa}}); err != nil {
 		t.Fatalf("BuildGraph: %v", err)
 	}
@@ -134,12 +136,15 @@ func TestWasmAnalyzerCacheKeyedByModule(t *testing.T) {
 		t.Fatalf("FlattenTree: %v", err)
 	}
 	blobID := files["app.rb"]
-	if _, ok := cache.Get(combinedKey(blobID, id)); !ok {
+	if _, ok := cache.Get(combinedKey(blobID, id, extractorID())); !ok {
 		t.Fatal("wasm analysis not cached under the combined key")
 	}
-	// The plain blob key must be untouched, so a builtin re-analysis of the same
-	// content would not collide with the wasm result.
+	// Neither the bare blob key nor the built-in key may hold the wasm result, so
+	// a built-in re-analysis of the same content cannot collide with it.
 	if _, ok := cache.Get(blobID); ok {
 		t.Fatal("wasm result leaked into the plain blob cache key")
+	}
+	if _, ok := cache.Get(combinedKey(blobID, extractorID())); ok {
+		t.Fatal("wasm result leaked into the built-in cache key for the same blob")
 	}
 }

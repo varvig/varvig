@@ -105,7 +105,7 @@ func cmdPropose(args []string) error {
 			if err != nil {
 				return fmt.Errorf("propose: corrupt task base in marker: %w", err)
 			}
-			taskTree, err := treeOf(r, taskBase)
+			taskTree, err := core.TreeOf(r, taskBase)
 			if err != nil {
 				return err
 			}
@@ -215,7 +215,7 @@ func baseChangeAndTree(r *repo.Repo) (multihash.Multihash, multihash.Multihash, 
 	if err != nil {
 		return nil, nil, nil
 	}
-	tree, err := treeOf(r, head)
+	tree, err := core.TreeOf(r, head)
 	if err != nil {
 		return nil, nil, err
 	}

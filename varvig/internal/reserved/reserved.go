@@ -25,6 +25,15 @@ const (
 	// separated at refs/varvig/tickets/<id>/spec.
 	TicketsPrefix = "refs/varvig/tickets/"
 
+	// NodesPrefix is the root of context-graph identity-node refs:
+	// refs/varvig/nodes/<id>. An identity node is a thing with a life across
+	// renames — a symbol, a file across time — and it uses the same construction
+	// as a ticket (GRAPH.md §3.1): identity is a ref moved by compare-and-swap,
+	// state is an append-only chain of immutable revisions. What a revision's
+	// state *means* is the producer's business; the core stores it and never
+	// reads it, exactly as it never reads an edge type.
+	NodesPrefix = "refs/varvig/nodes/"
+
 	// PolicyRef points to the blob id of the repository's promotion-policy wasm
 	// module (tickets §2.5). A policy is a content-addressed object, versioned
 	// alongside the code it guards; the ref names the module in force.
@@ -207,6 +216,15 @@ const (
 	// It is a reserved namespace so it always replicates to peers — evidence a peer
 	// cannot see is evidence that does not exist.
 	NoteCheck = "varvig/check"
+	// NoteEdge carries context-graph edge records: the imported and asserted
+	// edges of GRAPH.md §2. Derived edges are deliberately absent — they are
+	// index content and have no stored form at all — so every note in this
+	// namespace is one a peer could not have recomputed for itself.
+	//
+	// It is reserved, and therefore never opt-out-able from sync, for the same
+	// reason evidence is: an imported edge a peer cannot see is an edge that does
+	// not exist, and the failure would be silent.
+	NoteEdge = "varvig/edge"
 	// NoteScope carries a ticket's declared read set and write set (tickets
 	// §3.1) — what makes it schedulable, and the input from which blocking
 	// dependencies are derived rather than hand-declared (§3.2).
@@ -239,8 +257,11 @@ const (
 	NoteBlocked = "varvig/blocked"
 )
 
-// reservedNoteNamespaces is the fixed set of governance note namespaces.
-var reservedNoteNamespaces = []string{NoteAttest, NoteExternal, NoteScore, NoteScope, NoteCheck}
+// reservedNoteNamespaces is the fixed set of namespaces that must always
+// replicate: the governance spaces, plus the edge records whose whole purpose is
+// to be visible to a peer. A peer may opt out of any other namespace; it may
+// never opt out of these.
+var reservedNoteNamespaces = []string{NoteAttest, NoteExternal, NoteScore, NoteScope, NoteCheck, NoteEdge}
 
 // IsTicketRef reports whether name is (or is nested under) the reserved ticket
 // ref namespace.

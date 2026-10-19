@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/varvig/varvig/varvig/internal/affected"
 	"github.com/varvig/varvig/varvig/internal/attest"
 	"github.com/varvig/varvig/varvig/internal/conformance"
 	"github.com/varvig/varvig/varvig/internal/core"
@@ -74,6 +73,8 @@ var commands = map[string]func([]string) error{
 	"bridge":      cmdBridge,
 	"hook":        cmdHook,
 	"affected":    cmdAffected,
+	"graph":       cmdGraph,
+	"assert":      cmdAssert,
 	"merge":       cmdMerge,
 	"spec":        cmdSpec,
 	"gc":          cmdGc,
@@ -213,6 +214,19 @@ usage:
   varvig hook list                      list configured hooks
   varvig hook run <event> [file]        run an event's hooks with input (or stdin)
   varvig affected [<base> <new>]        show files changed and their dependents
+  varvig graph deps|rdeps <path> [<rev>]
+                                        what a file depends on, or what depends
+                                        on it — partitioned by provenance class,
+                                        with coverage
+  varvig graph edge <from> <to> [<rev>] whether a dependency edge holds: present,
+                                        absent under coverage, or unknown
+  varvig assert add <type> --from X --to Y --strength S
+                                        record a claim the execution layer
+                                        believes; never gates a merge
+  varvig assert promote <edge-id> --strength S
+                                        sign an attestation naming the edge hash
+  varvig assert list <anchor>           edges on an object, with provenance and
+                                        promotion status
   varvig merge <ref|id>                 three-way merge another change into HEAD
   varvig spec add <task> <ref|id>       record a speculation candidate
   varvig spec list <task>               list a task's candidates and scores
@@ -1299,83 +1313,71 @@ func cmdAffected(args []string) error {
 	if err != nil {
 		return err
 	}
-	var baseTree, newTree multihash.Multihash
+	var base, newRev multihash.Multihash
 	switch len(args) {
 	case 0:
 		// Default: what the tip change affected relative to its first parent.
-		headRef, herr := r.Head()
-		if herr != nil {
-			return herr
-		}
-		head, herr := r.Refs.Resolve(headRef)
-		if herr != nil {
-			return herr
-		}
-		newTree, err = treeOf(r, head)
+		headRef, err := r.Head()
 		if err != nil {
 			return err
 		}
-		obj, err := r.Objects.Get(head)
-		if err != nil {
+		if newRev, err = r.Refs.Resolve(headRef); err != nil {
 			return err
 		}
-		if c, err := obj.AsChange(); err == nil && len(c.Parents) > 0 {
-			if baseTree, err = treeOf(r, c.Parents[0]); err != nil {
-				return err
-			}
+		if base, err = core.FirstParent(r, newRev); err != nil {
+			return err
 		}
 	case 2:
-		base, err := resolve(r, args[0])
-		if err != nil {
+		if base, err = resolve(r, args[0]); err != nil {
 			return err
 		}
-		newRev, err := resolve(r, args[1])
-		if err != nil {
-			return err
-		}
-		if baseTree, err = treeOf(r, base); err != nil {
-			return err
-		}
-		if newTree, err = treeOf(r, newRev); err != nil {
+		if newRev, err = resolve(r, args[1]); err != nil {
 			return err
 		}
 	default:
 		return errors.New("usage: varvig affected [<base> <new>]")
 	}
 
-	diff, err := affected.DiffTrees(r.Objects, baseTree, newTree)
+	res, err := core.Affected(r, base, newRev)
 	if err != nil {
 		return err
 	}
-	changed := diff.Changed()
 
-	cache, err := affected.NewDiskCache(filepath.Join(r.GitDir(), "index", "deps"))
-	if err != nil {
-		return err
-	}
-	wasm, err := wasmAnalyzers(r)
-	if err != nil {
-		return err
-	}
-	graph, err := affected.BuildGraph(r.Objects, newTree, affected.Options{Cache: cache, Wasm: wasm})
-	if err != nil {
-		return err
-	}
-	impacted := graph.Affected(changed)
-
-	fmt.Printf("changed (%d):\n", len(changed))
-	for _, p := range changed {
+	fmt.Printf("changed (%d):\n", len(res.Changed))
+	for _, p := range res.Changed {
 		fmt.Printf("  %s\n", p)
 	}
-	fmt.Printf("affected (%d):\n", len(impacted))
-	for _, p := range impacted {
+	fmt.Printf("affected (%d):\n", len(res.Affected))
+	for _, p := range res.Affected {
 		marker := " "
-		if !contains(changed, p) {
+		if res.Pulled(p) {
 			marker = "+" // pulled in transitively via the dependency graph
 		}
 		fmt.Printf("  %s %s\n", marker, p)
 	}
+	// Coverage is printed whenever it is incomplete, because an affected set over
+	// a language no analyzer understands looks exactly like one over a fully
+	// analyzed tree (design §5). Saying nothing would let the reader take an
+	// absent dependency for a fact about the code.
+	if !res.Coverage.Complete() {
+		fmt.Printf("coverage: %d of %d files analyzed; no analyzer for %s\n",
+			res.Coverage.Analyzed, res.Coverage.Analyzed+res.Coverage.Unanalyzed,
+			strings.Join(namedTypes(res.Coverage.UnanalyzedExts), ", "))
+	}
 	return nil
+}
+
+// namedTypes renders unanalyzed file extensions for display, giving the
+// extensionless ones a name rather than printing an empty string.
+func namedTypes(exts []string) []string {
+	out := make([]string, 0, len(exts))
+	for _, e := range exts {
+		if e == "" {
+			e = "(no extension)"
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func cmdMerge(args []string) error {
@@ -1514,7 +1516,10 @@ func cmdSpec(args []string) error {
 		if err != nil {
 			return err
 		}
-		removed, err := pool.Prune(task, k)
+		// PruneWithEdges, not Prune: a discarded attempt's collectable edges go
+		// with it in the same operation, so nothing outlives its subject
+		// (GRAPH.md §11.5).
+		removed, err := pool.PruneWithEdges(r, task, k)
 		if err != nil {
 			return err
 		}
@@ -1643,64 +1648,6 @@ func shortOrNone(m multihash.Multihash) string {
 		return "(none)"
 	}
 	return m.Hex()[4:16]
-}
-
-// wasmAnalyzers builds language analyzers from hook-manifest entries named
-// "analyze:<ext>" (design §3.3). Each binds a file extension to a wasm module
-// that runs in the same sandbox as hooks.
-func wasmAnalyzers(r *repo.Repo) ([]affected.WasmAnalyzer, error) {
-	cfg, err := hook.LoadManifest(r)
-	if err != nil {
-		return nil, err
-	}
-	runner := func(ctx context.Context, module, input []byte) ([]byte, error) {
-		res, err := hook.Run(ctx, module, input)
-		if err != nil {
-			return nil, err
-		}
-		if !res.Allowed() {
-			return nil, fmt.Errorf("analyzer exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
-		}
-		return res.Stdout, nil
-	}
-	var out []affected.WasmAnalyzer
-	for _, e := range cfg.Entries {
-		ext, ok := strings.CutPrefix(e.Event, "analyze:")
-		if !ok {
-			continue
-		}
-		obj, err := r.Objects.Get(e.Module)
-		if err != nil {
-			return nil, err
-		}
-		mod, _ := obj.BlobContent()
-		out = append(out, affected.WasmAnalyzer{Ext: ext, Module: mod, ID: e.Module, Run: runner})
-	}
-	return out, nil
-}
-
-func treeOf(r *repo.Repo, id multihash.Multihash) (multihash.Multihash, error) {
-	obj, err := r.Objects.Get(id)
-	if err != nil {
-		return nil, err
-	}
-	if core.IsChange(obj) {
-		c, err := obj.AsChange()
-		if err != nil {
-			return nil, err
-		}
-		return c.Tree, nil
-	}
-	return id, nil
-}
-
-func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 
 // resolve interprets a string as a ref name or, failing that, an object id.
