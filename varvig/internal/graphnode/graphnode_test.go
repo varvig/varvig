@@ -3,7 +3,7 @@ package graphnode
 import (
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 func hash(t *testing.T, s string) multihash.Multihash {

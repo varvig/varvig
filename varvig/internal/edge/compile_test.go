@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const pkgPath = "github.com/dividebyzero/claude-experiments/varvig/internal/edge"
+const pkgPath = "github.com/varvig/varvig/varvig/internal/edge"
 
 // typeCheck compiles src against the real edge package and returns the errors it
 // produced. It uses the source importer, so it sees this package exactly as the
@@ -42,8 +42,8 @@ func TestPersistingADerivedEdgeDoesNotCompile(t *testing.T) {
 	const src = `package snippet
 
 import (
-	"github.com/dividebyzero/claude-experiments/varvig/internal/edge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/edge"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 func tryToPersist(r *repo.Repo, d edge.DerivedEdge) {
@@ -65,7 +65,7 @@ func tryToPersist(r *repo.Repo, d edge.DerivedEdge) {
 func TestEncodingADerivedEdgeDoesNotCompile(t *testing.T) {
 	const src = `package snippet
 
-import "github.com/dividebyzero/claude-experiments/varvig/internal/edge"
+import "github.com/varvig/varvig/varvig/internal/edge"
 
 func tryToEncode(d edge.DerivedEdge) ([]byte, error) {
 	return edge.Encode(d)
@@ -83,8 +83,8 @@ func TestTheControlCompiles(t *testing.T) {
 	const src = `package snippet
 
 import (
-	"github.com/dividebyzero/claude-experiments/varvig/internal/edge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/edge"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 func persist(r *repo.Repo, s edge.StoredEdge) {

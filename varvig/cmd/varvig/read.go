@@ -7,9 +7,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/readapi"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // cmdRead is the CLI plumbing over the read query layer (auth design §7.1).

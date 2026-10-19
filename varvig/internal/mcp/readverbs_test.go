@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // proposeChange proposes a single in-scope file through the gate and returns the

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/trust"
 )
 
 // ObjectPresence reports whether an object is present locally. The store

@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/principal"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/identity"
+	"github.com/varvig/varvig/varvig/internal/principal"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // cmdPrincipal administers the org chart (tickets §1.4): the versioned set of

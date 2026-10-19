@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
+	"github.com/varvig/varvig/varvig/internal/identity"
 )
 
 // cmdWhoami prints the active principal: its name, SSH SHA256 fingerprint, and

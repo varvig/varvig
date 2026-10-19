@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // cmdStatus is the cheap orient command (build spec P0.3): the working tree's

@@ -3,7 +3,7 @@ package principal
 import (
 	"crypto/ed25519"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/object"
 )
 
 // Kind is the principal-kind vocabulary, re-exported so a caller names the domain

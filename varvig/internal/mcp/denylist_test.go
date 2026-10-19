@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/denylist"
+	"github.com/varvig/varvig/varvig/internal/denylist"
 )
 
 // writeDeny writes a repo deny-list file so a gate built afterward loads it.

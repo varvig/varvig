@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/blocked"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/blocked"
+	"github.com/varvig/varvig/varvig/internal/identity"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // cmdBlocked is the scope-authority side of the blocked-on-scope outcome (build

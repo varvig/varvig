@@ -21,12 +21,12 @@ package bridge
 import (
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/edge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/graphnode"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/ticket"
+	"github.com/varvig/varvig/varvig/internal/edge"
+	"github.com/varvig/varvig/varvig/internal/graphnode"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/ticket"
 )
 
 // ForeignRow identifies a row in an external system: an opaque system tag the

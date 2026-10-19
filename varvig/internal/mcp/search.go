@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/affected"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/affected"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // find_files and search_text walk only the task's scope subtree, so scope is a

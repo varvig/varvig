@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
 )
 
 // changeFulfilling builds a change like the test helper `change`, but carrying a

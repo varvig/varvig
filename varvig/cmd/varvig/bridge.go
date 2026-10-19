@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/bridge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/attest"
+	"github.com/varvig/varvig/varvig/internal/bridge"
+	"github.com/varvig/varvig/varvig/internal/provenance"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // cmdBridge is the vendor-neutral surface an external-tracker peer drives

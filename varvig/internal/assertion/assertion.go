@@ -26,13 +26,13 @@ package assertion
 import (
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/edge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/graphnode"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/attest"
+	"github.com/varvig/varvig/varvig/internal/edge"
+	"github.com/varvig/varvig/varvig/internal/graphnode"
+	"github.com/varvig/varvig/varvig/internal/identity"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // Inference records how a model produced a claim (§2.1). Every field is

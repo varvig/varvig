@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // TestCacheKeyCoversTheBuiltinExtractor: an entry produced by an older built-in

@@ -3,7 +3,7 @@ package object
 import (
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 func TestNoteRoundTripAndLinks(t *testing.T) {

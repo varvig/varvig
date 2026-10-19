@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // RepoContext is the tree-wide information resolution needs: every repo path,

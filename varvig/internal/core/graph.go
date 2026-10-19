@@ -19,11 +19,11 @@ package core
 import (
 	"sort"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/affected"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/edge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/graphnode"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/affected"
+	"github.com/varvig/varvig/varvig/internal/edge"
+	"github.com/varvig/varvig/varvig/internal/graphnode"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // EdgeTypeImportsFile is the edge the file-dependency index produces: this file

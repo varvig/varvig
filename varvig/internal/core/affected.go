@@ -18,11 +18,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/affected"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/hook"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/affected"
+	"github.com/varvig/varvig/varvig/internal/hook"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // analyzerEventPrefix is the hook-manifest event that registers a language

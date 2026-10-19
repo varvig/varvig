@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/check"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/refupdate"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/attest"
+	"github.com/varvig/varvig/varvig/internal/check"
+	"github.com/varvig/varvig/varvig/internal/core"
+	"github.com/varvig/varvig/varvig/internal/identity"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/refs"
+	"github.com/varvig/varvig/varvig/internal/refupdate"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // checkPromotionNotStale refuses to promote a commit that implements an intent

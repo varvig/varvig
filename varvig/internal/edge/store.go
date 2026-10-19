@@ -15,11 +15,11 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/graphnode"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
+	"github.com/varvig/varvig/varvig/internal/graphnode"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/notes"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/reserved"
 )
 
 // ErrNoAnchor reports that neither endpoint is content-addressed, so there is

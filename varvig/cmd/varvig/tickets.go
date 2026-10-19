@@ -9,16 +9,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/bridge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/deps"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/reserved"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/score"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/ticket"
+	"github.com/varvig/varvig/varvig/internal/attest"
+	"github.com/varvig/varvig/varvig/internal/bridge"
+	"github.com/varvig/varvig/varvig/internal/deps"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/provenance"
+	"github.com/varvig/varvig/varvig/internal/readapi"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/reserved"
+	"github.com/varvig/varvig/varvig/internal/score"
+	"github.com/varvig/varvig/varvig/internal/ticket"
 )
 
 // cmdTickets is the ticket lifecycle surface (tickets §1.2, §3, §4):

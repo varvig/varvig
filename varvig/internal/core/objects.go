@@ -13,8 +13,8 @@ package core
 import (
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // ErrNotAChange reports that an id names something other than a change. It is a

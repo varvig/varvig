@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"runtime/debug"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/mcp"
+	"github.com/varvig/varvig/varvig/internal/mcp"
 )
 
 // version is the release version, stamped at build time by tools/build.sh via

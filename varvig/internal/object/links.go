@@ -1,6 +1,6 @@
 package object
 
-import "github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+import "github.com/varvig/varvig/varvig/internal/multihash"
 
 // Links returns the identities this object references directly: a blob links to
 // nothing, a tree to its entries, a change to its tree and parents. Walking

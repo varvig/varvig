@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/agentrules"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/hook"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/agentrules"
+	"github.com/varvig/varvig/varvig/internal/hook"
+	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
 // cmdInit initializes a repository and, by default, writes the agent-rules files

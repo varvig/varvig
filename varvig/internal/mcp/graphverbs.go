@@ -17,9 +17,9 @@ package mcp
 import (
 	"encoding/json"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/edge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/graphquery"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/edge"
+	"github.com/varvig/varvig/varvig/internal/graphquery"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // graphQueryFor opens a query over the change under inspection, or the task's

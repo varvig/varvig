@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/trust"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/trust"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 func sel(d worktree.TreeDiff, scope string, paths []string) ([]worktree.Edit, error) {

@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/store"
+	"github.com/varvig/varvig/varvig/internal/store"
 )
 
 func newStore(t *testing.T) *store.Store {

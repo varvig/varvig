@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/sshkey"
+	"github.com/varvig/varvig/varvig/internal/sshkey"
 )
 
 // ErrKeyExists is returned when InitKey would overwrite an existing key. A key

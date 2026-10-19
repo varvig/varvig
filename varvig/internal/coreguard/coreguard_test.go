@@ -154,7 +154,7 @@ func TestVendorHitsLogic(t *testing.T) {
 		}
 	}
 	allowed := []string{
-		`"github.com/dividebyzero/claude-experiments/varvig/internal/object"`,
+		`"github.com/varvig/varvig/varvig/internal/object"`,
 		`filepath.Join(dir, ".github", "copilot-instructions.md")`,
 		"// a linear history has one best common ancestor",
 		"// take a shortcut through the cache",

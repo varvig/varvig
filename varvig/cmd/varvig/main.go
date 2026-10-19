@@ -18,23 +18,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/attest"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/conformance"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/gc"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/gitport"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/hook"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/merge"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/notes"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/p2p"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/peercred"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/provenance"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/readapi"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/worktree"
+	"github.com/varvig/varvig/varvig/internal/attest"
+	"github.com/varvig/varvig/varvig/internal/conformance"
+	"github.com/varvig/varvig/varvig/internal/core"
+	"github.com/varvig/varvig/varvig/internal/gc"
+	"github.com/varvig/varvig/varvig/internal/gitport"
+	"github.com/varvig/varvig/varvig/internal/hook"
+	"github.com/varvig/varvig/varvig/internal/merge"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/notes"
+	"github.com/varvig/varvig/varvig/internal/p2p"
+	"github.com/varvig/varvig/varvig/internal/peercred"
+	"github.com/varvig/varvig/varvig/internal/provenance"
+	"github.com/varvig/varvig/varvig/internal/readapi"
+	"github.com/varvig/varvig/varvig/internal/refs"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/spec"
+	"github.com/varvig/varvig/varvig/internal/worktree"
 )
 
 // commands maps a subcommand name to its handler.
@@ -177,7 +177,7 @@ usage:
   varvig read <object|tree|blob|change|log|refs|proposals> [args]
                                       read via the query layer, as JSON
   varvig clone <addr> <dir> [branch]    replicate a peer's branch into a new repo
-  varvig fetch <addr> [branch]          fetch a peer's branch into refs/remotes/origin
+  varvig fetch <addr> [branch]          fetch a peer's branch into refs/remotes/<peer>
   varvig push <addr> [branch]           push a local branch to a peer (CAS lease)
   varvig note add <target> [opts]       attach a note (--ns NS, -m MSG or -f FILE)
   varvig note list <target> [--ns NS]   list notes attached to an object
@@ -943,7 +943,15 @@ func cmdClone(args []string) error {
 		return err
 	}
 	// Record where the remote was, so a later push can lease against it.
-	if err := r.Refs.Create("refs/remotes/origin/"+branch, tip, "clone", "clone "+addr); err != nil {
+	// Where this peer's branch was, so a later push leases against it.
+	if err := recordTip(r, addr, branch, tip, "clone", "clone "+addr); err != nil {
+		return err
+	}
+	// refs/remotes/origin/<branch> is kept as a record of where the clone came
+	// from — familiar, and what a reader looks for first. It is not a lease:
+	// pushes read the per-peer ref, so this one never decides whether a branch
+	// may move.
+	if err := r.Refs.Create(legacyTrackingPrefix+branch, tip, "clone", "clone "+addr); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(r.GitDir(), "HEAD"), []byte("ref: refs/heads/"+branch+"\n"), 0o644); err != nil {
@@ -955,6 +963,12 @@ func cmdClone(args []string) error {
 	// Notes replicate by default (federation §4): pull the peer's notes so
 	// evidence and governance state travel with the branch, not only the code.
 	if err := syncNotes(client, r, false); err != nil {
+		return err
+	}
+	// The reserved ref namespaces replicate with the branch for the same reason
+	// (tickets D3): a clone that arrives with the code but none of the peer's
+	// tickets or Factory state is a clone of a private queue.
+	if err := syncReservedRefs(client, r, false); err != nil {
 		return err
 	}
 	fmt.Printf("cloned %s (branch %s) into %s at %s\n", addr, branch, dir, tip.Hex())
@@ -982,26 +996,30 @@ func cmdFetch(args []string) error {
 	if err != nil {
 		return err
 	}
-	tip, err := refTip(client, "refs/heads/"+branch)
-	if err != nil {
-		return err
-	}
-	tracking := "refs/remotes/origin/" + branch
-	var have []multihash.Multihash
-	if cur, err := r.Refs.Resolve(tracking); err == nil {
-		have = append(have, cur)
-	}
-	if err := client.Fetch(r.Objects, []multihash.Multihash{tip}, have); err != nil {
-		return err
-	}
-	cur, _ := r.Refs.Resolve(tracking)
-	if err := r.Refs.CompareAndSwap(tracking, cur, tip, "fetch", "fetch "+args[0]); err != nil {
-		return err
+	return fetchFromPeer(client, r, branch, args[0])
+}
+
+// fetchFromPeer pulls the head and every replicating namespace from a dialled
+// peer, attempting each independently (federation §6).
+//
+// A peer that does not carry this branch at all still has tickets, evidence and
+// authority state worth having, and refusing to look was how a cell working a
+// branch its peer had never heard of learned nothing from it.
+func fetchFromPeer(client *p2p.Client, r *repo.Repo, branch, addr string) error {
+	var failures []string
+
+	if err := fetchHead(client, r, branch, addr); err != nil {
+		failures = append(failures, "head: "+err.Error())
 	}
 	if err := syncNotes(client, r, false); err != nil {
-		return err
+		failures = append(failures, err.Error())
 	}
-	fmt.Printf("fetched %s into %s\n", tip.Hex(), tracking)
+	if err := syncReservedRefs(client, r, false); err != nil {
+		failures = append(failures, err.Error())
+	}
+	if len(failures) > 0 {
+		return errors.New(strings.Join(failures, "; "))
+	}
 	return nil
 }
 
@@ -1017,21 +1035,12 @@ func cmdPush(args []string) error {
 	if err != nil {
 		return err
 	}
-	name := "refs/heads/" + branch
-	local, err := r.Refs.Resolve(name)
-	if err != nil {
-		return fmt.Errorf("nothing to push: %w", err)
-	}
-	// The lease is what we last observed the remote to be — the remote-tracking
-	// ref — NOT a fresh query. If the peer has moved since, the CAS is rejected
-	// rather than silently overwriting the peer's work (force-with-lease, §2).
-	// Enforcing that the new tip descends from the lease is left to the merge
-	// step; for now the lease alone guards against unseen concurrent changes.
-	tracking := "refs/remotes/origin/" + branch
-	var old multihash.Multihash
-	if cur, err := r.Refs.Resolve(tracking); err == nil {
-		old = cur
-	}
+	// The lease pushToPeer uses is what we last observed the remote to be — the
+	// remote-tracking ref — NOT a fresh query. If the peer has moved since, the
+	// CAS is rejected rather than silently overwriting the peer's work
+	// (force-with-lease, §2). Enforcing that the new tip descends from the lease
+	// is left to the merge step; for now the lease alone guards against unseen
+	// concurrent changes.
 	conn, err := net.Dial("tcp", args[0])
 	if err != nil {
 		return err
@@ -1041,17 +1050,73 @@ func cmdPush(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := client.Push(r.Objects, name, old, local); err != nil {
+	return pushToPeer(client, r, branch, args[0])
+}
+
+// fetchHead brings the branch tip and its closure across and advances the
+// remote-tracking ref. It is separate so its several failure points collapse to
+// one error for the caller to record alongside the namespace results.
+func fetchHead(client *p2p.Client, r *repo.Repo, branch, addr string) error {
+	tip, err := refTip(client, "refs/heads/"+branch)
+	if err != nil {
 		return err
 	}
-	// Advance our record of the remote to what we just pushed.
-	prev, _ := r.Refs.Resolve(tracking)
-	_ = r.Refs.CompareAndSwap(tracking, prev, local, "push", "update tracking after push")
+	var have []multihash.Multihash
+	if cur := trackedTip(r, addr, branch); cur != nil {
+		have = append(have, cur)
+	}
+	if err := client.Fetch(r.Objects, []multihash.Multihash{tip}, have); err != nil {
+		return err
+	}
+	if err := recordTip(r, addr, branch, tip, "fetch", "fetch "+addr); err != nil {
+		return err
+	}
+	fmt.Printf("fetched %s into %s\n", tip.Hex(), trackingRef(addr, branch))
+	return nil
+}
+
+// pushToPeer sends the head and every replicating namespace to a dialled peer,
+// attempting each independently.
+//
+// The independence is the point. The head moves under a force-with-lease
+// against one tracking ref, so in a mesh where peers legitimately differ on the
+// branch it is *normal* for that compare-and-swap to be refused. Returning
+// there — as this did — meant a peer whose branch had moved received no notes
+// and no reserved refs either: a settled lease is the only record that money
+// was spent, and it was being withheld from a peer over an unrelated
+// disagreement about code (federation §6).
+//
+// Every failure is still reported. Independent does not mean quiet.
+func pushToPeer(client *p2p.Client, r *repo.Repo, branch, addr string) error {
+	name := "refs/heads/" + branch
+	var failures []string
+
+	local, err := r.Refs.Resolve(name)
+	switch {
+	case err != nil:
+		failures = append(failures, "head: nothing to push: "+err.Error())
+	default:
+		// The lease is this peer's own tracking ref, so it describes the
+		// repository being pushed to rather than whichever peer was fetched
+		// from last.
+		if perr := client.Push(r.Objects, name, trackedTip(r, addr, branch), local); perr != nil {
+			failures = append(failures, "head: "+perr.Error())
+		} else {
+			// Advance our record of this peer to what we just pushed.
+			_ = recordTip(r, addr, branch, local, "push", "update tracking after push")
+			fmt.Printf("pushed %s to %s (%s)\n", local.Hex(), addr, name)
+		}
+	}
 	// Notes replicate by default (federation §4): push our notes alongside.
 	if err := syncNotes(client, r, true); err != nil {
-		return err
+		failures = append(failures, err.Error())
 	}
-	fmt.Printf("pushed %s to %s (%s)\n", local.Hex(), args[0], name)
+	if err := syncReservedRefs(client, r, true); err != nil {
+		failures = append(failures, err.Error())
+	}
+	if len(failures) > 0 {
+		return errors.New(strings.Join(failures, "; "))
+	}
 	return nil
 }
 

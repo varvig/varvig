@@ -18,13 +18,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/affected"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/object"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/refs"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/repo"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/spec"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/store"
+	"github.com/varvig/varvig/varvig/internal/affected"
+	"github.com/varvig/varvig/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/refs"
+	"github.com/varvig/varvig/varvig/internal/repo"
+	"github.com/varvig/varvig/varvig/internal/spec"
+	"github.com/varvig/varvig/varvig/internal/store"
 )
 
 // Query answers read requests against a repository. It is safe for concurrent

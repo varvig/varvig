@@ -1,8 +1,8 @@
 package graphquery
 
 import (
-	"github.com/dividebyzero/claude-experiments/varvig/internal/core"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/edge"
+	"github.com/varvig/varvig/varvig/internal/core"
+	"github.com/varvig/varvig/varvig/internal/edge"
 )
 
 // Result is the answer to a graph query: edges, partitioned by provenance class,

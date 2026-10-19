@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/identity"
+	"github.com/varvig/varvig/varvig/internal/identity"
 )
 
 // signedMagic frames a serialized SignedUpdate (payload + detached signature).

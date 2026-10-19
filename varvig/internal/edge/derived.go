@@ -3,8 +3,8 @@ package edge
 import (
 	"fmt"
 
-	"github.com/dividebyzero/claude-experiments/varvig/internal/graphnode"
-	"github.com/dividebyzero/claude-experiments/varvig/internal/multihash"
+	"github.com/varvig/varvig/varvig/internal/graphnode"
+	"github.com/varvig/varvig/varvig/internal/multihash"
 )
 
 // DerivedEdge is an edge the index computed from content-addressed inputs by
