@@ -87,7 +87,7 @@ func TestLandCarriesProposalProvenance(t *testing.T) {
 	prov := putProvenance(t, r, object.Provenance{Authority: "agent-a", Model: "m"})
 
 	p := proposalWithProvenance(t, r, base, prov, map[string]string{"a": "a2"})
-	res, err := LandProposal(context.Background(), r, mainRef, p)
+	res, err := LandProposal(context.Background(), r, mainRef, p, nil)
 	if err != nil {
 		t.Fatalf("land: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestLandWithoutProvenanceCarriesNone(t *testing.T) {
 	base := tip(t, r)
 
 	p := proposalFrom(t, r, base, map[string]string{"a": "a2"}) // no provenance
-	res, err := LandProposal(context.Background(), r, mainRef, p)
+	res, err := LandProposal(context.Background(), r, mainRef, p, nil)
 	if err != nil {
 		t.Fatalf("land: %v", err)
 	}
