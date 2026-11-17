@@ -26,6 +26,16 @@ type Txn struct {
 	// advisory: it influences admission order among conflicting transactions,
 	// never whether one may run. The default Ordering (InputOrder) ignores it.
 	Priority int
+	// Provenance is the id of an already-stored TypeProvenance object to stamp on
+	// the committed change (design §1.1, §2.1). The autonomous commit path runs
+	// here, not through core.Commit, so without this the changes it writes would
+	// carry no evidence at all — "evidence is primary" (§4.2) with nothing to
+	// point at. The scheduler records the id faithfully and does not build or
+	// validate the object: provenance is produced once, before the transaction,
+	// by whoever ran the executor (the model call must not happen inside Apply,
+	// which re-runs on CAS loss — §4.4). Nil attaches none, so a transaction that
+	// declares no evidence commits exactly as before.
+	Provenance multihash.Multihash
 }
 
 // Result reports the outcome of a transaction.
@@ -215,11 +225,12 @@ func (s *Scheduler) runOne(ctx context.Context, t *Txn) Result {
 			parents = []multihash.Multihash{base}
 		}
 		change := object.NewChange(object.Change{
-			Tree:      newTree,
-			Parents:   parents,
-			Message:   t.Name,
-			Timestamp: 0,
-			Author:    t.Name,
+			Tree:       newTree,
+			Parents:    parents,
+			Message:    t.Name,
+			Timestamp:  0,
+			Author:     t.Name,
+			Provenance: t.Provenance,
 		})
 		id, err := s.repo.Objects.Put(change)
 		if err != nil {

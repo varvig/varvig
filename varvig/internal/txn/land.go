@@ -149,7 +149,13 @@ func landTxn(objs ObjectStore, proposal multihash.Multihash) (*Txn, error) {
 		}
 		return nil
 	}
-	return &Txn{Name: name, Reads: paths, Writes: paths, Apply: apply}, nil
+	// Carry the proposal's provenance onto the landed change. The proposal
+	// already points at the evidence its executor produced; landing records a new
+	// change against the current tip, and that change describes the same work, so
+	// it must point at the same evidence rather than drop it. Passed through
+	// faithfully — a proposal with no provenance lands a change with none, never a
+	// fabricated one.
+	return &Txn{Name: name, Reads: paths, Writes: paths, Apply: apply, Provenance: ch.Provenance}, nil
 }
 
 // resolveDelta returns the paths that differ between the proposal's base (pb)
