@@ -20,7 +20,7 @@ var ErrPolicyRefused = errors.New("attest: promotion refused by policy module")
 
 // Policy is the promotion checkpoint interface (tickets M1). It is identical in
 // method set to spec.PromotionPolicy, so any Policy value can be handed to
-// spec.PromoteWithPolicy without attest importing the speculation store.
+// spec.PromoteSelectionWithPolicy without attest importing the speculation store.
 type Policy interface {
 	Admit(r *repo.Repo, change multihash.Multihash) error
 }

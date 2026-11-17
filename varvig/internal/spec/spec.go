@@ -265,19 +265,35 @@ type PromotionPolicy interface {
 	Admit(r *repo.Repo, change multihash.Multihash) error
 }
 
-// Promote advances ref to the task's best-scored candidate via compare-and-swap
-// (design §1.5: promote the winner). The promoted change becomes reachable from
-// the ref and is thereafter permanent; losers remain in the pool until pruned.
-func Promote(p *Pool, r *repo.Repo, task, ref, actor string) (multihash.Multihash, error) {
-	return PromoteWithPolicy(p, r, task, ref, actor, nil)
+// PromoteSelection advances a *selection ref* to the task's best-scored
+// candidate via compare-and-swap (design §1.5: promote the winner).
+//
+// A selection ref holds the current best answer to one task, and promotion
+// **replaces** it — there is no ancestry check, deliberately, because
+// superseding an incumbent attempt with a better-scored one is the whole
+// mechanism. The promoted change is reachable from the ref and thereafter
+// permanent; losers remain in the pool until pruned.
+//
+// Do not point this at a shared, accumulating ref. Landing a candidate whose
+// base has moved onto such a ref silently drops the work already there —
+// "recoverable through the reflog" is not "still promoted" (design §1.5). That
+// is the landing surface's job (varvig-factory-spec §10b): it refuses a
+// non-descendant and merges instead. This function does neither, and a shared
+// ref here is a bug, not a use.
+func PromoteSelection(p *Pool, r *repo.Repo, task, ref, actor string) (multihash.Multihash, error) {
+	return PromoteSelectionWithPolicy(p, r, task, ref, actor, nil)
 }
 
-// PromoteWithPolicy is Promote with a promotion checkpoint. The policy is
-// applied to each scored candidate first; the winner is the highest-scored
-// candidate the policy admits. If policy is nil the behavior is exactly
-// Promote. A candidate the policy refuses is skipped in favor of a lower-scored
-// admissible one, so a high score cannot buy past a refusal (tickets §7.4).
-func PromoteWithPolicy(p *Pool, r *repo.Repo, task, ref, actor string, policy PromotionPolicy) (multihash.Multihash, error) {
+// PromoteSelectionWithPolicy is PromoteSelection with a promotion checkpoint.
+// The policy is applied to each scored candidate first; the winner is the
+// highest-scored candidate the policy admits. If policy is nil the behavior is
+// exactly PromoteSelection. A candidate the policy refuses is skipped in favor
+// of a lower-scored admissible one, so a high score cannot buy past a refusal
+// (tickets §7.4).
+//
+// Selection semantics, per PromoteSelection: replace, no ancestry check. Not for
+// accumulating refs.
+func PromoteSelectionWithPolicy(p *Pool, r *repo.Repo, task, ref, actor string, policy PromotionPolicy) (multihash.Multihash, error) {
 	entries, err := p.List(task)
 	if err != nil {
 		return nil, err
@@ -307,6 +323,9 @@ func PromoteWithPolicy(p *Pool, r *repo.Repo, task, ref, actor string, policy Pr
 	}
 	cur, err := r.Refs.Resolve(ref)
 	if err != nil {
+		// CompareAndSwap re-reads under the lock and refuses a corrupt ref
+		// itself; nil here means "expect absent" for the creation case, nothing
+		// more. The invariant is pinned by a test in internal/refs.
 		cur = nil
 	}
 	if err := r.Refs.CompareAndSwap(ref, cur, best.Change, actor, "promote "+task); err != nil {
