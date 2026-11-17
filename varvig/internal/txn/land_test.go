@@ -74,7 +74,7 @@ func TestLandFastForward(t *testing.T) {
 	before := tip(t, r)
 
 	p := proposalFrom(t, r, before, map[string]string{"a": "a2"})
-	res, err := LandProposal(context.Background(), r, mainRef, p)
+	res, err := LandProposal(context.Background(), r, mainRef, p, nil)
 	if err != nil {
 		t.Fatalf("LandProposal: %v", err)
 	}
@@ -106,10 +106,10 @@ func TestLandDisjointProposalsBothLand(t *testing.T) {
 	p1 := proposalFrom(t, r, base, map[string]string{"a": "a2"})
 	p2 := proposalFrom(t, r, base, map[string]string{"b": "b2"}) // same stale base
 
-	if _, err := LandProposal(context.Background(), r, mainRef, p1); err != nil {
+	if _, err := LandProposal(context.Background(), r, mainRef, p1, nil); err != nil {
 		t.Fatalf("land p1: %v", err)
 	}
-	if _, err := LandProposal(context.Background(), r, mainRef, p2); err != nil {
+	if _, err := LandProposal(context.Background(), r, mainRef, p2, nil); err != nil {
 		t.Fatalf("land p2 (stale base, disjoint path): %v", err)
 	}
 	if got, _ := readFile(t, r, "a"); got != "a2" {
@@ -129,12 +129,12 @@ func TestLandConvergentIsNoOp(t *testing.T) {
 	base := tip(t, r)
 	p := proposalFrom(t, r, base, map[string]string{"a": "a2"})
 
-	if _, err := LandProposal(context.Background(), r, mainRef, p); err != nil {
+	if _, err := LandProposal(context.Background(), r, mainRef, p, nil); err != nil {
 		t.Fatalf("first land: %v", err)
 	}
 	afterFirst := historyLen(t, r)
 
-	res, err := LandProposal(context.Background(), r, mainRef, p)
+	res, err := LandProposal(context.Background(), r, mainRef, p, nil)
 	if err != nil {
 		t.Fatalf("second land: %v", err)
 	}
@@ -146,28 +146,30 @@ func TestLandConvergentIsNoOp(t *testing.T) {
 	}
 }
 
-// TestLandRefusesGenuineConflict is the refuse-first floor: the tip changed a
-// path the proposal also changed, to a third value. Landing must refuse with
-// ErrLandConflict and leave the ref untouched — never silently drop either the
-// proposal's work or the concurrent change's.
-func TestLandRefusesGenuineConflict(t *testing.T) {
+// TestLandUnresolvedConflictLeavesRefUntouched is the floor that survives the
+// merge phase: the tip changed the same line the proposal changed, to a third
+// value, and no regenerator is supplied. The textual three-way cannot resolve a
+// same-line divergence, so landing refuses with ErrLandUnresolved and leaves the
+// ref untouched — it never advances to a conflict-marker tree, and never drops
+// either the proposal's work or the concurrent change's.
+func TestLandUnresolvedConflictLeavesRefUntouched(t *testing.T) {
 	r := newRepo(t)
 	seed(t, r, "a", "a1")
 	base := tip(t, r)
 	p := proposalFrom(t, r, base, map[string]string{"a": "a2"}) // base a1 -> a2
 
-	seed(t, r, "a", "a3") // a concurrent change moves a to a third value
+	seed(t, r, "a", "a3") // a concurrent change moves the same line to a third value
 	tipBefore := tip(t, r)
 
-	res, err := LandProposal(context.Background(), r, mainRef, p)
-	if !errors.Is(err, ErrLandConflict) {
-		t.Fatalf("err = %v; want ErrLandConflict", err)
+	res, err := LandProposal(context.Background(), r, mainRef, p, nil)
+	if !errors.Is(err, ErrLandUnresolved) {
+		t.Fatalf("err = %v; want ErrLandUnresolved", err)
 	}
-	if !errors.Is(res.Err, ErrLandConflict) {
-		t.Fatalf("res.Err = %v; want ErrLandConflict", res.Err)
+	if !errors.Is(res.Err, ErrLandUnresolved) {
+		t.Fatalf("res.Err = %v; want ErrLandUnresolved", res.Err)
 	}
 	if !tip(t, r).Equal(tipBefore) {
-		t.Fatal("ref advanced despite a refused land")
+		t.Fatal("ref advanced despite an unresolved merge")
 	}
 	if got, _ := readFile(t, r, "a"); got != "a3" {
 		t.Fatalf("a = %q; the concurrent change was clobbered", got)
@@ -182,7 +184,7 @@ func TestLandRemoval(t *testing.T) {
 	base := tip(t, r)
 
 	p := proposalFrom(t, r, base, nil, "a")
-	if _, err := LandProposal(context.Background(), r, mainRef, p); err != nil {
+	if _, err := LandProposal(context.Background(), r, mainRef, p, nil); err != nil {
 		t.Fatalf("land removal: %v", err)
 	}
 	if _, ok := readFile(t, r, "a"); ok {
@@ -201,7 +203,7 @@ func TestLandRootProposalMergesAdditively(t *testing.T) {
 	seed(t, r, "b", "b1")
 
 	p := proposalFrom(t, r, nil, map[string]string{"a": "a1"})
-	if _, err := LandProposal(context.Background(), r, mainRef, p); err != nil {
+	if _, err := LandProposal(context.Background(), r, mainRef, p, nil); err != nil {
 		t.Fatalf("land root proposal: %v", err)
 	}
 	if got, ok := readFile(t, r, "a"); !ok || got != "a1" {
@@ -220,7 +222,7 @@ func TestLandRejectsNonChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LandProposal(context.Background(), r, mainRef, id); !errors.Is(err, ErrNotAProposal) {
+	if _, err := LandProposal(context.Background(), r, mainRef, id, nil); !errors.Is(err, ErrNotAProposal) {
 		t.Fatalf("err = %v; want ErrNotAProposal", err)
 	}
 }

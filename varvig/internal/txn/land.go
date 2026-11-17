@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
+	"github.com/varvig/varvig/varvig/internal/merge"
 	"github.com/varvig/varvig/varvig/internal/multihash"
 	"github.com/varvig/varvig/varvig/internal/object"
+	"github.com/varvig/varvig/varvig/internal/refs"
 	"github.com/varvig/varvig/varvig/internal/repo"
 )
 
@@ -32,46 +35,135 @@ import (
 // and nothing else. Landing never runs an executor, and could not if it tried:
 // its only input is an id.
 //
-// # What a conflict does here, and what it will do later
+// # What a genuine conflict does: a merge, in a second phase
 //
-// This surface *refuses* a genuine conflict: a path the proposal changed, that
-// the current tip also changed away from the proposal's base to something else.
-// Refusal is the conservative floor — it never silently drops the proposal's
-// work or the concurrent change's. It is also pure (three immutable trees
-// compared byte for byte, no model, no subprocess), which is exactly why it is
-// safe inside the re-running Apply. Turning that refusal into a merge — or a
-// regeneration from the proposal's provenance — is the next step (§10b item 3),
-// and it must happen *outside* this loop, because a regenerator is an executor
-// and §4.4 forbids one here. Landing is built refuse-first so that the unsafe
-// case is a loud error today, not a wrong answer that a later PR has to notice.
+// A proposal that fast-forwards (or is already present) lands in the first,
+// transactional phase — pure, re-runnable, no model. A proposal that overlaps a
+// path the tip moved cannot be fast-forwarded, and the first phase refuses it
+// with ErrLandConflict rather than guess. That refusal is the trigger for the
+// second phase: LandProposal catches it and runs a three-way merge (§10b item
+// 3), which may regenerate the proposal's intent against the new base.
+//
+// The two phases are separate for one reason that is not negotiable: a merge may
+// call a Regenerator, which runs a model, and the transactional phase re-runs
+// its Apply up to maxAttempts times on CAS loss (§4.4). A model inside that loop
+// would be re-sampled on every retry. So the merge runs *outside* the scheduler,
+// in its own CAS-retry loop at the landing layer (landByMerge), where re-running
+// a model is legal because this loop does not re-run Apply — it recomputes the
+// merge against whatever tip it reads and commits once.
+//
+// The refusal is still the conservative floor: a merge that cannot resolve a
+// path (ErrLandUnresolved) does not advance the ref to a conflict-marker tree.
+// Nothing silently drops either side's work.
 
 // ErrNotAProposal is returned when the id handed to landing is not a change
 // object. Landing operates on a proposal, which is a change; anything else is a
 // caller mistake worth naming rather than a tree to guess at.
 var ErrNotAProposal = errors.New("land: object is not a change")
 
-// ErrLandConflict is returned when the current tip changed a path the proposal
-// also changed, away from the proposal's base and to something other than what
-// the proposal wants. It wraps the refusal §10b item 3 will later replace with a
-// merge, so a caller distinguishes "the proposal cannot be fast-forwarded" from
-// a scheduler CAS loss (refs.ErrConflict) or any other failure.
+// ErrLandConflict is the first phase's refusal: the current tip changed a path
+// the proposal also changed, away from the proposal's base and to something
+// other than what the proposal wants, so the proposal cannot be fast-forwarded.
+// It is internal to LandProposal, which catches it and merges; it is exported so
+// the transactional phase can be tested in isolation and distinguished from a
+// scheduler CAS loss (refs.ErrConflict).
 var ErrLandConflict = errors.New("land: path changed under the proposal's base")
 
-// LandProposal applies the proposal change onto ref, driven by the scheduler so
-// that a tip moving underneath the landing re-derives and re-applies rather than
-// clobbering (design §1.4). It returns the transaction's Result; a convergent
-// proposal — one already present at the tip — lands as a no-op, not an error.
+// ErrLandUnresolved is returned when the merge phase cannot resolve every path:
+// a regenerator declined (or none was supplied) and the textual fallback left
+// conflict markers. Landing refuses rather than advance the ref to a tree with
+// markers in it — an unresolved merge is a decision for a higher authority, not
+// a commit to make silently.
+var ErrLandUnresolved = errors.New("land: merge left unresolved conflicts")
+
+// LandProposal applies the proposal change onto ref. It first tries the
+// transactional fast-forward (driven by the scheduler, so a tip moving at a
+// disjoint path re-derives and re-applies rather than clobbering — design §1.4);
+// a convergent proposal lands as a no-op. If the proposal overlaps a path the
+// tip moved, the transactional phase refuses and LandProposal merges instead,
+// regenerating with reg when it is supplied (reg may be nil — the merge then
+// relies on the textual three-way fallback).
 //
 // The proposal is produced beforehand and outside any transaction (§4.4); this
 // is only the admission half. See the package comment on land for why the input
-// is an object id.
-func LandProposal(ctx context.Context, r *repo.Repo, ref string, proposal multihash.Multihash) (Result, error) {
+// is an object id and why the merge runs in a second phase.
+func LandProposal(ctx context.Context, r *repo.Repo, ref string, proposal multihash.Multihash, reg merge.Regenerator) (Result, error) {
 	t, err := landTxn(r.Objects, proposal)
 	if err != nil {
 		return Result{}, err
 	}
 	res := NewScheduler(r, ref).Run(ctx, []*Txn{t})
-	return res[0], res[0].Err
+	if !errors.Is(res[0].Err, ErrLandConflict) {
+		// Landed, a no-op, or a terminal error that a merge cannot fix.
+		return res[0], res[0].Err
+	}
+	// The proposal overlaps the tip. Merge, outside the scheduler's retry loop so
+	// a regenerator may run (§4.4).
+	return landByMerge(ctx, r, ref, proposal, reg, t.Name)
+}
+
+// landByMerge is the second phase: it merges the proposal into the ref's current
+// tip and commits the merge change, retrying on CAS loss. It runs a model (via
+// reg) only here, never inside the scheduler's Apply — this loop recomputes the
+// whole merge against a freshly read tip each attempt, rather than re-running a
+// transaction, so a regeneration is a one-shot per attempt, not a re-sample
+// inside a hot retry (§4.4).
+func landByMerge(ctx context.Context, r *repo.Repo, ref string, proposal multihash.Multihash, reg merge.Regenerator, name string) (Result, error) {
+	const maxAttempts = 100
+	res := Result{Name: name}
+	for res.Attempts < maxAttempts {
+		res.Attempts++
+		if err := ctx.Err(); err != nil {
+			res.Err = err
+			return res, err
+		}
+		tip, err := tipOf(r, ref)
+		if err != nil {
+			res.Err = err
+			return res, err
+		}
+		m, err := merge.Merge(ctx, r.Objects, tip, proposal, reg)
+		if err != nil {
+			res.Err = err
+			return res, err
+		}
+		if !m.Resolved() {
+			// Markers were left in m.Tree; landing never advances the ref to one.
+			res.Err = fmt.Errorf("%w: %d path(s)", ErrLandUnresolved, len(m.Conflicts))
+			return res, res.Err
+		}
+		err = r.Refs.CompareAndSwap(ref, tip, m.Change, name, "land-merge")
+		if err == nil {
+			res.Change = m.Change
+			return res, nil
+		}
+		if !errors.Is(err, refs.ErrConflict) {
+			res.Err = err
+			return res, err
+		}
+		// Lost the CAS: the tip advanced again. Re-read and re-merge with a small
+		// backoff, the same convergence the scheduler uses for disjoint work.
+		select {
+		case <-ctx.Done():
+			res.Err = ctx.Err()
+			return res, res.Err
+		case <-time.After(time.Duration(res.Attempts) * time.Millisecond):
+		}
+	}
+	res.Err = fmt.Errorf("land: merge exceeded %d attempts", maxAttempts)
+	return res, res.Err
+}
+
+// tipOf resolves ref to its current change id, or nil if the ref does not exist.
+func tipOf(r *repo.Repo, ref string) (multihash.Multihash, error) {
+	id, err := r.Refs.Resolve(ref)
+	if err != nil {
+		if errors.Is(err, refs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return id, nil
 }
 
 // delta is one path the proposal changed, resolved to the concrete content on
