@@ -2,6 +2,7 @@ package refs
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -144,5 +145,63 @@ func TestList(t *testing.T) {
 	}
 	if len(names) != 2 {
 		t.Fatalf("names = %v, want 2", names)
+	}
+}
+
+// TestCASRefusesACorruptRefForEveryOldval pins the invariant that
+// spec.PromoteSelection relies on: CompareAndSwap re-reads the ref under its
+// lock and refuses a ref it cannot parse, whatever oldval the caller passed —
+// including nil.
+//
+// spec.PromoteSelection resolves the ref first, and on any read error passes
+// nil as oldval ("expect absent"). That is only safe because CompareAndSwap
+// re-checks and refuses a corrupt ref itself. A comment in spec says so, but a
+// comment cannot fail a build — deleting the corrupt-ref guard in
+// CompareAndSwap turns this red, which is the point of pinning it here, in the
+// package whoever deletes it is reading.
+func TestCASRefusesACorruptRefForEveryOldval(t *testing.T) {
+	newval := id(t, "new")
+
+	cases := []struct {
+		name   string
+		oldval multihash.Multihash
+	}{
+		{"nil oldval (expect-absent / creation intent)", nil},
+		{"a plausible oldval (swap intent)", id(t, "guess")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStore(t)
+
+			// Bytes that are not a parseable multihash, at the exact path the
+			// store reads for this ref — s.refPath, so the fixture cannot land
+			// somewhere the store never looks and pass vacuously.
+			path := s.refPath("refs/heads/corrupt")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("not-a-hash\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			// Guard the fixture: Resolve must see corrupt, not absent, or this
+			// proves nothing.
+			if _, err := s.Resolve("refs/heads/corrupt"); err == nil || errors.Is(err, ErrNotExist) {
+				t.Fatalf("fixture does not model a corrupt ref; Resolve = %v", err)
+			}
+
+			err := s.CompareAndSwap("refs/heads/corrupt", tc.oldval, newval, "x", "msg")
+			switch {
+			case err == nil:
+				t.Fatal("CompareAndSwap moved a corrupt ref")
+			case errors.Is(err, ErrConflict):
+				t.Fatalf("a corrupt ref was reported as a mere CAS conflict: %v", err)
+			case errors.Is(err, ErrNotExist):
+				t.Fatalf("a corrupt ref was treated as absent: %v", err)
+			}
+			// And nothing was written over it.
+			if got, rerr := s.Resolve("refs/heads/corrupt"); rerr == nil && got.Equal(newval) {
+				t.Fatal("CompareAndSwap wrote newval over a corrupt ref")
+			}
+		})
 	}
 }

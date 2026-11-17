@@ -134,9 +134,9 @@ func TestScoreAllAndPromote(t *testing.T) {
 	if err := p.ScoreAll(context.Background(), "t", r, scorer); err != nil {
 		t.Fatalf("ScoreAll: %v", err)
 	}
-	promoted, err := Promote(p, r, "t", "refs/heads/main", "tester")
+	promoted, err := PromoteSelection(p, r, "t", "refs/heads/main", "tester")
 	if err != nil {
-		t.Fatalf("Promote: %v", err)
+		t.Fatalf("PromoteSelection: %v", err)
 	}
 	if !promoted.Equal(long) {
 		t.Fatalf("promoted the wrong candidate")
@@ -172,10 +172,10 @@ func (p refusePolicy) Admit(_ *repo.Repo, change multihash.Multihash) error {
 
 var errRefused = fmt.Errorf("refused by test policy")
 
-// TestPromoteWithPolicyRefusalNotOutranked is the §7.4 guarantee: a policy
+// TestPromoteSelectionWithPolicyRefusalNotOutranked is the §7.4 guarantee: a policy
 // refusal cannot be outranked by a high score. The top-scored candidate is
 // refused, so the lower-scored admissible one is promoted instead.
-func TestPromoteWithPolicyRefusalNotOutranked(t *testing.T) {
+func TestPromoteSelectionWithPolicyRefusalNotOutranked(t *testing.T) {
 	r := newRepo(t)
 	p := Open(r.GitDir())
 	top := candidate(t, r, "top-scored-but-refused")
@@ -186,18 +186,18 @@ func TestPromoteWithPolicyRefusalNotOutranked(t *testing.T) {
 	_ = p.SetScore("t", ok, 0.10)
 
 	policy := refusePolicy{deny: map[string]bool{top.Hex(): true}}
-	promoted, err := PromoteWithPolicy(p, r, "t", "refs/heads/main", "tester", policy)
+	promoted, err := PromoteSelectionWithPolicy(p, r, "t", "refs/heads/main", "tester", policy)
 	if err != nil {
-		t.Fatalf("PromoteWithPolicy: %v", err)
+		t.Fatalf("PromoteSelectionWithPolicy: %v", err)
 	}
 	if !promoted.Equal(ok) {
 		t.Fatal("a refused high-scored candidate was promoted over a clean one")
 	}
 }
 
-// TestPromoteWithPolicyAllRefused: when every scored candidate is refused,
+// TestPromoteSelectionWithPolicyAllRefused: when every scored candidate is refused,
 // promotion fails rather than falling back to a disqualified candidate.
-func TestPromoteWithPolicyAllRefused(t *testing.T) {
+func TestPromoteSelectionWithPolicyAllRefused(t *testing.T) {
 	r := newRepo(t)
 	p := Open(r.GitDir())
 	a := candidate(t, r, "a")
@@ -208,8 +208,8 @@ func TestPromoteWithPolicyAllRefused(t *testing.T) {
 	_ = p.SetScore("t", b, 0.6)
 
 	policy := refusePolicy{deny: map[string]bool{a.Hex(): true, b.Hex(): true}}
-	if _, err := PromoteWithPolicy(p, r, "t", "refs/heads/main", "tester", policy); err == nil {
-		t.Fatal("PromoteWithPolicy promoted a candidate when all were refused")
+	if _, err := PromoteSelectionWithPolicy(p, r, "t", "refs/heads/main", "tester", policy); err == nil {
+		t.Fatal("PromoteSelectionWithPolicy promoted a candidate when all were refused")
 	}
 	// The ref must not have moved.
 	if _, err := r.Refs.Resolve("refs/heads/main"); err == nil {

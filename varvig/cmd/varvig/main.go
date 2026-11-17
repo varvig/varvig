@@ -1502,7 +1502,7 @@ func cmdSpec(args []string) error {
 		} else if ok {
 			policies = append(policies, wp)
 		}
-		id, err := spec.PromoteWithPolicy(pool, r, task, ref, author(), attest.AllOf(policies...))
+		id, err := spec.PromoteSelectionWithPolicy(pool, r, task, ref, author(), attest.AllOf(policies...))
 		if err != nil {
 			return err
 		}

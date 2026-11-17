@@ -19,7 +19,7 @@ var ErrNotApproved = errors.New("attest: promotion lacks a sufficient approval")
 
 // VetoGate is the veto half of the promotion checkpoint (tickets M1): it
 // disqualifies any change whose ancestry carries a veto. It structurally
-// satisfies spec.PromotionPolicy, so it can be handed to spec.PromoteWithPolicy
+// satisfies spec.PromotionPolicy, so it can be handed to spec.PromoteSelectionWithPolicy
 // without the speculation store depending on governance.
 type VetoGate struct{}
 
